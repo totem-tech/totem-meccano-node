@@ -35,11 +35,10 @@ use client::{
 	block_builder::api::{self as block_builder_api, InherentData, CheckInherentsResult},
 	runtime_api as client_api, impl_runtime_apis
 };
-use sr_primitives::{ApplyResult, impl_opaque_keys, generic, create_runtime_str, key_types};
-use sr_primitives::transaction_validity::TransactionValidity;
-use sr_primitives::weights::Weight;
-use sr_primitives::traits::{
-	self, BlakeTwo256, Block as BlockT, DigestFor, NumberFor, StaticLookup, SaturatedConversion,
+use runtime_primitives::{ApplyResult, generic, create_runtime_str};
+use runtime_primitives::transaction_validity::TransactionValidity;
+use runtime_primitives::traits::{
+	BlakeTwo256, Block as BlockT, DigestFor, NumberFor, StaticLookup, AuthorityIdFor, Convert
 };
 use version::RuntimeVersion;
 use elections::VoteIndex;
@@ -78,12 +77,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("node"),
 	impl_name: create_runtime_str!("substrate-node"),
 	authoring_version: 10,
-	// Per convention: if the runtime behavior changes, increment spec_version
-	// and set impl_version to equal spec_version. If only runtime
-	// implementation changes and behavior does not, then leave spec_version as
-	// is and increment impl_version.
-	spec_version: 158,
-	impl_version: 159,
+	spec_version: 60,
+	impl_version: 62,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -96,21 +91,18 @@ pub fn native_version() -> NativeVersion {
 	}
 }
 
-type NegativeImbalance = <Balances as Currency<AccountId>>::NegativeImbalance;
+pub struct CurrencyToVoteHandler;
 
-pub type DealWithFees = SplitTwoWays<
-	Balance,
-	NegativeImbalance,
-	_4, Treasury,   // 4 parts (80%) goes to the treasury.
-	_1, Author,     // 1 part (20%) goes to the block author.
->;
+impl CurrencyToVoteHandler {
+	fn factor() -> u128 { (Balances::total_issuance() / u64::max_value() as u128).max(1) }
+}
 
-parameter_types! {
-	pub const BlockHashCount: BlockNumber = 250;
-	pub const MaximumBlockWeight: Weight = 1_000_000_000;
-	pub const AvailableBlockRatio: Perbill = Perbill::from_percent(75);
-	pub const MaximumBlockLength: u32 = 5 * 1024 * 1024;
-	pub const Version: RuntimeVersion = VERSION;
+impl Convert<u128, u64> for CurrencyToVoteHandler {
+	fn convert(x: u128) -> u64 { (x / Self::factor()) as u64 }
+}
+
+impl Convert<u128, u128> for CurrencyToVoteHandler {
+	fn convert(x: u128) -> u128 { x * Self::factor() }
 }
 
 impl system::Trait for Runtime {

@@ -37,9 +37,6 @@ use rstd::ops::Deref;
 use std::borrow::Cow;
 #[cfg(feature = "std")]
 use serde::{Serialize, Deserialize};
-#[cfg(feature = "std")]
-pub use serde;// << for macro
-pub use codec::{Encode, Decode};// << for macro
 
 #[cfg(feature = "std")]
 pub use impl_serde::serialize as bytes;

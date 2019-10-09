@@ -308,34 +308,9 @@ cargo run --release \-- \
 
 Additional Substrate CLI usage options are available and may be shown by running `cargo run \-- --help`.
 
-=== WASM binaries
+=== Joining the Emberic Elm Testnet
 
-The WASM binaries are built during the normal `cargo build` process. To control the WASM binary building,
-we support multiple environment variables:
-
-* `SKIP_WASM_BUILD` - Skips building any WASM binary. This is useful when only native should be recompiled.
-* `BUILD_DUMMY_WASM_BINARY` - Builds dummy WASM binaries. These dummy binaries are empty and useful
-                              for `cargo check` runs.
-* `WASM_BUILD_TYPE` - Sets the build type for building WASM binaries. Supported values are `release` or `debug`.
-                      By default the build type is equal to the build type used by the main build.
-* `TRIGGER_WASM_BUILD` - Can be set to trigger a WASM build. On subsequent calls the value of the variable
-                         needs to change. As WASM builder instructs `cargo` to watch for file changes
-                         this environment variable should only be required in certain circumstances.
-* `WASM_TARGET_DIRECTORY` - Will copy any build WASM binary to the given directory. The path needs
-                            to be absolute.
-
-Each project can be skipped individually by using the environment variable `SKIP_PROJECT_NAME_WASM_BUILD`.
-Where `PROJECT_NAME` needs to be replaced by the name of the cargo project, e.g. `node-runtime` will
-be `NODE_RUNTIME`.
-
-[[flaming-fir]]
-=== Joining the Flaming Fir Testnet
-
-Flaming Fir is the new testnet for Substrate master (2.0) to test the latest development features. Please note that master is not compatible with the BBQ Birch, Charred Cherry, Dried Danta or Emberic Elm testnets. Ensure you have the dependencies listed above before compiling.
-
-Since Flaming Fir is targeting the master branch we make absolutely no guarantees of stability and/or persistence of the network. We might reset the chain at any time if it is necessary to deploy new changes. Currently, the validators are running with a client built from `d013bd900`, if you build from this commit you should be able to successfully sync, later commits may not work as new breaking changes may be introduced in master.
-
-Latest known working version: `a2a0eb5398d6223e531455b4c155ef053a4a3a2b`
+Emberic Elm is the new testnet for Substrate 1.0. Please note that 1.0 is not compatible with the BBQ-Birch, Charred-Cherry, or Dried-Danta testnets. Ensure you have the dependencies listed above before compiling.
 
 [source, shell]
 ----
@@ -364,50 +339,7 @@ For example, you can choose a custom node name:
 [source, shell]
 cargo run --release \-- --name my_custom_name
 
-If you are successful, you will see your node syncing at https://telemetry.polkadot.io/#/Flaming%20Fir
-
-=== Joining the Emberic Elm Testnet
-
-Emberic Elm is the testnet for Substrate 1.0. Please note that 1.0 is not compatible with the BBQ Birch, Charred Cherry, Dried Danta or Flaming Fir testnets.
-In order to join the Emberic Elm testnet you should build from the `v1.0` branch. Ensure you have the dependencies listed above before compiling.
-
-[source, shell]
-----
-git clone https://github.com/paritytech/substrate.git
-cd substrate
-git checkout -b v1.0 origin/v1.0
-----
-
-You can then follow the same steps for building and running as described above in <<flaming-fir>>.
-
-== Key management
-
-Keys in Substrate are stored in the keystore in the file system. To store keys into this keystore,
-you need to use one of the two provided RPC calls. If your keys are encrypted or should be encrypted
-by the keystore, you need to provide the key using one of the cli arguments `--password`,
-`--password-interactive` or `--password-filename`.
-
-=== Recommended RPC call
-
-For most users who want to run a validator node, the `author_rotateKeys` RPC call is sufficient.
-The RPC call will generate `N` Session keys for you and return their public keys. `N` is the number
-of session keys configured in the runtime. The output of the RPC call can be used as input for the
-`session::set_keys` transaction.
-
-```
-curl -H 'Content-Type: application/json' --data '{ "jsonrpc":"2.0", "method":"author_rotateKeys", "id":1 }' localhost:9933
-```
-
-=== Advanced RPC call
-
-If the Session keys need to match a fixed seed, they can be set individually key by key. The RPC call
-expects the key seed and the key type. The key types supported by default in Substrate are listed
-https://github.com/paritytech/substrate/blob/master/core/primitives/src/crypto.rs#L767[here], but the
-user can declare any key type.
-
-```
-curl -H 'Content-Type: application/json' --data '{ "jsonrpc":"2.0", "method":"author_insertKey", "params":["KEY_TYPE", "SEED", "PUBLIC"],"id":1 }' localhost:9933
-```
+If you are successful, you will see your node syncing at https://telemetry.polkadot.io/#/Emberic%20Elm
 
 `KEY_TYPE` - needs to be replaced with the 4-character key type identifier.
 `SEED` - is the seed of the key.

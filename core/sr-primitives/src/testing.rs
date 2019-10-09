@@ -17,7 +17,7 @@
 //! Testing utilities.
 
 use serde::{Serialize, Serializer, Deserialize, de::Error as DeError, Deserializer};
-use std::{fmt::Debug, ops::Deref, fmt, cell::RefCell};
+use std::{fmt::Debug, ops::Deref, fmt};
 use crate::codec::{Codec, Encode, Decode};
 use crate::traits::{
 	self, Checkable, Applyable, BlakeTwo256, OpaqueKeys, ValidateUnsigned,

@@ -18,22 +18,21 @@
 #[cfg(feature = "bench")]
 extern crate test;
 
-use bip39::{Language, Mnemonic, MnemonicType};
-use clap::{load_yaml, App, ArgMatches};
-use codec::{Decode, Encode};
-use hex_literal::hex;
-use node_primitives::{Balance, Hash, Index};
-use node_runtime::{BalancesCall, Call, Runtime, SignedPayload, UncheckedExtrinsic, VERSION};
-use primitives::{
-	crypto::{set_default_ss58_version, Ss58AddressFormat, Ss58Codec},
-	ed25519, sr25519, Pair, Public, H256, hexdisplay::HexDisplay,
-};
+extern crate substrate_bip39;
+extern crate rustc_hex;
+#[macro_use] extern crate hex_literal;
+
+use std::io::{stdin, Read};
+use clap::load_yaml;
+use rand::{RngCore, rngs::OsRng};
+use substrate_bip39::mini_secret_from_entropy;
+use bip39::{Mnemonic, Language, MnemonicType};
+use substrate_primitives::{ed25519, sr25519, hexdisplay::HexDisplay, Pair, crypto::Ss58Codec, blake2_256};
+use parity_codec::{Encode, Decode, Compact};
 use sr_primitives::generic::Era;
-use std::{
-	convert::TryInto,
-	io::{stdin, Read},
-	str::FromStr,
-};
+use schnorrkel::keys::MiniSecretKey;
+use node_primitives::{Balance, Index, Hash};
+use node_runtime::{Call, UncheckedExtrinsic, BalancesCall};
 
 mod vanity;
 
@@ -161,6 +160,54 @@ where
 			let message = read_message_from_stdin(should_decode);
 			let signature = do_sign::<C>(matches, message, password);
 			println!("{}", signature);
+		}
+		("transfer", Some(matches)) => {
+			let signer = matches.value_of("from")
+				.expect("parameter is required; thus it can't be None; qed");
+			let signer = Sr25519::pair_from_suri(signer, password);
+
+			let to = matches.value_of("to")
+				.expect("parameter is required; thus it can't be None; qed");
+			let to = sr25519::Public::from_string(to).ok().or_else(||
+				sr25519::Pair::from_string(to, password).ok().map(|p| p.public())
+			).expect("Invalid 'to' URI; expecting either a secret URI or a public URI.");
+
+			let amount = matches.value_of("amount")
+				.expect("parameter is required; thus it can't be None; qed");
+			let amount = str::parse::<Balance>(amount)
+				.expect("Invalid 'amount' parameter; expecting an integer.");
+
+			let index = matches.value_of("index")
+				.expect("parameter is required; thus it can't be None; qed");
+			let index = str::parse::<Index>(index)
+				.expect("Invalid 'amount' parameter; expecting an integer.");
+
+			let function = Call::Balances(BalancesCall::transfer(to.into(), amount));
+
+			let genesis_hash: Hash = match matches.value_of("genesis").unwrap_or("alex") {
+				"elm" => hex!["10c08714a10c7da78f40a60f6f732cf0dba97acfb5e2035445b032386157d5c3"].into(),
+				"alex" => hex!["dcd1346701ca8396496e52aa2785b1748deb6db09551b72159dcb3e08991025b"].into(),
+				h => hex::decode(h).ok().and_then(|x| Decode::decode(&mut &x[..])).expect("Invalid genesis hash or unrecognised chain identifier"),
+			};
+
+			println!("Using a genesis hash of {}", HexDisplay::from(&genesis_hash.as_ref()));
+
+			let era = Era::immortal();
+			let raw_payload = (Compact(index), function, era, genesis_hash);
+			let signature = raw_payload.using_encoded(|payload| if payload.len() > 256 {
+				signer.sign(&blake2_256(payload)[..])
+			} else {
+				println!("Signing {}", HexDisplay::from(&payload));
+				signer.sign(payload)
+			});
+			let extrinsic = UncheckedExtrinsic::new_signed(
+				index,
+				raw_payload.1,
+				signer.public().into(),
+				signature.into(),
+				era,
+			);
+			println!("0x{}", hex::encode(&extrinsic.encode()));
 		}
 		("verify", Some(matches)) => {
 			let should_decode = matches.is_present("hex");
@@ -401,65 +448,12 @@ fn print_usage(matches: &ArgMatches) {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-
-	fn test_generate_sign_verify<CryptoType: Crypto>()
-	where
-		SignatureOf<CryptoType>: SignatureT,
-		PublicOf<CryptoType>: PublicT,
-	{
-		let yaml = load_yaml!("cli.yml");
-		let app = App::from_yaml(yaml);
-		let password = None;
-
-		// Generate public key and seed.
-		let arg_vec = vec!["subkey", "generate"];
-
-		let matches = app.clone().get_matches_from(arg_vec);
-		let matches = matches.subcommand().1.unwrap();
-		let mnemonic = generate_mnemonic(matches);
-
-		let (pair, seed) =
-			<<CryptoType as Crypto>::Pair as Pair>::from_phrase(mnemonic.phrase(), password)
-				.unwrap();
-		let public_key = CryptoType::public_from_pair(&pair);
-		let public_key = format_public_key::<CryptoType>(public_key);
-		let seed = format_seed::<CryptoType>(seed);
-
-		// Sign a message using previous seed.
-		let arg_vec = vec!["subkey", "sign", &seed[..]];
-
-		let matches = app.get_matches_from(arg_vec);
-		let matches = matches.subcommand().1.unwrap();
-		let message = "Blah Blah\n".as_bytes().to_vec();
-		let signature = do_sign::<CryptoType>(matches, message.clone(), password);
-
-		// Verify the previous signature.
-		let arg_vec = vec!["subkey", "verify", &signature[..], &public_key[..]];
-
-		let matches = App::from_yaml(yaml).get_matches_from(arg_vec);
-		let matches = matches.subcommand().1.unwrap();
-		assert!(do_verify::<CryptoType>(matches, message, password));
-	}
-
-	#[test]
-	fn generate_sign_verify_should_work_for_ed25519() {
-		test_generate_sign_verify::<Ed25519>();
-	}
-
-	#[test]
-	fn generate_sign_verify_should_work_for_sr25519() {
-		test_generate_sign_verify::<Sr25519>();
-	}
-
+	use super::{Hash, Decode};
 	#[test]
 	fn should_work() {
 		let s = "0123456789012345678901234567890123456789012345678901234567890123";
 
-		let d1: Hash = hex::decode(s)
-			.ok()
-			.and_then(|x| Decode::decode(&mut &x[..]).ok())
-			.unwrap();
+		let d1: Hash = hex::decode(s).ok().and_then(|x| Decode::decode(&mut &x[..])).unwrap();
 
 		let d2: Hash = {
 			let mut gh: [u8; 32] = Default::default();

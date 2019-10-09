@@ -47,7 +47,7 @@ use hash_db::{Hasher, Prefix};
 use kvdb::{KeyValueDB, DBTransaction};
 use trie::{MemoryDB, PrefixedMemoryDB, prefixed_key};
 use parking_lot::{Mutex, RwLock};
-use primitives::{H256, Blake2Hasher, ChangesTrieConfiguration, convert_hash, traits::CodeExecutor};
+use primitives::{H256, Blake2Hasher, ChangesTrieConfiguration, convert_hash};
 use primitives::storage::well_known_keys;
 use sr_primitives::{
 	generic::{BlockId, DigestItem}, Justification, StorageOverlay, ChildrenStorageOverlay,
@@ -590,13 +590,7 @@ impl<Block: BlockT<Hash=H256>> DbChangesTrieStorage<Block> {
 	}
 
 	/// Prune obsolete changes tries.
-	pub fn prune(
-		&self,
-		config: &ChangesTrieConfiguration,
-		tx: &mut DBTransaction,
-		block_hash: Block::Hash,
-		block_num: NumberFor<Block>,
-	) {
+	pub fn prune(&self, config: &ChangesTrieConfiguration, tx: &mut DBTransaction, block_hash: Block::Hash, block_num: NumberFor<Block>) {
 		// never prune on archive nodes
 		let min_blocks_to_keep = match self.min_blocks_to_keep {
 			Some(min_blocks_to_keep) => min_blocks_to_keep,
@@ -884,7 +878,7 @@ impl<Block: BlockT<Hash=H256>> Backend<Block> {
 				let changes_trie_config = self
 					.state_at(BlockId::Hash(block))?
 					.storage(well_known_keys::CHANGES_TRIE_CONFIG)?
-					.and_then(|v| Decode::decode(&mut &*v).ok());
+					.and_then(|v| Decode::decode(&mut &*v));
 				*cached_changes_trie_config = Some(changes_trie_config.clone());
 				Ok(changes_trie_config)
 			},

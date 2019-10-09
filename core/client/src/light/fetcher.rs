@@ -512,9 +512,9 @@ pub mod tests {
 	use crate::light::fetcher::{Fetcher, FetchChecker, LightDataChecker,
 		RemoteCallRequest, RemoteHeaderRequest};
 	use crate::light::blockchain::tests::{DummyStorage, DummyBlockchain};
-	use primitives::{blake2_256, Blake2Hasher, H256};
-	use primitives::storage::{well_known_keys, StorageKey};
-	use sr_primitives::generic::BlockId;
+	use primitives::{blake2_256, Blake2Hasher};
+	use primitives::storage::{StorageKey, well_known_keys};
+	use runtime_primitives::generic::BlockId;
 	use state_machine::Backend;
 	use super::*;
 

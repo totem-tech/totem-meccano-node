@@ -18,7 +18,7 @@
 //! and depositing logs.
 
 use rstd::prelude::*;
-use runtime_io::{storage_root, storage_changes_root, twox_128, blake2_256};
+use runtime_io::{storage_root, enumerated_trie_root, storage_changes_root, twox_128, blake2_256};
 use runtime_support::storage::{self, StorageValue, StorageMap};
 use runtime_support::storage_items;
 use sr_primitives::{
@@ -54,6 +54,17 @@ pub fn balance_of(who: AccountId) -> u64 {
 
 pub fn nonce_of(who: AccountId) -> u64 {
 	storage::hashed::get_or(&blake2_256, &who.to_keyed_vec(NONCE_OF), 0)
+}
+
+/// Get authorities at given block.
+pub fn authorities() -> Vec<AuthorityId> {
+	let len: u32 = storage::unhashed::get(well_known_keys::AUTHORITY_COUNT)
+		.expect("There are always authorities in test-runtime");
+	(0..len)
+		.map(|i| storage::unhashed::get(&i.to_keyed_vec(well_known_keys::AUTHORITY_PREFIX))
+			.expect("Authority is properly encoded in test-runtime")
+		)
+		.collect()
 }
 
 pub fn initialize_block(header: &Header) {
@@ -278,7 +289,7 @@ fn execute_transfer_backend(tx: &Transfer) -> ApplyResult {
 	let to_balance: u64 = storage::hashed::get_or(&blake2_256, &to_balance_key, 0);
 	storage::hashed::put(&blake2_256, &from_balance_key, &(from_balance - tx.amount));
 	storage::hashed::put(&blake2_256, &to_balance_key, &(to_balance + tx.amount));
-	Ok(Ok(()))
+	Ok(ApplyOutcome::Success)
 }
 
 fn execute_new_authorities_backend(new_authorities: &[AuthorityId]) -> ApplyResult {
@@ -319,9 +330,10 @@ fn info_expect_equal_hash(given: &Hash, expected: &Hash) {
 mod tests {
 	use super::*;
 
-	use runtime_io::{with_externalities, TestExternalities};
-	use substrate_test_runtime_client::{AccountKeyring, Sr25519Keyring};
-	use crate::{Header, Transfer, WASM_BINARY};
+	use runtime_io::{with_externalities, twox_128, blake2_256, TestExternalities};
+	use parity_codec::{Joiner, KeyedVec};
+	use substrate_test_client::{AuthorityKeyring, AccountKeyring};
+	use crate::{Header, Transfer};
 	use primitives::{Blake2Hasher, map};
 	use substrate_executor::WasmExecutor;
 
@@ -333,11 +345,12 @@ mod tests {
 		];
 		TestExternalities::new((map![
 			twox_128(b"latest").to_vec() => vec![69u8; 32],
-			twox_128(b"sys:auth").to_vec() => authorities.encode(),
-			blake2_256(&AccountKeyring::Alice.to_raw_public().to_keyed_vec(b"balance:")).to_vec() => {
-				vec![111u8, 0, 0, 0, 0, 0, 0, 0]
-			}
-		], map![]))
+			twox_128(well_known_keys::AUTHORITY_COUNT).to_vec() => vec![].and(&3u32),
+			twox_128(&0u32.to_keyed_vec(well_known_keys::AUTHORITY_PREFIX)).to_vec() => AuthorityKeyring::Alice.to_raw_public().to_vec(),
+			twox_128(&1u32.to_keyed_vec(well_known_keys::AUTHORITY_PREFIX)).to_vec() => AuthorityKeyring::Bob.to_raw_public().to_vec(),
+			twox_128(&2u32.to_keyed_vec(well_known_keys::AUTHORITY_PREFIX)).to_vec() => AuthorityKeyring::Charlie.to_raw_public().to_vec(),
+			blake2_256(&AccountKeyring::Alice.to_raw_public().to_keyed_vec(b"balance:")).to_vec() => vec![111u8, 0, 0, 0, 0, 0, 0, 0]
+		])
 	}
 
 	fn block_import_works<F>(block_executor: F) where F: Fn(Block, &mut TestExternalities<Blake2Hasher>) {

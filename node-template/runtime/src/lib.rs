@@ -6,8 +6,8 @@
 
 // Make the WASM binary available.
 #[cfg(feature = "std")]
-include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
-
+use serde::{Serialize, Deserialize};
+use parity_codec::{Encode, Decode};
 use rstd::prelude::*;
 use primitives::{OpaqueMetadata, crypto::key_types};
 use sr_primitives::{

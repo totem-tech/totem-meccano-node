@@ -15,10 +15,14 @@
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use srml_metadata::{
-	DecodeDifferent, FnEncode, RuntimeMetadata, ModuleMetadata, RuntimeMetadataLastVersion,
-	DefaultByteGetter, RuntimeMetadataPrefixed, StorageEntryMetadata, StorageMetadata,
-	StorageEntryType, StorageEntryModifier, DefaultByte, StorageHasher
+	DecodeDifferent, FnEncode, RuntimeMetadata,
+	ModuleMetadata, RuntimeMetadataV4,
+	DefaultByteGetter, RuntimeMetadataPrefixed,
+	StorageMetadata, StorageFunctionMetadata,
+	StorageFunctionType, StorageFunctionModifier,
+	DefaultByte, StorageHasher
 };
+
 
 /// Implements the metadata support for the given runtime and all its modules.
 ///
@@ -62,7 +66,8 @@ macro_rules! impl_runtime_metadata {
 	) => {
 		impl $runtime {
 			pub fn metadata() -> $crate::metadata::RuntimeMetadataPrefixed {
-				$crate::metadata::RuntimeMetadataLastVersion {
+				$crate::metadata::RuntimeMetadata::V4 (
+					$crate::metadata::RuntimeMetadataV4 {
 						modules: $crate::__runtime_modules_to_metadata!($runtime;; $( $rest )*),
 				}.into()
 			}
@@ -383,28 +388,8 @@ mod tests {
 			event_module2::Module as Module2 with Event Storage Call,
 	);
 
-	struct ConstantBlockNumberByteGetter;
-	impl DefaultByte for ConstantBlockNumberByteGetter {
-		fn default_byte(&self) -> Vec<u8> {
-			100u32.encode()
-		}
-	}
-
-	struct ConstantGetTypeByteGetter;
-	impl DefaultByte for ConstantGetTypeByteGetter {
-		fn default_byte(&self) -> Vec<u8> {
-			SystemValue::get().encode()
-		}
-	}
-
-	struct ConstantAssociatedConstByteGetter;
-	impl DefaultByte for ConstantAssociatedConstByteGetter {
-		fn default_byte(&self) -> Vec<u8> {
-			<TestRuntime as system::Trait>::ASSOCIATED_CONST.encode()
-		}
-	}
-
-	const EXPECTED_METADATA: RuntimeMetadataLastVersion = RuntimeMetadataLastVersion {
+	const EXPECTED_METADATA: RuntimeMetadata = RuntimeMetadata::V4(
+		RuntimeMetadataV4 {
 		modules: DecodeDifferent::Encode(&[
 			ModuleMetadata {
 				name: DecodeDifferent::Encode("System"),

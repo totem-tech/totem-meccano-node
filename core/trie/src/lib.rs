@@ -162,8 +162,50 @@ pub fn read_trie_value_with<
 	root: &TrieHash<L>,
 	key: &[u8],
 	query: Q
-) -> Result<Option<Vec<u8>>, Box<TrieError<L>>> {
-	Ok(TrieDB::<L>::new(&*db, root)?.get_with(key, query).map(|x| x.map(|val| val.to_vec()))?)
+) -> Result<Option<Vec<u8>>, Box<TrieError<H::Out>>> {
+	Ok(TrieDB::<H>::new(&*db, root)?.get_with(key, query).map(|x| x.map(|val| val.to_vec()))?)
+}
+
+/// Determine a trie root node's data given its ordered contents, closed form.
+pub fn unhashed_trie<H: Hasher, I, A, B>(input: I) -> Vec<u8> where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
+{
+	trie_root::unhashed_trie::<H, TrieStream, _, _, _>(input)
+}
+
+/// A trie root formed from the items, with keys attached according to their
+/// compact-encoded index (using `parity-codec` crate).
+pub fn ordered_trie_root<H: Hasher, I, A>(input: I) -> H::Out
+where
+	I: IntoIterator<Item = A>,
+	A: AsRef<[u8]>,
+{
+	trie_root::<H, _, _, _>(input
+		.into_iter()
+		.enumerate()
+		.map(|(i, v)| (codec::Encode::encode(&codec::Compact(i as u32)), v))
+	)
+}
+
+/// Determine whether a child trie key is valid.
+///
+/// For now, the only valid child trie key is `:child_storage:default:`.
+///
+/// `child_trie_root` and `child_delta_trie_root` can panic if invalid value is provided to them.
+pub fn is_child_trie_key_valid<H: Hasher>(storage_key: &[u8]) -> bool {
+	use substrate_primitives::storage::well_known_keys;
+	let has_right_prefix = storage_key.starts_with(b":child_storage:default:");
+	if has_right_prefix {
+		// This is an attempt to catch a change of `is_child_storage_key`, which
+		// just checks if the key has prefix `:child_storage:` at the moment of writing.
+		debug_assert!(
+			well_known_keys::is_child_storage_key(&storage_key),
+			"`is_child_trie_key_valid` is a subset of `is_child_storage_key`",
+		);
+	}
+	has_right_prefix
 }
 
 /// Determine the default child trie root.

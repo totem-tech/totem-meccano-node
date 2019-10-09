@@ -428,7 +428,17 @@ fn run_to_completion_with<F>(
 	}
 
 	// wait for all finalized on each.
-	let wait_for = ::futures::future::join_all(wait_for)
+	let wait_for = ::futures::future::join_all(finality_notifications)
+		.map(|_| ())
+		.map_err(|_| ());
+
+	let drive_to_completion = ::tokio::timer::Interval::new_interval(TEST_ROUTING_INTERVAL)
+		.for_each(move |_| {
+			net.lock().send_import_notifications();
+			net.lock().send_finality_notifications();
+			net.lock().sync_without_disconnects();
+			Ok(())
+		})
 		.map(|_| ())
 		.map_err(|_| ());
 
@@ -539,7 +549,12 @@ fn finalize_3_voters_1_full_observer() {
 	}
 
 	// wait for all finalized on each.
-	let wait_for = futures::future::join_all(finality_notifications)
+	let wait_for = ::futures::future::join_all(finality_notifications)
+		.map(|_| ())
+		.map_err(|_| ());
+
+	let drive_to_completion = ::tokio::timer::Interval::new_interval(TEST_ROUTING_INTERVAL)
+		.for_each(move |_| { net.lock().sync_without_disconnects(); Ok(()) })
 		.map(|_| ())
 		.map_err(|_| ());
 
@@ -708,8 +723,17 @@ fn transition_3_voters_twice_1_full_observer() {
 		.map(|_| ())
 		.map_err(|_| ());
 
-	let drive_to_completion = futures::future::poll_fn(|| { net.lock().poll(); Ok(Async::NotReady) });
-	let _ = runtime.block_on(wait_for.select(drive_to_completion).map_err(|_| ())).unwrap();
+	let drive_to_completion = ::tokio::timer::Interval::new_interval(TEST_ROUTING_INTERVAL)
+		.for_each(move |_| {
+			net.lock().send_import_notifications();
+			net.lock().send_finality_notifications();
+			net.lock().sync_without_disconnects();
+			Ok(())
+		})
+		.map(|_| ())
+		.map_err(|_| ());
+
+	runtime.block_on(wait_for.select(drive_to_completion).map_err(|_| ())).unwrap();
 }
 
 #[test]
@@ -813,14 +837,9 @@ fn sync_justifications_on_change_blocks() {
 	}
 
 	// the last peer should get the justification by syncing from other peers
-	runtime.block_on(futures::future::poll_fn(move || -> std::result::Result<_, ()> {
-		if net.lock().peer(3).client().justification(&BlockId::Number(21)).unwrap().is_none() {
-			net.lock().poll();
-			Ok(Async::NotReady)
-		} else {
-			Ok(Async::Ready(()))
-		}
-	})).unwrap()
+	while net.lock().peer(3).client().justification(&BlockId::Number(21)).unwrap().is_none() {
+		net.lock().sync_without_disconnects();
+	}
 }
 
 #[test]

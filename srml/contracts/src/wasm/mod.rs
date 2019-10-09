@@ -195,9 +195,7 @@ mod tests {
 		creates: Vec<CreateEntry>,
 		transfers: Vec<TransferEntry>,
 		dispatches: Vec<DispatchEntry>,
-		restores: Vec<RestoreEntry>,
-		// (topics, data)
-		events: Vec<(Vec<H256>, Vec<u8>)>,
+		events: Vec<Vec<u8>>,
 		next_account_id: u64,
 	}
 
@@ -388,6 +386,10 @@ mod tests {
 		}
 		fn max_value_size(&self) -> u32 {
 			(**self).max_value_size()
+		}
+
+		fn deposit_event(&mut self, data: Vec<u8>) {
+			self.events.push(data)
 		}
 	}
 
@@ -1451,191 +1453,43 @@ mod tests {
 		);
 	}
 
-	/// calls `ext_block_number`, loads the current block number from the scratch buffer and
-	/// compares it with the constant 121.
-	const CODE_BLOCK_NUMBER: &str = r#"
+	const CODE_DEPOSIT_EVENT: &str = r#"
 (module
-	(import "env" "ext_block_number" (func $ext_block_number))
-	(import "env" "ext_scratch_size" (func $ext_scratch_size (result i32)))
-	(import "env" "ext_scratch_read" (func $ext_scratch_read (param i32 i32 i32)))
+	(import "env" "ext_deposit_event" (func $ext_deposit_event (param i32 i32)))
 	(import "env" "memory" (memory 1 1))
 
-	(func $assert (param i32)
-		(block $ok
-			(br_if $ok
-				(get_local 0)
-			)
-			(unreachable)
-		)
-	)
-
 	(func (export "call")
-		;; This stores the block height in the scratch buffer
-		(call $ext_block_number)
-
-		;; assert $ext_scratch_size == 8
-		(call $assert
-			(i32.eq
-				(call $ext_scratch_size)
-				(i32.const 8)
-			)
-		)
-
-		;; copy contents of the scratch buffer into the contract's memory.
-		(call $ext_scratch_read
-			(i32.const 8)		;; Pointer in memory to the place where to copy.
-			(i32.const 0)		;; Offset from the start of the scratch buffer.
-			(i32.const 8)		;; Count of bytes to copy.
-		)
-
-		;; assert that contents of the buffer is equal to the i64 value of 121.
-		(call $assert
-			(i64.eq
-				(i64.load
-					(i32.const 8)
-				)
-				(i64.const 121)
-			)
+		(call $ext_deposit_event
+			(i32.const 8) ;; Pointer to the start of encoded call buffer
+			(i32.const 13) ;; Length of the buffer
 		)
 	)
-
-	(func (export "deploy"))
-)
-"#;
-
-	#[test]
-	fn block_number() {
-		let _ = execute(
-			CODE_BLOCK_NUMBER,
-			vec![],
-			MockExt::default(),
-			&mut GasMeter::with_limit(50_000, 1),
-		).unwrap();
-	}
-
-	// asserts that the size of the input data is 4.
-	const CODE_SIMPLE_ASSERT: &str = r#"
-(module
-	(import "env" "ext_scratch_size" (func $ext_scratch_size (result i32)))
-
-	(func $assert (param i32)
-		(block $ok
-			(br_if $ok
-				(get_local 0)
-			)
-			(unreachable)
-		)
-	)
-
 	(func (export "deploy"))
 
-	(func (export "call")
-		(call $assert
-			(i32.eq
-				(call $ext_scratch_size)
-				(i32.const 4)
-			)
-		)
-	)
+	(data (i32.const 8) "\00\01\2A\00\00\00\00\00\00\00\E5\14\00")
 )
 "#;
 
 	#[test]
-	fn output_buffer_capacity_preserved_on_success() {
-		let mut input_data = Vec::with_capacity(1_234);
-		input_data.extend_from_slice(&[1, 2, 3, 4][..]);
+	fn deposit_event() {
+		// This test can fail due to the encoding changes. In case it becomes too annoying
+		// let's rewrite so as we use this module controlled call or we serialize it in runtime.
 
-		let output = execute(
-			CODE_SIMPLE_ASSERT,
-			input_data,
-			MockExt::default(),
-			&mut GasMeter::with_limit(50_000, 1),
-		).unwrap();
-
-		assert_eq!(output.data.len(), 0);
-		assert_eq!(output.data.capacity(), 1_234);
-	}
-
-	#[test]
-	fn output_buffer_capacity_preserved_on_failure() {
-		let mut input_data = Vec::with_capacity(1_234);
-		input_data.extend_from_slice(&[1, 2, 3, 4, 5][..]);
-
-		let error = execute(
-			CODE_SIMPLE_ASSERT,
-			input_data,
-			MockExt::default(),
-			&mut GasMeter::with_limit(50_000, 1),
-		).err().unwrap();
-
-		assert_eq!(error.buffer.capacity(), 1_234);
-	}
-
-	const CODE_RETURN_WITH_DATA: &str = r#"
-(module
-	(import "env" "ext_scratch_size" (func $ext_scratch_size (result i32)))
-	(import "env" "ext_scratch_read" (func $ext_scratch_read (param i32 i32 i32)))
-	(import "env" "ext_scratch_write" (func $ext_scratch_write (param i32 i32)))
-	(import "env" "memory" (memory 1 1))
-
-	;; Deploy routine is the same as call.
-	(func (export "deploy") (result i32)
-		(call $call)
-	)
-
-	;; Call reads the first 4 bytes (LE) as the exit status and returns the rest as output data.
-	(func $call (export "call") (result i32)
-		(local $buf_size i32)
-		(local $exit_status i32)
-
-		;; Find out the size of the scratch buffer
-		(set_local $buf_size (call $ext_scratch_size))
-
-		;; Copy scratch buffer into this contract memory.
-		(call $ext_scratch_read
-			(i32.const 0)		;; The pointer where to store the scratch buffer contents,
-			(i32.const 0)		;; Offset from the start of the scratch buffer.
-			(get_local $buf_size)		;; Count of bytes to copy.
+		let mut mock_ext = MockExt::default();
+		let mut gas_meter = GasMeter::with_limit(50_000, 1);
+		execute(
+			CODE_DEPOSIT_EVENT,
+			&[],
+			&mut Vec::new(),
+			&mut mock_ext,
+			&mut gas_meter
 		)
-
-		;; Copy all but the first 4 bytes of the input data as the output data.
-		(call $ext_scratch_write
-			(i32.const 4)		;; Offset from the start of the scratch buffer.
-			(i32.sub		;; Count of bytes to copy.
-				(get_local $buf_size)
-				(i32.const 4)
-			)
-		)
-
-		;; Return the first 4 bytes of the input data as the exit status.
-		(i32.load (i32.const 0))
-	)
-)
-"#;
-
-	#[test]
-	fn return_with_success_status() {
-		let output = execute(
-			CODE_RETURN_WITH_DATA,
-			hex!("00112233445566778899").to_vec(),
-			MockExt::default(),
-			&mut GasMeter::with_limit(50_000, 1),
-		).unwrap();
-
-		assert_eq!(output, ExecReturnValue { status: 0, data: hex!("445566778899").to_vec() });
-		assert!(output.is_success());
-	}
-
-	#[test]
-	fn return_with_failure_status() {
-		let output = execute(
-			CODE_RETURN_WITH_DATA,
-			hex!("112233445566778899").to_vec(),
-			MockExt::default(),
-			&mut GasMeter::with_limit(50_000, 1),
-		).unwrap();
-
-		assert_eq!(output, ExecReturnValue { status: 17, data: hex!("5566778899").to_vec() });
-		assert!(!output.is_success());
+		.unwrap();
+		assert_eq!(gas_meter.gas_left(), 50_000
+			- 4      // Explicit
+			- 13 - 1 // Deposit event
+			- 13     // read memory
+		);
+		assert_eq!(mock_ext.events, vec![vec![0, 1, 42, 0, 0, 0, 0, 0, 0, 0, 229, 20, 0]]);
 	}
 }

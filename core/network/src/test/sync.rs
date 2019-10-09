@@ -16,9 +16,7 @@
 
 use crate::config::Roles;
 use consensus::BlockOrigin;
-use futures03::TryFutureExt as _;
-use std::time::Duration;
-use tokio::runtime::current_thread;
+use std::collections::HashSet;
 use super::*;
 
 fn test_ancestor_search_when_common_is(n: usize) {
@@ -44,12 +42,14 @@ fn sync_peers_works() {
 	let _ = ::env_logger::try_init();
 	let mut runtime = current_thread::Runtime::new().unwrap();
 	let mut net = TestNet::new(3);
-
-	runtime.block_on(futures::future::poll_fn::<(), (), _>(|| -> Result<_, ()> {
-		net.poll();
-		for peer in 0..3 {
-			if net.peer(peer).num_peers() != 2 {
-				return Ok(Async::NotReady)
+	net.sync();
+	for peer in 0..3 {
+		// Assert peers is up to date.
+		assert_eq!(net.peer(peer).peers.read().len(), 2);
+		// And then disconnect.
+		for other in 0..3 {
+			if other != peer {
+				net.peer(peer).on_disconnect(net.peer(other));
 			}
 		}
 		Ok(Async::Ready(()))
@@ -69,6 +69,20 @@ fn sync_cycle_from_offline_to_syncing_to_offline() {
 
 	// Generate blocks.
 	net.peer(2).push_blocks(100, false);
+	net.start();
+	for peer in 0..3 {
+		// Online
+		assert!(!net.peer(peer).is_offline());
+		if peer < 2 {
+			// Major syncing.
+			assert!(net.peer(peer).is_major_syncing());
+		}
+	}
+	net.sync();
+	for peer in 0..3 {
+		// All done syncing.
+		assert!(!net.peer(peer).is_major_syncing());
+	}
 
 	// Block until all nodes are online and nodes 0 and 1 and major syncing.
 	runtime.block_on(futures::future::poll_fn::<(), (), _>(|| -> Result<_, ()> {
@@ -85,31 +99,9 @@ fn sync_cycle_from_offline_to_syncing_to_offline() {
 				}
 			}
 		}
-		Ok(Async::Ready(()))
-	})).unwrap();
-
-	// Block until all nodes are done syncing.
-	runtime.block_on(futures::future::poll_fn::<(), (), _>(|| -> Result<_, ()> {
-		net.poll();
-		for peer in 0..3 {
-			if net.peer(peer).is_major_syncing() {
-				return Ok(Async::NotReady)
-			}
-		}
-		Ok(Async::Ready(()))
-	})).unwrap();
-
-	// Now drop nodes 1 and 2, and check that node 0 is offline.
-	net.peers.remove(2);
-	net.peers.remove(1);
-	runtime.block_on(futures::future::poll_fn::<(), (), _>(|| -> Result<_, ()> {
-		net.poll();
-		if !net.peer(0).is_offline() {
-			Ok(Async::NotReady)
-		} else {
-			Ok(Async::Ready(()))
-		}
-	})).unwrap();
+		assert!(net.peer(peer).is_offline());
+		assert!(!net.peer(peer).is_major_syncing());
+	}
 }
 
 #[test]
@@ -120,6 +112,15 @@ fn syncing_node_not_major_syncing_when_disconnected() {
 
 	// Generate blocks.
 	net.peer(2).push_blocks(100, false);
+	net.start();
+	net.sync_step();
+
+	// Peer 1 is major-syncing.
+	assert!(net.peer(1).is_major_syncing());
+
+	// Disconnect peer 1 form everyone else.
+	net.peer(1).on_disconnect(net.peer(0));
+	net.peer(1).on_disconnect(net.peer(2));
 
 	// Check that we're not major syncing when disconnected.
 	assert!(!net.peer(1).is_major_syncing());
@@ -389,21 +390,24 @@ fn blocks_are_not_announced_by_light_nodes() {
 
 	// Sync between 0 and 1.
 	net.peer(0).push_blocks(1, false);
-	assert_eq!(net.peer(0).client.info().chain.best_number, 1);
-	net.block_until_sync(&mut runtime);
-	assert_eq!(net.peer(1).client.info().chain.best_number, 1);
+	net.peer(0).start();
+	net.peer(1).start();
+	net.peer(2).start();
+	net.peer(0).on_connect(net.peer(1));
+	net.peer(1).on_connect(net.peer(2));
 
-	// Add another node and remove node 0.
-	net.add_full_peer(&ProtocolConfig::default());
-	net.peers.remove(0);
+	// Only sync between 0 -> 1, and 1 -> 2
+	let mut disconnected = HashSet::new();
+	disconnected.insert(0);
+	disconnected.insert(2);
+	net.sync_with(true, Some(disconnected));
 
-	// Poll for a few seconds and make sure 1 and 2 (now 0 and 1) don't sync together.
-	let mut delay = futures_timer::Delay::new(Duration::from_secs(5)).compat();
-	runtime.block_on(futures::future::poll_fn::<(), (), _>(|| {
-		net.poll();
-		delay.poll().map_err(|_| ())
-	})).unwrap();
-	assert_eq!(net.peer(1).client.info().chain.best_number, 0);
+	// peer 0 has the best chain
+	// peer 1 has the best chain
+	// peer 2 has genesis-chain only
+	assert_eq!(net.peer(0).client.backend().blockchain().info().unwrap().best_number, 1);
+	assert_eq!(net.peer(1).client.backend().blockchain().info().unwrap().best_number, 1);
+	assert_eq!(net.peer(2).client.backend().blockchain().info().unwrap().best_number, 0);
 }
 
 #[test]

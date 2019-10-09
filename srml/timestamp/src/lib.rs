@@ -16,51 +16,43 @@
 
 //! # Timestamp Module
 //!
-//! The Timestamp module provides functionality to get and set the on-chain time.
-//!
-//! - [`timestamp::Trait`](./trait.Trait.html)
-//! - [`Call`](./enum.Call.html)
-//! - [`Module`](./struct.Module.html)
+//! The timestamp module provides functionality to get and set the on-chain time.
+//! To use it in your module, you need to implement the timestamp [`Trait`].
+//! The supported dispatchable functions are documented as part of the [`Call`] enum.
 //!
 //! ## Overview
 //!
-//! The Timestamp module allows the validators to set and validate a timestamp with each block.
+//! The timestamp module allows the validators to set and validate a timestamp with each block.
 //!
-//! It uses inherents for timestamp data, which is provided by the block author and validated/verified
-//! by other validators. The timestamp can be set only once per block and must be set each block.
-//! There could be a constraint on how much time must pass before setting the new timestamp.
+//! It uses inherents for timestamp data, which is provided by the block author and validated/verified by other validators.
+//! The timestamp can be set only once per block and must be set each block. There could be a constraint on how much time must pass before setting the new timestamp.
 //!
-//! **NOTE:** The Timestamp module is the recommended way to query the on-chain time instead of using
-//! an approach based on block numbers. The block number based time measurement can cause issues
-//! because of cumulative calculation errors and hence should be avoided.
+//! **NOTE:** The timestamp module is the recommended way to query the on-chain time instead of using an approach based on block numbers.
+//! The block numbers based time measurement can cause issues because of cummulative calculation errors and hence it should be avoided.
 //!
 //! ## Interface
 //!
-//! ### Dispatchable Functions
+//! ### Dispatchable functions ([`Call`])
 //!
 //! * `set` - Sets the current time.
 //!
-//! ### Public functions
+//! ### Public functions ([`Module`])
 //!
-//! * `get` - Gets the current time for the current block. If this function is called prior to
-//! setting the timestamp, it will return the timestamp of the previous block.
+//! * `get` - Gets the current time for the current block. If this function is called prior the setting to timestamp, it will return the timestamp of the previous block.
 //!
-//! ### Trait Getters
-//!
-//! * `MinimumPeriod` - Gets the minimum (and advised) period between blocks for the chain.
+//! * `minimum_period` - Gets the minimum (and advised) period between blocks for the chain.
 //!
 //! ## Usage
 //!
-//! The following example shows how to use the Timestamp module in your custom module to query the current timestamp.
+//! The following example shows how to use the timestamp module in your custom module to query the current timestamp.
 //!
 //! ### Prerequisites
 //!
-//! Import the Timestamp module into your custom module and derive the module configuration
-//! trait from the timestamp trait.
+//! Import the `timestamp` module in your custom module and derive the module configuration trait from the `timestamp` trait.
 //!
 //! ### Get current timestamp
 //!
-//! ```
+//! ```ignore
 //! use support::{decl_module, dispatch::Result};
 //! # use srml_timestamp as timestamp;
 //! use system::ensure_signed;
@@ -79,12 +71,14 @@
 //! # fn main() {}
 //! ```
 //!
-//! ### Example from the SRML
+//! ### Example from SRML
 //!
-//! The [Session module](https://github.com/paritytech/substrate/blob/master/srml/session/src/lib.rs) uses
-//! the Timestamp module for session management.
+//! The [`Session` module](https://github.com/paritytech/substrate/blob/master/srml/session/src/lib.rs) uses the `timestamp` module for session management.
 //!
 //! ## Related Modules
+//!
+//! * [`System`](https://crates.parity.io/srml_system/index.html)
+//! * [`Session`](https://crates.parity.io/srml_session/index.html)
 //!
 //! * [Session](../srml_session/index.html)
 
@@ -219,6 +213,8 @@ decl_module! {
 		///
 		/// The timestamp should be greater than the previous one by the amount specified by
 		/// `MinimumPeriod`.
+		///
+		/// The timestamp should be greater than the previous one by the amount specified by `minimum_period`.
 		///
 		/// The dispatch origin for this call must be `Inherent`.
 		#[weight = SimpleDispatchInfo::FixedOperational(10_000)]

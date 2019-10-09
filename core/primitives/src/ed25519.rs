@@ -25,11 +25,13 @@ use codec::{Encode, Decode};
 #[cfg(feature = "std")]
 use blake2_rfc;
 #[cfg(feature = "std")]
+use ring::{signature, signature::KeyPair, rand::{SecureRandom, SystemRandom}};
+#[cfg(feature = "std")]
 use substrate_bip39::seed_from_entropy;
 #[cfg(feature = "std")]
 use bip39::{Mnemonic, Language, MnemonicType};
 #[cfg(feature = "std")]
-use crate::crypto::{Pair as TraitPair, DeriveJunction, SecretStringError, Ss58Codec};
+use crate::crypto::{Pair as TraitPair, DeriveJunction, SecretStringError, Derive, Ss58Codec};
 #[cfg(feature = "std")]
 use serde::{de, Serializer, Serialize, Deserializer, Deserialize};
 use crate::{crypto::{Public as TraitPublic, UncheckedFrom, CryptoType, Derive}};
@@ -318,19 +320,15 @@ impl Public {
 	}
 }
 
-impl TraitPublic for Public {
-	/// A new instance from the given slice that should be 32 bytes long.
-	///
-	/// NOTE: No checking goes on to ensure this is a real public key. Only use it if
-	/// you are certain that the array actually is a pubkey. GIGO!
-	fn from_slice(data: &[u8]) -> Self {
-		let mut r = [0u8; 32];
-		r.copy_from_slice(data);
-		Public(r)
+#[cfg(feature = "std")]
+impl Derive for Public {}
+
+#[cfg(feature = "std")]
+impl AsRef<Pair> for Pair {
+	fn as_ref(&self) -> &Pair {
+		&self
 	}
 }
-
-impl Derive for Public {}
 
 /// Derive a single hard junction.
 #[cfg(feature = "std")]

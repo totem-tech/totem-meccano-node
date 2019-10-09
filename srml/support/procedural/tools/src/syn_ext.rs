@@ -18,8 +18,12 @@
 //! Extension to syn types, mainly for parsing
 // end::description[]
 
-use syn::{visit::{Visit, self}, parse::{Parse, ParseStream, Result}, Ident};
-use proc_macro2::{TokenStream, TokenTree};
+use syn::parse::{
+	Parse,
+	ParseStream,
+	Result,
+};
+use proc_macro2::TokenStream as T2;
 use quote::{ToTokens, quote};
 use std::iter::once;
 use srml_support_procedural_tools_derive::{ToTokens, Parse};

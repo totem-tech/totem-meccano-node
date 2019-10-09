@@ -17,14 +17,10 @@
 //! Generic implementation of a block header.
 
 #[cfg(feature = "std")]
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "std")]
-use log::debug;
-use crate::codec::{Decode, Encode, Codec, Input, Output, HasCompact, EncodeAsRef, Error};
-use crate::traits::{
-	self, Member, SimpleArithmetic, SimpleBitOps, MaybeDisplay, Hash as HashT, MaybeSerializeDebug,
-	MaybeSerializeDebugButNotDeserialize
-};
+use serde::Serialize;
+use crate::codec::{Decode, Encode, Codec, Input, Output, HasCompact, EncodeAsRef};
+use crate::traits::{self, Member, SimpleArithmetic, SimpleBitOps, MaybeDisplay,
+	Hash as HashT, DigestItem as DigestItemT, MaybeSerializeDebug, MaybeSerializeDebugButNotDeserialize};
 use crate::generic::Digest;
 use primitives::U256;
 use core::convert::TryFrom;

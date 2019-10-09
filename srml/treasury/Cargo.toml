@@ -5,8 +5,9 @@ authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2018"
 
 [dependencies]
+hex-literal = "0.1.0"
 serde = { version = "1.0", optional = true, features = ["derive"] }
-codec = { package = "parity-scale-codec", version = "1.0.0", default-features = false, features = ["derive"] }
+parity-codec = { version = "3.3", default-features = false, features = ["derive"] }
 rstd = { package = "sr-std", path = "../../core/sr-std", default-features = false }
 sr-primitives = { path = "../../core/sr-primitives", default-features = false }
 support = { package = "srml-support", path = "../support", default-features = false }
@@ -21,7 +22,7 @@ primitives = { package = "substrate-primitives",  path = "../../core/primitives"
 default = ["std"]
 std = [
 	"serde",
-	"codec/std",
+	"parity-codec/std",
 	"rstd/std",
 	"sr-primitives/std",
 	"support/std",

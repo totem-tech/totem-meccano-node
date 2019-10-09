@@ -112,7 +112,7 @@ pub fn decl_storage_impl(input: TokenStream) -> TokenStream {
 		&instance_opts,
 		&storage_lines,
 		&extra_genesis.inner,
-		&where_clause,
+		extra_genesis_skip_phantom_data_field.inner.is_some(),
 	));
 	let decl_storage_items = decl_storage_items(
 		&scrate,
@@ -171,8 +171,18 @@ pub fn decl_storage_impl(input: TokenStream) -> TokenStream {
 		{
 			#impl_store_fns
 			#[doc(hidden)]
-			pub fn storage_metadata() -> #scrate::metadata::StorageMetadata {
-				#store_metadata
+			pub fn store_metadata() -> #scrate::metadata::StorageMetadata {
+				#scrate::metadata::StorageMetadata {
+					functions: #scrate::metadata::DecodeDifferent::Encode(#store_functions_to_metadata) ,
+				}
+			}
+			#[doc(hidden)]
+			pub fn store_metadata_functions() -> &'static [#scrate::metadata::StorageFunctionMetadata] {
+				#store_functions_to_metadata
+			}
+			#[doc(hidden)]
+			pub fn store_metadata_name() -> &'static str {
+				#cratename_string
 			}
 		}
 
@@ -200,6 +210,7 @@ fn decl_store_extra_genesis(
 	} = instance_opts;
 
 	let mut is_trait_needed = false;
+	let mut has_trait_field = false;
 	let mut serde_complete_bound = Vec::new();
 	let mut config_field = TokenStream2::new();
 	let mut config_field_default = TokenStream2::new();
@@ -231,7 +242,7 @@ fn decl_store_extra_genesis(
 			.map(|b| quote!( #b ));
 
 		// need build line
-		let builder = if let Some(ref config) = config.inner {
+		if let Some(ref config) = config.inner {
 			let ident = if let Some(ident) = config.expr.content.as_ref() {
 				quote!( #ident )
 			} else if let Some(ref getter) = getter.inner {
@@ -251,32 +262,14 @@ fn decl_store_extra_genesis(
 				is_trait_needed = true;
 			}
 
-			if opt_build.is_none() {
-				builders_clone_bound.push(type_infos.value_type.clone());
-			}
-
 			let value_type = &type_infos.value_type;
 			serde_complete_bound.push(quote!( #value_type ));
 			match type_infos.kind {
-				DeclStorageTypeInfosKind::Map { key_type, .. } => {
-					serde_complete_bound.push(quote!( #key_type ));
-					is_trait_needed = is_trait_needed
-						|| ext::type_contains_ident(key_type, traitinstance);
-
-					if opt_build.is_none() {
-						builders_clone_bound.push(key_type.clone());
-					}
-				},
+				DeclStorageTypeInfosKind::Map { key_type, .. } =>
+					serde_complete_bound.push(quote!( #key_type )),
 				DeclStorageTypeInfosKind::DoubleMap { key1_type, key2_type, .. } => {
 					serde_complete_bound.push(quote!( #key1_type ));
 					serde_complete_bound.push(quote!( #key2_type ));
-					is_trait_needed = is_trait_needed
-						|| ext::type_contains_ident(key1_type, traitinstance)
-						|| ext::type_contains_ident(key2_type, traitinstance);
-					if opt_build.is_none() {
-						builders_clone_bound.push(key1_type.clone());
-						builders_clone_bound.push(key2_type.clone());
-					}
 				},
 				_ => {},
 			}
@@ -300,6 +293,8 @@ fn decl_store_extra_genesis(
 					quote!( #( #[ #attrs ] )* pub #ident: Vec<(#key1_type, #key2_type, #storage_type)>, )
 				},
 			});
+			opt_build = Some(build.inner.as_ref().map(|b| &b.expr.content).map(|b|quote!( #b ))
+				.unwrap_or_else(|| quote!( (|config: &GenesisConfig<#traitinstance, #instance>| config.#ident.clone()) )));
 
 			let fielddefault = default_value.inner.as_ref().map(|d| &d.expr).map(|d|
 				if type_infos.is_option {
@@ -312,8 +307,8 @@ fn decl_store_extra_genesis(
 
 			opt_build.or_else(|| Some(quote!( (|config: &Self| config.#ident.clone()) )))
 		} else {
-			opt_build
-		};
+			opt_build = build.inner.as_ref().map(|b| &b.expr.content).map(|b| quote!( #b ));
+		}
 
 		let typ = type_infos.typ;
 		if let Some(builder) = builder {
@@ -328,10 +323,7 @@ fn decl_store_extra_genesis(
 
 					quote!{{
 						let v = (#builder)(&self);
-						<
-							#name<#struct_trait #instance> as
-							#scrate::storage::StorageValue<#typ>
-						>::put(&v);
+						<#name<#traitinstance, #instance> as #scrate::storage::hashed::generator::StorageValue<#typ>>::put(&v, &storage);
 					}}
 				},
 				DeclStorageTypeInfosKind::Map { key_type, is_linked, .. } => {
@@ -352,12 +344,9 @@ fn decl_store_extra_genesis(
 
 					quote!{{
 						let data = (#builder)(&self);
-						data.into_iter().for_each(|(k, v)| {
-							<
-								#name<#struct_trait #instance> as
-								#scrate::storage::#map<#key_type, #typ>
-							>::insert(&k, &v);
-						});
+						for (k, v) in data.into_iter() {
+							<#name<#traitinstance, #instance> as #scrate::storage::hashed::generator::StorageMap<#key_type, #typ>>::insert(&k, &v, &storage);
+						}
 					}}
 				},
 				DeclStorageTypeInfosKind::DoubleMap { key1_type, key2_type, .. } => {
@@ -465,13 +454,15 @@ fn decl_store_extra_genesis(
 			)
 		};
 
-		let (fparam_struct, fparam_impl, sparam, build_storage_impl) = if is_trait_needed {
-			(
-				quote!(<#traitinstance: #traittype, #instance #bound_instantiable #equal_default_instance>),
-				quote!(<#traitinstance: #traittype, #instance #bound_instantiable>),
-				quote!(<#traitinstance, #instance>),
-				quote!(<#traitinstance: #traittype, #inherent_instance #inherent_bound_instantiable>),
-			)
+					quote!{
+						#[serde(skip)]
+						pub _genesis_phantom_data: #scrate::rstd::marker::PhantomData<(#traitinstance #comma_instance)>,
+					},
+					quote!{
+						_genesis_phantom_data: Default::default(),
+					},
+				)
+			}
 		} else {
 			// do not even need type parameter
 			(
@@ -536,18 +527,14 @@ fn decl_store_extra_genesis(
 			}
 
 			#[cfg(feature = "std")]
-			impl#fparam_impl GenesisConfig#sparam #genesis_where_clause {
-				pub fn build_storage #fn_generic (self) -> std::result::Result<
-					(
-						#scrate::sr_primitives::StorageOverlay,
-						#scrate::sr_primitives::ChildrenStorageOverlay,
-					),
-					String
-				> #fn_where_clause {
-					let mut storage = (Default::default(), Default::default());
-					self.assimilate_storage::<#fn_traitinstance>(&mut storage)?;
-					Ok(storage)
-				}
+			impl#fparam_impl #scrate::runtime_primitives::BuildStorage for GenesisConfig#sparam {
+				fn assimilate_storage(self, r: &mut #scrate::runtime_primitives::StorageOverlay, c: &mut #scrate::runtime_primitives::ChildrenStorageOverlay) -> ::std::result::Result<(), String> {
+					use #scrate::rstd::cell::RefCell;
+					let storage = RefCell::new(r);
+
+					#builders
+
+					let r = storage.into_inner();
 
 				/// Assimilate the storage for this module into pre-existing overlays.
 				pub fn assimilate_storage #fn_generic (
@@ -675,12 +662,13 @@ fn decl_storage_items(
 		.clone()
 		.unwrap_or_else(|| Ident::new(DEFAULT_INSTANTIABLE_TRAIT_NAME, Span::call_site()));
 
-	// Declare Instance trait
-	{
-		let mut const_impls = TokenStream2::new();
-		for (const_name, _) in &const_names {
-			const_impls.extend(quote! {
-				const #const_name: &'static str;
+			impls.extend(quote! {
+				/// Tag a type as an instance of a module.
+				///
+				/// Defines storage prefixes, they must be unique.
+				pub trait #instantiable: 'static {
+					#const_impls
+				}
 			});
 		}
 
@@ -796,7 +784,7 @@ fn decl_storage_items(
 				i.linked_map(hasher.into_storage_hasher_struct(), key_type)
 			},
 			DeclStorageTypeInfosKind::DoubleMap { key1_type, key2_type, key2_hasher, hasher } => {
-				i.double_map(hasher.into_storage_hasher_struct(), key1_type, key2_type, key2_hasher.into_storage_hasher_struct())
+				i.double_map(hasher.into_storage_hasher_struct(), key1_type, key2_type, key2_hasher)
 			},
 		};
 		impls.extend(implementation)
@@ -889,10 +877,7 @@ fn impl_store_fns(
 					quote!{
 						#( #[ #attrs ] )*
 						pub fn #get_fn() -> #value_type {
-							<
-								#name<#struct_trait #instance> as
-								#scrate::storage::StorageValue<#typ>
-							>::get()
+							<#name<#traitinstance, #instance> as #scrate::storage::hashed::generator::StorageValue<#typ>> :: get(&#scrate::storage::RuntimeStorage)
 						}
 					}
 				},
@@ -914,10 +899,7 @@ fn impl_store_fns(
 					quote!{
 						#( #[ #attrs ] )*
 						pub fn #get_fn<K: #scrate::rstd::borrow::Borrow<#key_type>>(key: K) -> #value_type {
-							<
-								#name<#struct_trait #instance> as
-								#scrate::storage::#map<#key_type, #typ>
-							>::get(key.borrow())
+							<#name<#traitinstance, #instance> as #scrate::storage::hashed::generator::StorageMap<#key_type, #typ>> :: get(key.borrow(), &#scrate::storage::RuntimeStorage)
 						}
 					}
 				}
@@ -934,10 +916,8 @@ fn impl_store_fns(
 					quote!{
 						pub fn #get_fn<KArg1, KArg2>(k1: &KArg1, k2: &KArg2) -> #value_type
 						where
-							#key1_type: #scrate::rstd::borrow::Borrow<KArg1>,
-							#key2_type: #scrate::rstd::borrow::Borrow<KArg2>,
-							KArg1: ?Sized + #scrate::codec::Encode,
-							KArg2: ?Sized + #scrate::codec::Encode,
+							KArg1: #scrate::rstd::borrow::Borrow<#key1_type>,
+							KArg2: #scrate::rstd::borrow::Borrow<#key2_type>,
 						{
 							<
 								#name<#struct_trait #instance> as
@@ -989,7 +969,7 @@ fn store_functions_to_metadata (
 		let stype = match type_infos.kind {
 			DeclStorageTypeInfosKind::Simple => {
 				quote!{
-					#scrate::metadata::StorageEntryType::Plain(
+					#scrate::metadata::StorageFunctionType::Plain(
 						#scrate::metadata::DecodeDifferent::Encode(#styp),
 					)
 				}
@@ -998,7 +978,7 @@ fn store_functions_to_metadata (
 				let hasher = hasher.into_metadata();
 				let kty = clean_type_string(&quote!(#key_type).to_string());
 				quote!{
-					#scrate::metadata::StorageEntryType::Map {
+					#scrate::metadata::StorageFunctionType::Map {
 						hasher: #scrate::metadata::#hasher,
 						key: #scrate::metadata::DecodeDifferent::Encode(#kty),
 						value: #scrate::metadata::DecodeDifferent::Encode(#styp),
@@ -1012,23 +992,23 @@ fn store_functions_to_metadata (
 				let k2ty = clean_type_string(&quote!(#key2_type).to_string());
 				let k2_hasher = key2_hasher.into_metadata();
 				quote!{
-					#scrate::metadata::StorageEntryType::DoubleMap {
+					#scrate::metadata::StorageFunctionType::DoubleMap {
 						hasher: #scrate::metadata::#hasher,
 						key1: #scrate::metadata::DecodeDifferent::Encode(#k1ty),
 						key2: #scrate::metadata::DecodeDifferent::Encode(#k2ty),
 						value: #scrate::metadata::DecodeDifferent::Encode(#styp),
-						key2_hasher: #scrate::metadata::#k2_hasher,
+						key2_hasher: #scrate::metadata::DecodeDifferent::Encode(#k2_hasher),
 					}
 				}
 			},
 		};
 		let modifier = if type_infos.is_option {
 			quote!{
-				#scrate::metadata::StorageEntryModifier::Optional
+				#scrate::metadata::StorageFunctionModifier::Optional
 			}
 		} else {
 			quote!{
-				#scrate::metadata::StorageEntryModifier::Default
+				#scrate::metadata::StorageFunctionModifier::Default
 			}
 		};
 		let default = default_value.inner.as_ref().map(|d| &d.expr)
@@ -1053,7 +1033,7 @@ fn store_functions_to_metadata (
 		let cache_name = proc_macro2::Ident::new(&("__CACHE_GET_BYTE_STRUCT_".to_string() + &str_name), name.span());
 
 		let item = quote! {
-			#scrate::metadata::StorageEntryMetadata {
+			#scrate::metadata::StorageFunctionMetadata {
 				name: #scrate::metadata::DecodeDifferent::Encode(#str_name),
 				modifier: #modifier,
 				ty: #stype,
@@ -1078,9 +1058,7 @@ fn store_functions_to_metadata (
 			static #cache_name: #scrate::once_cell::sync::OnceCell<#scrate::rstd::vec::Vec<u8>> = #scrate::once_cell::sync::OnceCell::INIT;
 
 			#[cfg(feature = "std")]
-			impl<#traitinstance: #traittype, #instance #bound_instantiable> #scrate::metadata::DefaultByte
-				for #struct_name<#traitinstance, #instance> #where_clause
-			{
+			impl<#traitinstance: #traittype, #instance #bound_instantiable> #scrate::metadata::DefaultByte for #struct_name<#traitinstance, #instance> {
 				fn default_byte(&self) -> #scrate::rstd::vec::Vec<u8> {
 					use #scrate::codec::Encode;
 					#cache_name.get_or_init(|| {
@@ -1097,9 +1075,7 @@ fn store_functions_to_metadata (
 				for #struct_name<#traitinstance, #instance> #where_clause {}
 
 			#[cfg(not(feature = "std"))]
-			impl<#traitinstance: #traittype, #instance #bound_instantiable> #scrate::metadata::DefaultByte
-				for #struct_name<#traitinstance, #instance> #where_clause
-			{
+			impl<#traitinstance: #traittype, #instance #bound_instantiable> #scrate::metadata::DefaultByte for #struct_name<#traitinstance, #instance> {
 				fn default_byte(&self) -> #scrate::rstd::vec::Vec<u8> {
 					use #scrate::codec::Encode;
 					let def_val: #value_type = #default;

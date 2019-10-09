@@ -87,27 +87,403 @@ pub trait ImportQueue<B: BlockT>: Send {
 	/// Import bunch of blocks.
 	fn import_blocks(&mut self, origin: BlockOrigin, blocks: Vec<IncomingBlock<B>>);
 	/// Import a block justification.
-	fn import_justification(
-		&mut self,
-		who: Origin,
-		hash: B::Hash,
-		number: NumberFor<B>,
-		justification: Justification
-	);
-	/// Import block finality proof.
-	fn import_finality_proof(
-		&mut self,
-		who: Origin,
-		hash: B::Hash,
-		number: NumberFor<B>,
-		finality_proof: Vec<u8>
-	);
-	/// Polls for actions to perform on the network.
+	fn import_justification(&self, who: Origin, hash: B::Hash, number: NumberFor<B>, justification: Justification);
+}
+
+pub trait ImportQueueClone<B: BlockT> {
+	fn clone_box(&self) -> Box<ImportQueue<B>>;
+}
+
+impl<B: BlockT> Clone for Box<ImportQueue<B>> {
+	fn clone(&self) -> Box<ImportQueue<B>> {
+		self.clone_box()
+	}
+}
+
+/// Interface to a basic block import queue that is importing blocks sequentially in a separate thread,
+/// with pluggable verification.
+#[derive(Clone)]
+pub struct BasicQueue<B: BlockT> {
+	sender: Sender<BlockImportMsg<B>>,
+}
+
+impl<B: BlockT> ImportQueueClone<B> for BasicQueue<B> {
+	fn clone_box(&self) -> Box<ImportQueue<B>> {
+		Box::new(self.clone())
+	}
+}
+
+/// "BasicQueue" is a wrapper around a channel sender to the "BlockImporter".
+/// "BasicQueue" itself does not keep any state or do any importing work, and can therefore be send to other threads.
+///
+/// "BasicQueue" implements "ImportQueue" by sending messages to the "BlockImporter", which runs in it's own thread.
+///
+/// The "BlockImporter" is responsible for handling incoming requests from the "BasicQueue",
+/// some of these requests are handled by the "BlockImporter" itself, such as "is_importing" or "status",
+/// and justifications are also imported by the "BlockImporter".
+///
+/// The "import block" work will be offloaded to a single "BlockImportWorker", running in another thread.
+/// Offloading the work is done via a channel,
+/// ensuring blocks in this implementation are imported sequentially and in order(as received by the "BlockImporter")
+///
+/// As long as the "BasicQueue" is not dropped, the "BlockImporter" will keep running.
+/// The "BlockImporter" owns a sender to the "BlockImportWorker", ensuring that the worker is kept alive until that sender is dropped.
+impl<B: BlockT> BasicQueue<B> {
+	/// Instantiate a new basic queue, with given verifier.
+	pub fn new<V: 'static + Verifier<B>>(
+		verifier: Arc<V>,
+		block_import: SharedBlockImport<B>,
+		justification_import: Option<SharedJustificationImport<B>>
+	) -> Self {
+		let (result_sender, result_port) = channel::unbounded();
+		let worker_sender = BlockImportWorker::new(result_sender, verifier, block_import);
+		let importer_sender = BlockImporter::new(result_port, worker_sender, justification_import);
+
+		Self {
+			sender: importer_sender,
+		}
+	}
+
+	/// Send synchronization request to the block import channel.
 	///
-	/// This method should behave in a way similar to `Future::poll`. It can register the current
-	/// task and notify later when more actions are ready to be polled. To continue the comparison,
-	/// it is as if this method always returned `Poll::Pending`.
-	fn poll_actions(&mut self, cx: &mut futures::task::Context, link: &mut dyn Link<B>);
+	/// The caller should wait for Link::synchronized() call to ensure that it has synchronized
+	/// with ImportQueue.
+	#[cfg(any(test, feature = "test-helpers"))]
+	pub fn synchronize(&self) {
+		self
+			.sender
+			.send(BlockImportMsg::Synchronize)
+			.expect("1. self is holding a sender to the Importer, 2. Importer should handle messages while there are senders around; qed");
+	}
+}
+
+impl<B: BlockT> ImportQueue<B> for BasicQueue<B> {
+	fn start(&self, link: Box<Link<B>>) -> Result<(), std::io::Error> {
+		let (sender, port) = channel::unbounded();
+		let _ = self
+			.sender
+			.send(BlockImportMsg::Start(link, sender))
+			.expect("1. self is holding a sender to the Importer, 2. Importer should handle messages while there are senders around; qed");
+		port.recv().expect("1. self is holding a sender to the Importer, 2. Importer should handle messages while there are senders around; qed")
+	}
+
+	fn stop(&self) {
+		let _ = self
+			.sender
+			.send(BlockImportMsg::Stop)
+			.expect("1. self is holding a sender to the Importer, 2. Importer should handle messages while there are senders around; qed");
+	}
+
+	fn import_blocks(&self, origin: BlockOrigin, blocks: Vec<IncomingBlock<B>>) {
+		if blocks.is_empty() {
+			return;
+		}
+		let _ = self
+			.sender
+			.send(BlockImportMsg::ImportBlocks(origin, blocks))
+			.expect("1. self is holding a sender to the Importer, 2. Importer should handle messages while there are senders around; qed");
+	}
+
+	fn import_justification(&self, who: Origin, hash: B::Hash, number: NumberFor<B>, justification: Justification) {
+		let _ = self
+			.sender
+			.send(BlockImportMsg::ImportJustification(who.clone(), hash, number, justification))
+			.expect("1. self is holding a sender to the Importer, 2. Importer should handle messages while there are senders around; qed");
+	}
+}
+
+pub enum BlockImportMsg<B: BlockT> {
+	ImportBlocks(BlockOrigin, Vec<IncomingBlock<B>>),
+	ImportJustification(Origin, B::Hash, NumberFor<B>, Justification),
+	Start(Box<Link<B>>, Sender<Result<(), std::io::Error>>),
+	Stop,
+	#[cfg(any(test, feature = "test-helpers"))]
+	Synchronize,
+}
+
+pub enum BlockImportWorkerMsg<B: BlockT> {
+	ImportBlocks(BlockOrigin, Vec<IncomingBlock<B>>),
+	Imported(
+		Vec<(
+			Result<BlockImportResult<NumberFor<B>>, BlockImportError>,
+			B::Hash,
+		)>,
+	),
+	#[cfg(any(test, feature = "test-helpers"))]
+	Synchronize,
+}
+
+enum ImportMsgType<B: BlockT> {
+	FromWorker(BlockImportWorkerMsg<B>),
+	FromNetwork(BlockImportMsg<B>),
+}
+
+struct BlockImporter<B: BlockT> {
+	port: Receiver<BlockImportMsg<B>>,
+	result_port: Receiver<BlockImportWorkerMsg<B>>,
+	worker_sender: Sender<BlockImportWorkerMsg<B>>,
+	link: Option<Box<dyn Link<B>>>,
+	justification_import: Option<SharedJustificationImport<B>>,
+}
+
+impl<B: BlockT> BlockImporter<B> {
+	fn new(
+		result_port: Receiver<BlockImportWorkerMsg<B>>,
+		worker_sender: Sender<BlockImportWorkerMsg<B>>,
+		justification_import: Option<SharedJustificationImport<B>>,
+	) -> Sender<BlockImportMsg<B>> {
+		let (sender, port) = channel::bounded(4);
+		let _ = thread::Builder::new()
+			.name("ImportQueue".into())
+			.spawn(move || {
+				let mut importer = BlockImporter {
+					port,
+					result_port,
+					worker_sender,
+					link: None,
+					justification_import,
+				};
+				while importer.run() {
+					// Importing until all senders have been dropped...
+				}
+			})
+			.expect("ImportQueue thread spawning failed");
+		sender
+	}
+
+	fn run(&mut self) -> bool {
+		let msg = select! {
+			recv(self.port) -> msg => {
+				match msg {
+					// Our sender has been dropped, quitting.
+					Err(_) => return false,
+					Ok(msg) => ImportMsgType::FromNetwork(msg)
+				}
+			},
+			recv(self.result_port) -> msg => {
+				match msg {
+					Err(_) => unreachable!("1. We hold a sender to the Worker, 2. it should not quit until that sender is dropped; qed"),
+					Ok(msg) => ImportMsgType::FromWorker(msg),
+				}
+			}
+		};
+		match msg {
+			ImportMsgType::FromNetwork(msg) => self.handle_network_msg(msg),
+			ImportMsgType::FromWorker(msg) => self.handle_worker_msg(msg),
+		}
+	}
+
+	fn handle_network_msg(&mut self, msg: BlockImportMsg<B>) -> bool {
+		match msg {
+			BlockImportMsg::ImportBlocks(origin, incoming_blocks) => {
+				self.handle_import_blocks(origin, incoming_blocks)
+			},
+			BlockImportMsg::ImportJustification(who, hash, number, justification) => {
+				self.handle_import_justification(who, hash, number, justification)
+			},
+			BlockImportMsg::Start(link, sender) => {
+				if let Some(justification_import) = self.justification_import.as_ref() {
+					justification_import.on_start(&*link);
+				}
+				self.link = Some(link);
+				let _ = sender.send(Ok(()));
+			},
+			BlockImportMsg::Stop => return false,
+			#[cfg(any(test, feature = "test-helpers"))]
+			BlockImportMsg::Synchronize => {
+				self.worker_sender
+					.send(BlockImportWorkerMsg::Synchronize)
+					.expect("1. This is holding a sender to the worker, 2. the worker should not quit while a sender is still held; qed");
+			},
+		}
+		true
+	}
+
+	fn handle_worker_msg(&mut self, msg: BlockImportWorkerMsg<B>) -> bool {
+		let link = match self.link.as_ref() {
+			Some(link) => link,
+			None => {
+				trace!(target: "sync", "Received import result while import-queue has no link");
+				return true;
+			},
+		};
+
+		let results = match msg {
+			BlockImportWorkerMsg::Imported(results) => (results),
+			#[cfg(any(test, feature = "test-helpers"))]
+			BlockImportWorkerMsg::Synchronize => {
+				link.synchronized();
+				return true;
+			},
+			_ => unreachable!("Import Worker does not send ImportBlocks message; qed"),
+		};
+		let mut has_error = false;
+		let mut hashes = vec![];
+		for (result, hash) in results {
+			hashes.push(hash);
+
+			if has_error {
+				continue;
+			}
+
+			if result.is_err() {
+				has_error = true;
+			}
+
+			match result {
+				Ok(BlockImportResult::ImportedKnown(number)) => link.block_imported(&hash, number),
+				Ok(BlockImportResult::ImportedUnknown(number, aux, who)) => {
+					link.block_imported(&hash, number);
+
+					if aux.clear_justification_requests {
+						trace!(target: "sync", "Block imported clears all pending justification requests {}: {:?}", number, hash);
+						link.clear_justification_requests();
+					}
+
+					if aux.needs_justification {
+						trace!(target: "sync", "Block imported but requires justification {}: {:?}", number, hash);
+						link.request_justification(&hash, number);
+					}
+
+					if aux.bad_justification {
+						if let Some(peer) = who {
+							link.useless_peer(peer, "Sent block with bad justification to import");
+						}
+					}
+				},
+				Err(BlockImportError::IncompleteHeader(who)) => {
+					if let Some(peer) = who {
+						link.note_useless_and_restart_sync(peer, "Sent block with incomplete header to import");
+					}
+				},
+				Err(BlockImportError::VerificationFailed(who, e)) => {
+					if let Some(peer) = who {
+						link.note_useless_and_restart_sync(peer, &format!("Verification failed: {}", e));
+					}
+				},
+				Err(BlockImportError::BadBlock(who)) => {
+					if let Some(peer) = who {
+						link.note_useless_and_restart_sync(peer, "Sent us a bad block");
+					}
+				},
+				Err(BlockImportError::UnknownParent) | Err(BlockImportError::Error) => {
+					link.restart();
+				},
+			};
+		}
+		if let Some(link) = self.link.as_ref() {
+			link.blocks_processed(hashes, has_error);
+		}
+		true
+	}
+
+	fn handle_import_justification(&self, who: Origin, hash: B::Hash, number: NumberFor<B>, justification: Justification) {
+		let success = self.justification_import.as_ref().map(|justification_import| {
+			justification_import.import_justification(hash, number, justification)
+				.map_err(|e| {
+					debug!(target: "sync", "Justification import failed with {:?} for hash: {:?} number: {:?} coming from node: {:?}", e, hash, number, who);
+					e
+				}).is_ok()
+		}).unwrap_or(false);
+
+		if let Some(link) = self.link.as_ref() {
+			link.justification_imported(who, &hash, number, success);
+		}
+	}
+
+	fn handle_import_blocks(&mut self, origin: BlockOrigin, blocks: Vec<IncomingBlock<B>>) {
+		trace!(target: "sync", "Scheduling {} blocks for import", blocks.len());
+		self.worker_sender
+			.send(BlockImportWorkerMsg::ImportBlocks(origin, blocks))
+			.expect("1. This is holding a sender to the worker, 2. the worker should not quit while a sender is still held; qed");
+	}
+}
+
+struct BlockImportWorker<B: BlockT, V: Verifier<B>> {
+	result_sender: Sender<BlockImportWorkerMsg<B>>,
+	block_import: SharedBlockImport<B>,
+	verifier: Arc<V>,
+}
+
+impl<B: BlockT, V: 'static + Verifier<B>> BlockImportWorker<B, V> {
+	pub fn new(
+		result_sender: Sender<BlockImportWorkerMsg<B>>,
+		verifier: Arc<V>,
+		block_import: SharedBlockImport<B>,
+	) -> Sender<BlockImportWorkerMsg<B>> {
+		let (sender, port) = channel::bounded(4);
+		let _ = thread::Builder::new()
+			.name("ImportQueueWorker".into())
+			.spawn(move || {
+				let worker = BlockImportWorker {
+					result_sender,
+					verifier,
+					block_import,
+				};
+				for msg in port.iter() {
+					// Working until all senders have been dropped...
+					match msg {
+						BlockImportWorkerMsg::ImportBlocks(origin, blocks) => {
+							worker.import_a_batch_of_blocks(origin, blocks);
+						},
+						#[cfg(any(test, feature = "test-helpers"))]
+						BlockImportWorkerMsg::Synchronize => {
+							let _ = worker.result_sender.send(BlockImportWorkerMsg::Synchronize);
+						},
+						_ => unreachable!("Import Worker does not receive the Imported message; qed"),
+					}
+				}
+			})
+			.expect("ImportQueueWorker thread spawning failed");
+		sender
+	}
+
+	fn import_a_batch_of_blocks(&self, origin: BlockOrigin, blocks: Vec<IncomingBlock<B>>) {
+		let count = blocks.len();
+		let mut imported = 0;
+
+		let blocks_range = match (
+			blocks.first().and_then(|b| b.header.as_ref().map(|h| h.number())),
+			blocks.last().and_then(|b| b.header.as_ref().map(|h| h.number())),
+		) {
+			(Some(first), Some(last)) if first != last => format!(" ({}..{})", first, last),
+			(Some(first), Some(_)) => format!(" ({})", first),
+			_ => Default::default(),
+		};
+
+		trace!(target: "sync", "Starting import of {} blocks {}", count, blocks_range);
+
+		let mut results = vec![];
+
+		let mut has_error = false;
+
+		// Blocks in the response/drain should be in ascending order.
+		for block in blocks {
+			let import_result = if has_error {
+				Err(BlockImportError::Error)
+			} else {
+				import_single_block(
+					&*self.block_import,
+					origin.clone(),
+					block.clone(),
+					self.verifier.clone(),
+				)
+			};
+			let was_ok = import_result.is_ok();
+			results.push((import_result, block.hash));
+			if was_ok {
+				imported += 1;
+			} else {
+				has_error = true;
+			}
+		}
+
+		let _ = self
+			.result_sender
+			.send(BlockImportWorkerMsg::Imported(results));
+
+		trace!(target: "sync", "Imported {} of {}", imported, count);
+	}
 }
 
 /// Hooks that the verification queue can use to influence the synchronization
@@ -123,20 +499,16 @@ pub trait Link<B: BlockT>: Send {
 	/// Justification import result.
 	fn justification_imported(&mut self, _who: Origin, _hash: &B::Hash, _number: NumberFor<B>, _success: bool) {}
 	/// Request a justification for the given block.
-	fn request_justification(&mut self, _hash: &B::Hash, _number: NumberFor<B>) {}
-	/// Finality proof import result.
-	///
-	/// Even though we have asked for finality proof of block A, provider could return proof of
-	/// some earlier block B, if the proof for A was too large. The sync module should continue
-	/// asking for proof of A in this case.
-	fn finality_proof_imported(
-		&mut self,
-		_who: Origin,
-		_request_block: (B::Hash, NumberFor<B>),
-		_finalization_result: Result<(B::Hash, NumberFor<B>), ()>,
-	) {}
-	/// Request a finality proof for the given block.
-	fn request_finality_proof(&mut self, _hash: &B::Hash, _number: NumberFor<B>) {}
+	fn request_justification(&self, _hash: &B::Hash, _number: NumberFor<B>) {}
+	/// Disconnect from peer.
+	fn useless_peer(&self, _who: Origin, _reason: &str) {}
+	/// Disconnect from peer and restart sync.
+	fn note_useless_and_restart_sync(&self, _who: Origin, _reason: &str) {}
+	/// Restart sync.
+	fn restart(&self) {}
+	/// Synchronization request has been processed.
+	#[cfg(any(test, feature = "test-helpers"))]
+	fn synchronized(&self) {}
 }
 
 /// Block import successful result.

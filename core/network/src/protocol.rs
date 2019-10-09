@@ -23,22 +23,18 @@ use libp2p::core::{ConnectedPoint, nodes::Substream, muxing::StreamMuxerBox};
 use libp2p::swarm::{ProtocolsHandler, IntoProtocolsHandler};
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 use primitives::storage::StorageKey;
-use consensus::{import_queue::IncomingBlock, import_queue::Origin, BlockOrigin};
-use sr_primitives::{generic::BlockId, ConsensusEngineId, Justification};
-use sr_primitives::traits::{
-	Block as BlockT, Header as HeaderT, NumberFor, One, Zero,
-	CheckedSub, SaturatedConversion
-};
-use consensus::import_queue::{BlockImportResult, BlockImportError};
-use message::{BlockAttributes, Direction, FromBlock, Message, RequestId};
-use message::generic::{Message as GenericMessage, ConsensusMessage};
-use event::Event;
-use consensus_gossip::{ConsensusGossip, MessageRecipient as GossipMessageRecipient};
-use light_dispatch::{LightDispatch, LightDispatchNetwork, RequestData};
-use specialization::NetworkSpecialization;
-use sync::{ChainSync, SyncState};
-use crate::service::{TransactionPool, ExHashT};
-use crate::config::{BoxFinalityProofRequestBuilder, Roles};
+use runtime_primitives::{generic::BlockId, ConsensusEngineId};
+use runtime_primitives::traits::{As, Block as BlockT, Header as HeaderT, NumberFor, Zero};
+use consensus::import_queue::ImportQueue;
+use crate::message::{self, BlockRequest as BlockRequestMessage, Message};
+use crate::message::generic::{Message as GenericMessage, ConsensusMessage};
+use crate::consensus_gossip::ConsensusGossip;
+use crate::on_demand::OnDemandService;
+use crate::specialization::NetworkSpecialization;
+use crate::sync::{ChainSync, Status as SyncStatus, SyncState};
+use crate::service::{NetworkChan, NetworkMsg, TransactionPool, ExHashT};
+use crate::config::{ProtocolConfig, Roles};
+use parking_lot::RwLock;
 use rustc_hex::ToHex;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -277,6 +273,12 @@ pub trait Context<B: BlockT> {
 	/// Send a consensus message to a peer.
 	fn send_consensus(&mut self, who: PeerId, consensus: ConsensusMessage);
 
+	/// Request a block from a peer.
+	fn send_block_request(&mut self, who: PeerId, request: BlockRequestMessage<B>);
+
+	/// Send a consensus message to a peer.
+	fn send_consensus(&mut self, who: PeerId, consensus: ConsensusMessage);
+
 	/// Send a chain-specific message to a peer.
 	fn send_chain_specific(&mut self, who: PeerId, message: Vec<u8>);
 }
@@ -299,12 +301,8 @@ impl<'a, B: BlockT + 'a, H: 'a + ExHashT> ProtocolContext<'a, B, H> {
 }
 
 impl<'a, B: BlockT + 'a, H: ExHashT + 'a> Context<B> for ProtocolContext<'a, B, H> {
-	fn report_peer(&mut self, who: PeerId, reputation: i32) {
-		self.peerset_handle.report_peer(who, reputation)
-	}
-
-	fn disconnect_peer(&mut self, who: PeerId) {
-		self.behaviour.disconnect_peer(&who)
+	fn report_peer(&mut self, who: PeerId, reason: Severity) {
+		self.network_chan.send(NetworkMsg::ReportPeer(who, reason))
 	}
 
 	fn send_consensus(&mut self, who: PeerId, consensus: ConsensusMessage) {
@@ -324,6 +322,24 @@ impl<'a, B: BlockT + 'a, H: ExHashT + 'a> Context<B> for ProtocolContext<'a, B, 
 			GenericMessage::ChainSpecific(message)
 		)
 	}
+
+	fn send_block_request(&mut self, who: PeerId, request: BlockRequestMessage<B>) {
+		send_message(&mut self.context_data.peers, &self.network_chan, who,
+			GenericMessage::BlockRequest(request)
+		)
+	}
+
+	fn send_consensus(&mut self, who: PeerId, consensus: ConsensusMessage) {
+		send_message(&mut self.context_data.peers, &self.network_chan, who,
+			GenericMessage::Consensus(consensus)
+		)
+	}
+
+	fn send_chain_specific(&mut self, who: PeerId, message: Vec<u8>) {
+		send_message(&mut self.context_data.peers, &self.network_chan, who,
+			GenericMessage::ChainSpecific(message)
+		)
+	}
 }
 
 /// Data necessary to create a context.
@@ -333,11 +349,84 @@ struct ContextData<B: BlockT, H: ExHashT> {
 	pub chain: Arc<dyn Client<B>>,
 }
 
-/// Configuration for the Substrate-specific part of the networking layer.
-#[derive(Clone)]
-pub struct ProtocolConfig {
-	/// Assigned roles.
-	pub roles: Roles,
+/// A task, consisting of a user-provided closure, to be executed on the Protocol thread.
+pub trait SpecTask<B: BlockT, S: NetworkSpecialization<B>> {
+	fn call_box(self: Box<Self>, spec: &mut S, context: &mut Context<B>);
+}
+
+impl<B: BlockT, S: NetworkSpecialization<B>, F: FnOnce(&mut S, &mut Context<B>)> SpecTask<B, S> for F {
+	fn call_box(self: Box<F>, spec: &mut S, context: &mut Context<B>) {
+		(*self)(spec, context)
+	}
+}
+
+/// A task, consisting of a user-provided closure, to be executed on the Protocol thread.
+pub trait GossipTask<B: BlockT> {
+	fn call_box(self: Box<Self>, gossip: &mut ConsensusGossip<B>, context: &mut Context<B>);
+}
+
+impl<B: BlockT, F: FnOnce(&mut ConsensusGossip<B>, &mut Context<B>)> GossipTask<B> for F {
+	fn call_box(self: Box<F>, gossip: &mut ConsensusGossip<B>, context: &mut Context<B>) {
+		(*self)(gossip, context)
+	}
+}
+
+/// Messages sent to Protocol from elsewhere inside the system.
+pub enum ProtocolMsg<B: BlockT, S: NetworkSpecialization<B>> {
+	/// A batch of blocks has been processed, with or without errors.
+	BlocksProcessed(Vec<B::Hash>, bool),
+	/// Tell protocol to restart sync.
+	RestartSync,
+	/// Propagate status updates.
+	Status,
+	/// Tell protocol to propagate extrinsics.
+	PropagateExtrinsics,
+	/// Tell protocol that a block was imported (sent by the import-queue).
+	BlockImportedSync(B::Hash, NumberFor<B>),
+	/// Tell protocol to clear all pending justification requests.
+	ClearJustificationRequests,
+	/// Tell protocol to request justification for a block.
+	RequestJustification(B::Hash, NumberFor<B>),
+	/// Inform protocol whether a justification was successfully imported.
+	JustificationImportResult(B::Hash, NumberFor<B>, bool),
+	/// Propagate a block to peers.
+	AnnounceBlock(B::Hash),
+	/// A block has been imported (sent by the client).
+	BlockImported(B::Hash, B::Header),
+	/// A block has been finalized (sent by the client).
+	BlockFinalized(B::Hash, B::Header),
+	/// Execute a closure with the chain-specific network specialization.
+	ExecuteWithSpec(Box<SpecTask<B, S> + Send + 'static>),
+	/// Execute a closure with the consensus gossip.
+	ExecuteWithGossip(Box<GossipTask<B> + Send + 'static>),
+	/// Incoming gossip consensus message.
+	GossipConsensusMessage(B::Hash, ConsensusEngineId, Vec<u8>, bool),
+	/// Tell protocol to abort sync (does not stop protocol).
+	/// Only used in tests.
+	#[cfg(any(test, feature = "test-helpers"))]
+	Abort,
+	/// Tell protocol to abort sync and stop.
+	Stop,
+	/// Tell protocol to perform regular maintenance.
+	Tick,
+	/// Synchronization request.
+	#[cfg(any(test, feature = "test-helpers"))]
+	Synchronize,
+}
+
+/// Messages sent to Protocol from Network-libp2p.
+pub enum FromNetworkMsg<B: BlockT> {
+	/// A peer connected, with debug info.
+	PeerConnected(PeerId, String),
+	/// A peer disconnected, with debug info.
+	PeerDisconnected(PeerId, String),
+	/// A custom message from another peer.
+	CustomMessage(PeerId, Message<B>),
+	/// Let protocol know a peer is currenlty clogged.
+	PeerClogged(PeerId, Option<Message<B>>),
+	/// Synchronization request.
+	#[cfg(any(test, feature = "test-helpers"))]
+	Synchronize,
 }
 
 impl Default for ProtocolConfig {
@@ -395,24 +484,70 @@ impl<B: BlockT, S: NetworkSpecialization<B>, H: ExHashT> Protocol<B, S, H> {
 		self.behaviour.open_peers()
 	}
 
-	/// Returns true if we have a channel open with this node.
-	pub fn is_open(&self, peer_id: &PeerId) -> bool {
-		self.behaviour.is_open(peer_id)
+	fn handle_client_msg(&mut self, msg: ProtocolMsg<B, S>) -> bool {
+		match msg {
+			ProtocolMsg::Status => self.on_status(),
+			ProtocolMsg::BlockImported(hash, header) => self.on_block_imported(hash, &header),
+			ProtocolMsg::BlockFinalized(hash, header) => self.on_block_finalized(hash, &header),
+			ProtocolMsg::ExecuteWithSpec(task) => {
+				let mut context =
+					ProtocolContext::new(&mut self.context_data, &self.network_chan);
+				task.call_box(&mut self.specialization, &mut context);
+			},
+			ProtocolMsg::ExecuteWithGossip(task) => {
+				let mut context =
+					ProtocolContext::new(&mut self.context_data, &self.network_chan);
+				task.call_box(&mut self.consensus_gossip, &mut context);
+			}
+			ProtocolMsg::GossipConsensusMessage(topic, engine_id, message, force) => {
+				self.gossip_consensus_message(topic, engine_id, message, force)
+			}
+			ProtocolMsg::BlocksProcessed(hashes, has_error) => {
+				self.sync.blocks_processed(hashes, has_error);
+				let mut context =
+					ProtocolContext::new(&mut self.context_data, &self.network_chan);
+				self.sync.maintain_sync(&mut context);
+			},
+			ProtocolMsg::RestartSync => {
+				let mut context =
+					ProtocolContext::new(&mut self.context_data, &self.network_chan);
+				self.sync.restart(&mut context);
+			}
+			ProtocolMsg::AnnounceBlock(hash) => self.announce_block(hash),
+			ProtocolMsg::BlockImportedSync(hash, number) => self.sync.block_imported(&hash, number),
+			ProtocolMsg::ClearJustificationRequests => self.sync.clear_justification_requests(),
+			ProtocolMsg::RequestJustification(hash, number) => {
+				let mut context =
+					ProtocolContext::new(&mut self.context_data, &self.network_chan);
+				self.sync.request_justification(&hash, number, &mut context);
+			},
+			ProtocolMsg::JustificationImportResult(hash, number, success) => self.sync.justification_import_result(hash, number, success),
+			ProtocolMsg::PropagateExtrinsics => self.propagate_extrinsics(),
+			ProtocolMsg::Tick => self.tick(),
+			#[cfg(any(test, feature = "test-helpers"))]
+			ProtocolMsg::Abort => self.abort(),
+			ProtocolMsg::Stop => {
+				self.stop();
+				return false;
+			},
+			#[cfg(any(test, feature = "test-helpers"))]
+			ProtocolMsg::Synchronize => self.network_chan.send(NetworkMsg::Synchronized),
+		}
+		true
 	}
 
-	/// Disconnects the given peer if we are connected to it.
-	pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
-		self.behaviour.disconnect_peer(peer_id)
-	}
-
-	/// Returns true if we try to open protocols with the given peer.
-	pub fn is_enabled(&self, peer_id: &PeerId) -> bool {
-		self.behaviour.is_enabled(peer_id)
-	}
-
-	/// Returns the state of the peerset manager, for debugging purposes.
-	pub fn peerset_debug_info(&mut self) -> serde_json::Value {
-		self.behaviour.peerset_debug_info()
+	fn handle_network_msg(&mut self, msg: FromNetworkMsg<B>) -> bool {
+		match msg {
+			FromNetworkMsg::PeerDisconnected(who, debug_info) => self.on_peer_disconnected(who, debug_info),
+			FromNetworkMsg::PeerConnected(who, debug_info) => self.on_peer_connected(who, debug_info),
+			FromNetworkMsg::PeerClogged(who, message) => self.on_clogged_peer(who, message),
+			FromNetworkMsg::CustomMessage(who, message) => {
+				self.on_custom_message(who, message)
+			},
+			#[cfg(any(test, feature = "test-helpers"))]
+			FromNetworkMsg::Synchronize => self.network_chan.send(NetworkMsg::Synchronized),
+		}
+		true
 	}
 
 	/// Returns the number of peers we're connected to.

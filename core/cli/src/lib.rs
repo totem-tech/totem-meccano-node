@@ -39,8 +39,8 @@ use network::{
 use primitives::H256;
 
 use std::{
-	io::{Write, Read, Seek, Cursor, stdin, stdout, ErrorKind}, iter, fs::{self, File},
-	net::{Ipv4Addr, SocketAddr}, path::{Path, PathBuf}, str::FromStr,
+	io::{Write, Read, stdin, stdout, ErrorKind}, iter, fs::{self, File}, net::{Ipv4Addr, SocketAddr},
+	path::{Path, PathBuf}, str::FromStr,
 };
 
 use names::{Generator, Name};
@@ -56,7 +56,8 @@ use params::{
 pub use params::{NoCustom, CoreParams, SharedParams, ExecutionStrategy as ExecutionStrategyParam};
 pub use traits::{GetLogFilter, AugmentClap};
 use app_dirs::{AppInfo, AppDataType};
-use log::info;
+use error_chain::bail;
+use log::{info, SetLoggerError};
 use lazy_static::lazy_static;
 
 use futures::Future;
@@ -209,7 +210,7 @@ where
 		.get_matches_from(args);
 	let cli_args = CoreParams::<CC, RP>::from_clap(&matches);
 
-	init_logger(cli_args.get_log_filter().as_ref().map(|v| v.as_ref()).unwrap_or(""));
+	let _ = init_logger(cli_args.get_log_filter().as_ref().map(|v| v.as_ref()).unwrap_or(""));
 	fdlimit::raise_fd_limit();
 
 	match cli_args {
@@ -580,33 +581,7 @@ fn fill_network_configuration(
 	config.in_peers = cli.in_peers;
 	config.out_peers = cli.out_peers;
 
-	config.transport = TransportConfig::Normal {
-		enable_mdns: !is_dev && !cli.no_mdns,
-		wasm_external_transport: None,
-	};
-
-	Ok(())
-}
-
-fn input_keystore_password() -> Result<String, String> {
-	rpassword::read_password_from_tty(Some("Keystore password: "))
-		.map_err(|e| format!("{:?}", e))
-}
-
-/// Fill the password field of the given config instance.
-fn fill_config_keystore_password<C, G>(
-	config: &mut service::Configuration<C, G>,
-	cli: &RunCmd,
-) -> Result<(), String> {
-	config.keystore_password = if cli.password_interactive {
-		Some(input_keystore_password()?.into())
-	} else if let Some(ref file) = cli.password_filename {
-		Some(fs::read_to_string(file).map_err(|e| format!("{}", e))?.into())
-	} else if let Some(ref password) = cli.password {
-		Some(password.clone().into())
-	} else {
-		None
-	};
+	config.enable_mdns = !is_dev && !cli.no_mdns;
 
 	Ok(())
 }
@@ -691,6 +666,8 @@ where
 
 	config.roles = role;
 	config.disable_grandpa = cli.no_grandpa;
+
+	let is_dev = cli.shared_params.dev;
 
 	let client_id = config.client_id();
 	fill_network_configuration(
@@ -800,7 +777,97 @@ where
 /// Internal trait used to cast to a dynamic type that implements Read and Seek.
 trait ReadPlusSeek: Read + Seek {}
 
-impl<T: Read + Seek> ReadPlusSeek for T {}
+	info!("DB path: {}", config.database_path);
+	let from = cli.from.unwrap_or(1);
+	let to = cli.to;
+	let json = cli.json;
+
+	let file: Box<Write> = match cli.output {
+		Some(filename) => Box::new(File::create(filename)?),
+		None => Box::new(stdout()),
+	};
+
+	service::chain_ops::export_blocks::<F, _, _>(
+		config, exit.into_exit(), file, As::sa(from), to.map(As::sa), json
+	).map_err(Into::into)
+}
+
+fn import_blocks<F, E, S>(
+	cli: ImportBlocksCmd,
+	spec_factory: S,
+	exit: E,
+	version: &VersionInfo,
+) -> error::Result<()>
+where
+	F: ServiceFactory,
+	E: IntoExit,
+	S: FnOnce(&str) -> Result<Option<ChainSpec<FactoryGenesis<F>>>, String>,
+{
+	let config = create_config_with_db_path::<F, _>(spec_factory, &cli.shared_params, version)?;
+
+	let file: Box<Read> = match cli.input {
+		Some(filename) => Box::new(File::open(filename)?),
+		None => Box::new(stdin()),
+	};
+
+	service::chain_ops::import_blocks::<F, _, _>(config, exit.into_exit(), file).map_err(Into::into)
+}
+
+fn revert_chain<F, S>(
+	cli: RevertCmd,
+	spec_factory: S,
+	version: &VersionInfo,
+) -> error::Result<()>
+where
+	F: ServiceFactory,
+	S: FnOnce(&str) -> Result<Option<ChainSpec<FactoryGenesis<F>>>, String>,
+{
+	let config = create_config_with_db_path::<F, _>(spec_factory, &cli.shared_params, version)?;
+	let blocks = cli.num;
+	Ok(service::chain_ops::revert_chain::<F>(config, As::sa(blocks))?)
+}
+
+fn purge_chain<F, S>(
+	cli: PurgeChainCmd,
+	spec_factory: S,
+	version: &VersionInfo,
+) -> error::Result<()>
+where
+	F: ServiceFactory,
+	S: FnOnce(&str) -> Result<Option<ChainSpec<FactoryGenesis<F>>>, String>,
+{
+	let config = create_config_with_db_path::<F, _>(spec_factory, &cli.shared_params, version)?;
+	let db_path = config.database_path;
+
+	if cli.yes == false {
+		print!("Are you sure to remove {:?}? (y/n)", &db_path);
+		stdout().flush().expect("failed to flush stdout");
+
+		let mut input = String::new();
+		stdin().read_line(&mut input)?;
+		let input = input.trim();
+
+		match input.chars().nth(0) {
+			Some('y') | Some('Y') => {},
+			_ => {
+				println!("Aborted");
+				return Ok(());
+			},
+		}
+	}
+
+	match fs::remove_dir_all(&db_path) {
+		Result::Ok(_) => {
+			println!("{:?} removed.", &db_path);
+			Ok(())
+		},
+		Result::Err(ref err) if err.kind() == ErrorKind::NotFound => {
+			println!("{:?} did not exist.", &db_path);
+			Ok(())
+		},
+		Result::Err(err) => Result::Err(err.into())
+	}
+}
 
 fn parse_address(
 	address: &str,
@@ -840,7 +907,7 @@ fn network_path(base_path: &Path, chain_id: &str) -> PathBuf {
 	path
 }
 
-fn init_logger(pattern: &str) {
+fn init_logger(pattern: &str) -> Result<(), SetLoggerError> {
 	use ansi_term::Colour;
 
 	let mut builder = env_logger::Builder::new();
@@ -893,7 +960,7 @@ fn init_logger(pattern: &str) {
 		writeln!(buf, "{}", output)
 	});
 
-	builder.init();
+	builder.try_init()
 }
 
 fn kill_color(s: &str) -> String {

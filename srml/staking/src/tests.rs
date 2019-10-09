@@ -1370,44 +1370,93 @@ fn phragmen_poc_works() {
 		assert_eq!(Staking::stakers(11).others.iter().map(|e| e.who).collect::<Vec<BalanceOf<Test>>>(), vec![3, 1]);
 		assert_eq!(Staking::stakers(21).others.iter().map(|e| e.who).collect::<Vec<BalanceOf<Test>>>(), vec![3, 1]);
 
-		if cfg!(feature = "equalize") {
-			assert_eq_uvec!(
-				Staking::stakers(11).others.iter().map(|e| e.value).collect::<Vec<BalanceOf<Test>>>(),
-				vec![333, 166]
-			);
-			assert_eq!(
-				Staking::stakers(11).others.iter().map(|e| e.value).sum::<BalanceOf<Test>>(),
-				499
-			);
-			assert_eq_uvec!(
-				Staking::stakers(21).others.iter().map(|e| e.value).collect::<Vec<BalanceOf<Test>>>(),
-				vec![333, 166]
-			);
-			assert_eq!(
-				Staking::stakers(21).others.iter().map(|e| e.value).sum::<BalanceOf<Test>>(),
-				499
-			);
-		} else {
-			assert_eq_uvec!(
-				Staking::stakers(11).others.iter().map(|e| e.value).collect::<Vec<BalanceOf<Test>>>(),
-				vec![166, 166]
-			);
-			assert_eq!(
-				Staking::stakers(11).others.iter().map(|e| e.value).sum::<BalanceOf<Test>>(),
-				332
-			);
-			assert_eq_uvec!(
-				Staking::stakers(21).others.iter().map(|e| e.value).collect::<Vec<BalanceOf<Test>>>(),
-				vec![333, 333]
-			);
-			assert_eq!(
-				Staking::stakers(21).others.iter().map(|e| e.value).sum::<BalanceOf<Test>>(),
-				666
-			);
-		}
-		check_exposure_all();
-		check_nominator_all();
-	});
+#[test]
+fn phragmen_election_works_with_post_processing() {
+	// tests the encapsulated phragmen::elect function.
+	// Votes  [
+	// 	('10', 1000, ['10']),
+	// 	('20', 1000, ['20']),
+	// 	('30', 1000, ['30']),
+	// 	('2', 50, ['10', '20']),
+	// 	('4', 1000, ['10', '30'])
+	// ]
+	// Sequential Phragmén gives
+	// 10  is elected with stake  1705.7377049180327 and score  0.0004878048780487805
+	// 30  is elected with stake  1344.2622950819673 and score  0.0007439024390243903
+
+	// 10  has load  0.0004878048780487805 and supported
+	// 10  with stake  1000.0
+	// 20  has load  0 and supported
+	// 20  with stake  0
+	// 30  has load  0.0007439024390243903 and supported
+	// 30  with stake  1000.0
+	// 2  has load  0.0004878048780487805 and supported
+	// 10  with stake  50.0 20  with stake  0.0
+	// 4  has load  0.0007439024390243903 and supported
+	// 10  with stake  655.7377049180328 30  with stake  344.26229508196724
+
+	// Sequential Phragmén with post processing gives
+	// 10  is elected with stake  1525.0 and score  0.0004878048780487805
+	// 30  is elected with stake  1525.0 and score  0.0007439024390243903
+
+	// 10  has load  0.0004878048780487805 and supported
+	// 10  with stake  1000.0
+	// 20  has load  0 and supported
+	// 20  with stake  0
+	// 30  has load  0.0007439024390243903 and supported
+	// 30  with stake  1000.0
+	// 2  has load  0.0004878048780487805 and supported
+	// 10  with stake  50.0 20  with stake  0.0
+	// 4  has load  0.0007439024390243903 and supported
+	// 10  with stake  475.0 30  with stake  525.0
+	with_externalities(&mut ExtBuilder::default().nominate(false).build(), || {
+		// initial setup of 10 and 20, both validators
+		assert_eq_uvec!(Session::validators(), vec![20, 10]);
+
+		// Bond [30, 31] as the third validator
+		assert_ok!(Staking::bond_extra(Origin::signed(31), 999));
+		assert_ok!(Staking::validate(Origin::signed(30), ValidatorPrefs::default()));
+
+		// bond [2,1](A), [4,3](B), as 2 nominators
+		for i in &[1, 3] { let _ = Balances::deposit_creating(i, 2000); }
+
+		assert_ok!(Staking::bond(Origin::signed(1), 2, 50, RewardDestination::default()));
+		assert_ok!(Staking::nominate(Origin::signed(2), vec![11, 21]));
+
+		assert_ok!(Staking::bond(Origin::signed(3), 4, 1000, RewardDestination::default()));
+		assert_ok!(Staking::nominate(Origin::signed(4), vec![11, 31]));
+
+		let winners = phragmen::elect::<Test, _, _, _>(
+			2,
+			Staking::minimum_validator_count() as usize,
+			<Validators<Test>>::enumerate(),
+			<Nominators<Test>>::enumerate(),
+			Staking::slashable_balance_of,
+			ElectionConfig::<BalanceOf<Test>> {
+				equalize: true,
+				tolerance: <BalanceOf<Test>>::sa(10 as u64),
+				iterations: 10,
+			}
+		);
+
+		let winners = winners.unwrap();
+
+		// 10 and 30 must be the winners
+		assert_eq!(winners.iter().map(|w| w.who).collect::<Vec<BalanceOf<Test>>>(), vec![11, 31]);
+
+		let winner_10 = winners.iter().filter(|w| w.who == 11).nth(0).unwrap();
+		let winner_30 = winners.iter().filter(|w| w.who == 31).nth(0).unwrap();
+
+		// Check exposures
+		assert_eq!(winner_10.exposure.total, 1000 + 525);
+		assert_eq!(winner_10.score, PerU128::from_max_value(165991398498018762665060784113057664));
+		assert_eq!(winner_10.exposure.others[0].value, 475);
+		assert_eq!(winner_10.exposure.others[1].value, 50);
+
+		assert_eq!(winner_30.exposure.total, 1000 + 525);
+		assert_eq!(winner_30.score, PerU128::from_max_value(253136882709478612992230401826229321));
+		assert_eq!(winner_30.exposure.others[0].value, 525);
+	})
 }
 
 #[test]
@@ -1767,32 +1816,59 @@ fn phragmen_should_not_overflow_ultimate() {
 
 
 #[test]
-fn phragmen_large_scale_test() {
+fn large_scale_test() {
 	with_externalities(&mut ExtBuilder::default()
-		.nominate(false)
-		.minimum_validator_count(1)
-		.validator_count(20)
-		.build(),
-	|| {
+	.nominate(false)
+	.minimum_validator_count(1)
+	.validator_count(20)
+	.build()
+	, || {
 		let _ = Staking::chill(Origin::signed(10));
 		let _ = Staking::chill(Origin::signed(20));
-		let _ = Staking::chill(Origin::signed(30));
+
+		let bond_validator = |a, b| {
+			assert_ok!(Staking::bond(Origin::signed(a-1), a, b, RewardDestination::Controller));
+			assert_ok!(Staking::validate(Origin::signed(a), ValidatorPrefs::default()));
+		};
+		let bond_nominator = |a, b, v| {
+			assert_ok!(Staking::bond(Origin::signed(a-1), a, b, RewardDestination::Controller));
+			assert_ok!(Staking::nominate(Origin::signed(a), v));
+		};
+		let check_expo = |e: Exposure<u64, u64>| {
+			assert_eq!(e.total, e.own + e.others.iter().fold(0, |s, v| s + v.value));
+		};
+
 		let prefix = 200;
+		for i in prefix..=(prefix+50) {
+			let _ = Balances::make_free_balance_be(&i, u64::max_value());
+		}
 
 		bond_validator(prefix + 2,  1);
-		bond_validator(prefix + 4,  100);
-		bond_validator(prefix + 6,  1000000);
+		bond_validator(prefix + 4,  105);
+		bond_validator(prefix + 6,  3879248198);
 		bond_validator(prefix + 8,  100000000001000);
 		bond_validator(prefix + 10, 100000000002000);
-		bond_validator(prefix + 12, 100000000003000);
+		bond_validator(prefix + 12, 150000000000000);
 		bond_validator(prefix + 14, 400000000000000);
-		bond_validator(prefix + 16, 400000000001000);
-		bond_validator(prefix + 18, 18000000000000000);
-		bond_validator(prefix + 20, 20000000000000000);
-		bond_validator(prefix + 22, 500000000000100000);
-		bond_validator(prefix + 24, 500000000000200000);
+		bond_validator(prefix + 16, 524611669156413);
+		bond_validator(prefix + 18, 700000000000000);
+		bond_validator(prefix + 20, 797663650978304);
+		bond_validator(prefix + 22, 900003879248198);
+		bond_validator(prefix + 24, 997530000000000);
+		bond_validator(prefix + 26, 1000000000010000);
+		bond_validator(prefix + 28, 1000000000020000);
+		bond_validator(prefix + 30, 1000003879248198);
+		bond_validator(prefix + 32, 1200000000000000);
+		bond_validator(prefix + 34, 7997659802817256);
+		bond_validator(prefix + 36, 18000000000000000);
+		bond_validator(prefix + 38, 20000033025753738);
+		bond_validator(prefix + 40, 500000000000100000);
+		bond_validator(prefix + 42, 500000000000200000);
 
-		bond_nominator(50, 990000000000000000, vec![
+		Balances::make_free_balance_be(&50, u64::max_value());
+		Balances::make_free_balance_be(&49, u64::max_value());
+		bond_nominator(50, 990000068998617227, vec![
+			prefix + 1,
 			prefix + 3,
 			prefix + 5,
 			prefix + 7,
@@ -1804,301 +1880,38 @@ fn phragmen_large_scale_test() {
 			prefix + 19,
 			prefix + 21,
 			prefix + 23,
-			prefix + 25]
+			prefix + 25,
+			prefix + 27,
+			prefix + 29,
+			prefix + 31,
+			prefix + 33,
+			prefix + 35,
+			prefix + 37,
+			prefix + 39,
+			prefix + 41,
+			prefix + 43,
+			prefix + 45]
 		);
 
-		start_era(1);
-
-		check_exposure_all();
-		check_nominator_all();
-	})
-}
-
-#[test]
-fn phragmen_large_scale_test_2() {
-	with_externalities(&mut ExtBuilder::default()
-		.nominate(false)
-		.minimum_validator_count(1)
-		.validator_count(2)
-		.build(),
-	|| {
-		let _ = Staking::chill(Origin::signed(10));
-		let _ = Staking::chill(Origin::signed(20));
-		let nom_budget: u64 = 1_000_000_000_000_000_000;
-		let c_budget: u64 = 4_000_000;
-
-		bond_validator(2, c_budget as u64);
-		bond_validator(4, c_budget as u64);
-
-		bond_nominator(50, nom_budget, vec![3, 5]);
-
-		start_era(1);
+		System::set_block_number(1);
+		Session::check_rotate_session(System::block_number());
 
 		// Each exposure => total == own + sum(others)
-		check_exposure_all();
-		check_nominator_all();
+		Session::validators().iter().for_each(|acc| check_expo(Staking::stakers(acc-1)));
 
-		assert_total_expo(3, nom_budget / 2 + c_budget);
-		assert_total_expo(5, nom_budget / 2 + c_budget);
-	})
-}
-
-#[test]
-fn reward_validator_slashing_validator_doesnt_overflow() {
-	with_externalities(&mut ExtBuilder::default()
-		.build(),
-	|| {
-		let stake = u32::max_value() as u64 * 2;
-		let reward_slash = u32::max_value() as u64 * 2;
-
-		// Assert multiplication overflows in balance arithmetic.
-		assert!(stake.checked_mul(reward_slash).is_none());
-
-		// Set staker
-		let _ = Balances::make_free_balance_be(&11, stake);
-		<Stakers<Test>>::insert(&11, Exposure { total: stake, own: stake, others: vec![] });
-
-		// Check reward
-		let _ = Staking::reward_validator(&11, reward_slash);
-		assert_eq!(Balances::total_balance(&11), stake * 2);
-
-		// Set staker
-		let _ = Balances::make_free_balance_be(&11, stake);
-		let _ = Balances::make_free_balance_be(&2, stake);
-		<Stakers<Test>>::insert(&11, Exposure { total: stake, own: 1, others: vec![
-			IndividualExposure { who: 2, value: stake - 1 }
-		]});
-
-		// Check slashing
-		let _ = Staking::slash_validator(&11, reward_slash, &Staking::stakers(&11), &mut Vec::new());
-		assert_eq!(Balances::total_balance(&11), stake - 1);
-		assert_eq!(Balances::total_balance(&2), 1);
-	})
-}
-
-#[test]
-fn reward_from_authorship_event_handler_works() {
-	with_externalities(&mut ExtBuilder::default()
-		.build(),
-	|| {
-		use authorship::EventHandler;
-
-		assert_eq!(<authorship::Module<Test>>::author(), 11);
-
-		<Module<Test>>::note_author(11);
-		<Module<Test>>::note_uncle(21, 1);
-		// An uncle author that is not currently elected doesn't get rewards,
-		// but the block producer does get reward for referencing it.
-		<Module<Test>>::note_uncle(31, 1);
-		// Rewarding the same two times works.
-		<Module<Test>>::note_uncle(11, 1);
-
-		// Not mandatory but must be coherent with rewards
-		assert_eq!(<CurrentElected<Test>>::get(), vec![21, 11]);
-
-		// 21 is rewarded as an uncle producer
-		// 11 is rewarded as a block producer and uncle referencer and uncle producer
-		assert_eq!(CurrentEraPointsEarned::get().individual, vec![1, 20 + 2 * 3 + 1]);
-		assert_eq!(CurrentEraPointsEarned::get().total, 28);
-	})
-}
-
-#[test]
-fn add_reward_points_fns_works() {
-	with_externalities(&mut ExtBuilder::default()
-		.build(),
-	|| {
-		let validators = <Module<Test>>::current_elected();
-		// Not mandatory but must be coherent with rewards
-		assert_eq!(validators, vec![21, 11]);
-
-		<Module<Test>>::reward_by_indices(vec![
-			(0, 1),
-			(1, 1),
-			(2, 1),
-			(1, 1),
-		]);
-
-		<Module<Test>>::reward_by_ids(vec![
-			(21, 1),
-			(11, 1),
-			(31, 1),
-			(11, 1),
-		]);
-
-		assert_eq!(CurrentEraPointsEarned::get().individual, vec![2, 4]);
-		assert_eq!(CurrentEraPointsEarned::get().total, 6);
-	})
-}
-
-#[test]
-fn unbonded_balance_is_not_slashable() {
-	with_externalities(&mut ExtBuilder::default().build(), || {
-		// total amount staked is slashable.
-		assert_eq!(Staking::slashable_balance_of(&11), 1000);
-
-		assert_ok!(Staking::unbond(Origin::signed(10),  800));
-
-		// only the active portion.
-		assert_eq!(Staking::slashable_balance_of(&11), 200);
-	})
-}
-
-#[test]
-fn era_is_always_same_length() {
-	// This ensures that the sessions is always of the same length if there is no forcing no
-	// session changes.
-	with_externalities(&mut ExtBuilder::default().build(), || {
-		start_era(1);
-		assert_eq!(Staking::current_era_start_session_index(), SessionsPerEra::get());
-
-		start_era(2);
-		assert_eq!(Staking::current_era_start_session_index(), SessionsPerEra::get() * 2);
-
-		let session = Session::current_index();
-		ForceEra::put(Forcing::ForceNew);
-		advance_session();
-		assert_eq!(Staking::current_era(), 3);
-		assert_eq!(Staking::current_era_start_session_index(), session + 1);
-
-		start_era(4);
-		assert_eq!(Staking::current_era_start_session_index(), session + SessionsPerEra::get() + 1);
-	});
-}
-
-#[test]
-fn offence_forces_new_era() {
-	with_externalities(&mut ExtBuilder::default().build(), || {
-		Staking::on_offence(
-			&[OffenceDetails {
-				offender: (
-					11,
-					Staking::stakers(&11),
-				),
-				reporters: vec![],
-			}],
-			&[Perbill::from_percent(5)],
+		// aside from some error, stake must be divided correctly
+		assert!(
+			990000068998617227
+			- Session::validators()
+				.iter()
+				.map(|v| Staking::stakers(v-1))
+				.fold(0, |s, v| if v.others.len() > 0 { s + v.others[0].value } else { s })
+			< 100
 		);
 
-		assert_eq!(Staking::force_era(), Forcing::ForceNew);
-	});
-}
-
-#[test]
-fn slashing_performed_according_exposure() {
-	// This test checks that slashing is performed according the exposure (or more precisely,
-	// historical exposure), not the current balance.
-	with_externalities(&mut ExtBuilder::default().build(), || {
-		assert_eq!(Staking::stakers(&11).own, 1000);
-
-		// Handle an offence with a historical exposure.
-		Staking::on_offence(
-			&[OffenceDetails {
-				offender: (
-					11,
-					Exposure {
-						total: 500,
-						own: 500,
-						others: vec![],
-					},
-				),
-				reporters: vec![],
-			}],
-			&[Perbill::from_percent(50)],
-		);
-
-		// The stash account should be slashed for 250 (50% of 500).
-		assert_eq!(Balances::free_balance(&11), 1000 - 250);
-	});
-}
-
-#[test]
-fn reporters_receive_their_slice() {
-	// This test verifies that the reporters of the offence receive their slice from the slashed
-	// amount.
-	with_externalities(&mut ExtBuilder::default().build(), || {
-		// The reporters' reward is calculated from the total exposure.
-		#[cfg(feature = "equalize")]
-		let initial_balance = 1250;
-		#[cfg(not(feature = "equalize"))]
-		let initial_balance = 1125;
-
-		assert_eq!(Staking::stakers(&11).total, initial_balance);
-
-		Staking::on_offence(
-			&[OffenceDetails {
-				offender: (
-					11,
-					Staking::stakers(&11),
-				),
-				reporters: vec![1, 2],
-			}],
-			&[Perbill::from_percent(50)],
-		);
-
-		// initial_balance x 50% (slash fraction) x 10% (rewards slice)
-		let reward = initial_balance / 20 / 2;
-		assert_eq!(Balances::free_balance(&1), 10 + reward);
-		assert_eq!(Balances::free_balance(&2), 20 + reward);
-	});
-}
-
-#[test]
-fn invulnerables_are_not_slashed() {
-	// For invulnerable validators no slashing is performed.
-	with_externalities(
-		&mut ExtBuilder::default().invulnerables(vec![11]).build(),
-		|| {
-			#[cfg(feature = "equalize")]
-			let initial_balance = 1250;
-			#[cfg(not(feature = "equalize"))]
-			let initial_balance = 1375;
-
-			assert_eq!(Balances::free_balance(&11), 1000);
-			assert_eq!(Balances::free_balance(&21), 2000);
-			assert_eq!(Staking::stakers(&21).total, initial_balance);
-
-			Staking::on_offence(
-				&[
-					OffenceDetails {
-						offender: (11, Staking::stakers(&11)),
-						reporters: vec![],
-					},
-					OffenceDetails {
-						offender: (21, Staking::stakers(&21)),
-						reporters: vec![],
-					},
-				],
-				&[Perbill::from_percent(50), Perbill::from_percent(20)],
-			);
-
-			// The validator 11 hasn't been slashed, but 21 has been.
-			assert_eq!(Balances::free_balance(&11), 1000);
-			// 2000 - (0.2 * initial_balance)
-			assert_eq!(Balances::free_balance(&21), 2000 - (2 * initial_balance / 10));
-		},
-	);
-}
-
-#[test]
-fn dont_slash_if_fraction_is_zero() {
-	// Don't slash if the fraction is zero.
-	with_externalities(&mut ExtBuilder::default().build(), || {
-		assert_eq!(Balances::free_balance(&11), 1000);
-
-		Staking::on_offence(
-			&[OffenceDetails {
-				offender: (
-					11,
-					Staking::stakers(&11),
-				),
-				reporters: vec![],
-			}],
-			&[Perbill::from_percent(0)],
-		);
-
-		// The validator hasn't been slashed. The new era is not forced.
-		assert_eq!(Balances::free_balance(&11), 1000);
-		assert_eq!(Staking::force_era(), Forcing::NotForcing);
-	});
+		// For manual inspection
+		println!("Validators are {:?}", Session::validators());
+		println!("Validators are {:#?}",
+			Session::validators().iter().map(|v| (v.clone(), Staking::stakers(v-1)) ).collect::<Vec<(u64, Exposure<u64, u64>)>>());
+	})
 }

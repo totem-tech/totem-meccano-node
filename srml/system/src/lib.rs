@@ -93,27 +93,12 @@ use serde::Serialize;
 use rstd::prelude::*;
 #[cfg(any(feature = "std", test))]
 use rstd::map;
-use rstd::marker::PhantomData;
-use sr_version::RuntimeVersion;
-use sr_primitives::{
-	generic::{self, Era}, Perbill, ApplyError, ApplyOutcome, DispatchError,
-	weights::{Weight, DispatchInfo, DispatchClass, WeightMultiplier, SimpleDispatchInfo},
-	transaction_validity::{
-		ValidTransaction, TransactionPriority, TransactionLongevity, TransactionValidityError,
-		InvalidTransaction, TransactionValidity,
-	},
-	traits::{
-		self, CheckEqual, SimpleArithmetic, Zero, SignedExtension, Convert, Lookup, LookupError,
-		SimpleBitOps, Hash, Member, MaybeDisplay, EnsureOrigin, SaturatedConversion,
-		MaybeSerializeDebugButNotDeserialize, MaybeSerializeDebug, StaticLookup, One, Bounded,
-	},
-};
-
-use primitives::storage::well_known_keys;
-use support::{
-	storage, decl_module, decl_event, decl_storage, StorageDoubleMap, StorageValue, StorageMap,
-	Parameter, traits::{Contains, Get}, decl_error,
-};
+use primitives::traits::{self, CheckEqual, SimpleArithmetic, SimpleBitOps, Zero, One, Bounded, Lookup,
+	Hash, Member, MaybeDisplay, EnsureOrigin, Digest as DigestT, As, CurrentHeight, BlockNumberToHash,
+	MaybeSerializeDebugButNotDeserialize, MaybeSerializeDebug, StaticLookup};
+use substrate_primitives::storage::well_known_keys;
+use srml_support::{storage, StorageValue, StorageMap, Parameter, decl_module, decl_event,
+	decl_storage, for_each_tuple};
 use safe_mix::TripletMix;
 use codec::{Encode, Decode};
 
@@ -132,7 +117,25 @@ pub trait OnNewAccount<AccountId> {
 	fn on_new_account(who: &AccountId);
 }
 
-/// Determiner to say whether a given account is unused.
+macro_rules! impl_on_new_account {
+	() => (
+		impl<AccountId> OnNewAccount<AccountId> for () {
+			fn on_new_account(_: &AccountId) {}
+		}
+	);
+
+	( $($t:ident)* ) => {
+		impl<AccountId, $($t: OnNewAccount<AccountId>),*> OnNewAccount<AccountId> for ($($t,)*) {
+			fn on_new_account(who: &AccountId) {
+				$($t::on_new_account(who);)*
+			}
+		}
+	}
+}
+
+for_each_tuple!(impl_on_new_account);
+
+/// Determinator to say whether a given account is unused.
 pub trait IsDeadAccount<AccountId> {
 	/// Is the given account dead?
 	fn is_dead_account(who: &AccountId) -> bool;

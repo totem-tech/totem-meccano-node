@@ -63,9 +63,7 @@ pub use core::num;
 pub use core::ops;
 pub use core::ptr;
 pub use core::result;
-pub use core::slice;
-// Allow intepreting vectors of bytes as strings, but not constructing them.
-pub use core::str;
+pub use core::convert;
 // We are trying to avoid certain things here, such as `core::string`
 // (if you need `String` you are probably doing something wrong, since
 // runtime doesn't require anything human readable).
@@ -73,10 +71,4 @@ pub use core::str;
 pub mod collections {
 	pub use alloc::collections::btree_map;
 	pub use alloc::collections::btree_set;
-	pub use alloc::collections::vec_deque;
-}
-
-pub mod borrow {
-	pub use core::borrow::*;
-	pub use alloc::borrow::*;
 }

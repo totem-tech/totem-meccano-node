@@ -8,8 +8,8 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 use rstd::{vec::Vec, slice, vec};
 
 use runtime_io::{
-	set_storage, storage, clear_prefix, blake2_128, blake2_256,
-	twox_128, twox_256, ed25519_verify, sr25519_verify,
+	set_storage, storage, clear_prefix, print, blake2_128, blake2_256,
+	twox_128, twox_256, ed25519_verify, sr25519_verify, enumerated_trie_root
 };
 use sr_primitives::{print, traits::{BlakeTwo256, Hash}};
 use primitives::{ed25519, sr25519};

@@ -99,13 +99,10 @@ decl_storage! {
 
 		/// The enumeration sets.
 		pub EnumSet get(enum_set) build(|config: &GenesisConfig<T>| {
-			(0..((config.ids.len() as u32) + ENUM_SET_SIZE - 1) / ENUM_SET_SIZE)
+			(0..(config.ids.len() + ENUM_SET_SIZE - 1) / ENUM_SET_SIZE)
 				.map(|i| (
-					i.into(),
-					config.ids[
-						(i * ENUM_SET_SIZE) as usize..
-						config.ids.len().min(((i + 1) * ENUM_SET_SIZE) as usize)
-					].to_owned(),
+					T::AccountIndex::sa(i),
+					config.ids[i * ENUM_SET_SIZE..config.ids.len().min((i + 1) * ENUM_SET_SIZE)].to_owned(),
 				))
 				.collect::<Vec<_>>()
 		}): map T::AccountIndex => Vec<T::AccountId>;

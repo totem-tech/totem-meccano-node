@@ -27,14 +27,16 @@ use wasmi::{
 	Module, ModuleInstance, MemoryInstance, MemoryRef, TableRef, ImportsBuilder, ModuleRef,
 	memory_units::Pages, RuntimeValue::{I32, I64, self},
 };
-use crate::error::{Error, Result};
-use codec::{Encode, Decode};
-use primitives::{
-	blake2_128, blake2_256, twox_64, twox_128, twox_256, ed25519, sr25519, Pair, crypto::KeyTypeId,
-	offchain, sandbox as sandbox_primitives, Blake2Hasher,
-	traits::Externalities,
-};
-use trie::{TrieConfiguration, trie_types::Layout};
+use wasmi::RuntimeValue::{I32, I64, self};
+use wasmi::memory_units::{Pages};
+use state_machine::{Externalities, ChildStorageKey};
+use crate::error::{Error, ErrorKind, Result};
+use crate::wasm_utils::UserError;
+use primitives::{blake2_128, blake2_256, twox_64, twox_128, twox_256, ed25519, sr25519, Pair};
+use primitives::hexdisplay::HexDisplay;
+use primitives::sandbox as sandbox_primitives;
+use primitives::{H256, Blake2Hasher};
+use trie::ordered_trie_root;
 use crate::sandbox;
 use crate::allocator;
 use log::trace;
@@ -505,133 +507,89 @@ impl_wasm_host_interface! {
 				Ok(if runtime_io::exists_storage(&key) { 1 } else { 0 })
 			)
 		}
-
-		ext_exists_child_storage(
-			storage_key_data: Pointer<u8>,
-			storage_key_len: WordSize,
-			key_data: Pointer<u8>,
-			key_len: WordSize,
-		) -> u32 {
-			let storage_key = context.read_memory(storage_key_data, storage_key_len)
-				.map_err(|_| "Invalid attempt to determine storage_key in ext_exists_child_storage")?;
-			let key = context.read_memory(key_data, key_len)
-				.map_err(|_| "Invalid attempt to determine key in ext_exists_child_storage")?;
-
-			with_external_storage(move ||
-				Ok(if runtime_io::exists_child_storage(&storage_key, &key) { 1 } else { 0 })
-			)
-		}
-
-		ext_clear_prefix(prefix_data: Pointer<u8>, prefix_len: WordSize) {
-			let prefix = context.read_memory(prefix_data, prefix_len)
-				.map_err(|_| "Invalid attempt to determine prefix in ext_clear_prefix")?;
-			with_external_storage(move ||
-				Ok(runtime_io::clear_prefix(&prefix))
+		let storage_key = ChildStorageKey::from_vec(storage_key)
+			.ok_or_else(||
+				UserError("ext_set_child_storage: child storage key is invalid")
 			)?;
-			Ok(())
-		}
-
-		ext_clear_child_prefix(
-			storage_key_data: Pointer<u8>,
-			storage_key_len: WordSize,
-			prefix_data: Pointer<u8>,
-			prefix_len: WordSize,
-		) {
-			let storage_key = context.read_memory(storage_key_data, storage_key_len)
-				.map_err(|_| "Invalid attempt to determine storage_key in ext_clear_child_prefix")?;
-			let prefix = context.read_memory(prefix_data, prefix_len)
-				.map_err(|_| "Invalid attempt to determine prefix in ext_clear_child_prefix")?;
-			with_external_storage(move ||
-				Ok(runtime_io::clear_child_prefix(&storage_key, &prefix))
-			)?;
-
-			Ok(())
-		}
-
-		ext_kill_child_storage(storage_key_data: Pointer<u8>, storage_key_len: WordSize) {
-			let storage_key = context.read_memory(storage_key_data, storage_key_len)
-				.map_err(|_| "Invalid attempt to determine storage_key in ext_kill_child_storage")?;
-			with_external_storage(move ||
-				Ok(runtime_io::kill_child_storage(&storage_key))
-			)?;
-
-			Ok(())
-		}
-
-		ext_get_allocated_storage(
-			key_data: Pointer<u8>,
-			key_len: WordSize,
-			written_out: Pointer<u32>,
-		) -> Pointer<u8> {
-			let key = context.read_memory(key_data, key_len)
-				.map_err(|_| "Invalid attempt to determine key in ext_get_allocated_storage")?;
-			let maybe_value = with_external_storage(move ||
-				Ok(runtime_io::storage(&key))
-			)?;
-
-			if let Some(value) = maybe_value {
-				let offset = context.allocate_memory(value.len() as u32)?;
-				context.write_memory(offset, &value)
-					.map_err(|_| "Invalid attempt to set memory in ext_get_allocated_storage")?;
-				context.write_primitive(written_out, value.len() as u32)
-					.map_err(|_| "Invalid attempt to write written_out in ext_get_allocated_storage")?;
-				Ok(offset)
+		this.ext.set_child_storage(storage_key, key, value);
+		Ok(())
+	},
+	ext_clear_child_storage(storage_key_data: *const u8, storage_key_len: u32, key_data: *const u8, key_len: u32) => {
+		let storage_key = this.memory.get(
+			storage_key_data,
+			storage_key_len as usize
+		).map_err(|_| UserError("Invalid attempt to determine storage_key in ext_clear_child_storage"))?;
+		let key = this.memory.get(key_data, key_len as usize).map_err(|_| UserError("Invalid attempt to determine key in ext_clear_child_storage"))?;
+		debug_trace!(target: "wasm-trace", "*** Clearing child storage: {} -> {}   [k={}]",
+			::primitives::hexdisplay::ascii_format(&storage_key),
+			if let Some(_preimage) = this.hash_lookup.get(&key) {
+				format!("%{}", ::primitives::hexdisplay::ascii_format(&_preimage))
 			} else {
-				context.write_primitive(written_out, u32::max_value())
-					.map_err(|_| "Invalid attempt to write failed written_out in ext_get_allocated_storage")?;
-				Ok(Pointer::null())
-			}
-		}
-
-		ext_get_allocated_child_storage(
-			storage_key_data: Pointer<u8>,
-			storage_key_len: WordSize,
-			key_data: Pointer<u8>,
-			key_len: WordSize,
-			written_out: Pointer<u32>,
-		) -> Pointer<u8> {
-			let storage_key = context.read_memory(storage_key_data, storage_key_len)
-				.map_err(|_| "Invalid attempt to determine storage_key in ext_get_allocated_child_storage")?;
-			let key = context.read_memory(key_data, key_len)
-				.map_err(|_| "Invalid attempt to determine key in ext_get_allocated_child_storage")?;
-
-			let maybe_value = with_external_storage(move ||
-				Ok(runtime_io::child_storage(&storage_key, &key))
+				format!(" {}", ::primitives::hexdisplay::ascii_format(&key))
+			}, HexDisplay::from(&key)
+		);
+		let storage_key = ChildStorageKey::from_vec(storage_key)
+			.ok_or_else(||
+				UserError("ext_clear_child_storage: child storage key is not valid")
 			)?;
-
-			if let Some(value) = maybe_value {
-				let offset = context.allocate_memory(value.len() as u32)?;
-				context.write_memory(offset, &value)
-					.map_err(|_| "Invalid attempt to set memory in ext_get_allocated_child_storage")?;
-				context.write_primitive(written_out, value.len() as u32)
-					.map_err(|_| "Invalid attempt to write written_out in ext_get_allocated_child_storage")?;
-				Ok(offset)
+		this.ext.clear_child_storage(storage_key, &key);
+		Ok(())
+	},
+	ext_clear_storage(key_data: *const u8, key_len: u32) => {
+		let key = this.memory.get(key_data, key_len as usize).map_err(|_| UserError("Invalid attempt to determine key in ext_clear_storage"))?;
+		debug_trace!(target: "wasm-trace", "*** Clearing storage: {}   [k={}]",
+			if let Some(_preimage) = this.hash_lookup.get(&key) {
+				format!("%{}", ::primitives::hexdisplay::ascii_format(&_preimage))
 			} else {
-				context.write_primitive(written_out, u32::max_value())
-					.map_err(|_| "Invalid attempt to write failed written_out in ext_get_allocated_child_storage")?;
-				Ok(Pointer::null())
-			}
-		}
-
-		ext_get_storage_into(
-			key_data: Pointer<u8>,
-			key_len: WordSize,
-			value_data: Pointer<u8>,
-			value_len: WordSize,
-			value_offset: WordSize,
-		) -> WordSize {
-			let key = context.read_memory(key_data, key_len)
-				.map_err(|_| "Invalid attempt to get key in ext_get_storage_into")?;
-			let maybe_value = with_external_storage(move ||
-				Ok(runtime_io::storage(&key))
+				format!(" {}", ::primitives::hexdisplay::ascii_format(&key))
+			}, HexDisplay::from(&key));
+		this.ext.clear_storage(&key);
+		Ok(())
+	},
+	ext_exists_storage(key_data: *const u8, key_len: u32) -> u32 => {
+		let key = this.memory.get(key_data, key_len as usize).map_err(|_| UserError("Invalid attempt to determine key in ext_exists_storage"))?;
+		Ok(if this.ext.exists_storage(&key) { 1 } else { 0 })
+	},
+	ext_exists_child_storage(storage_key_data: *const u8, storage_key_len: u32, key_data: *const u8, key_len: u32) -> u32 => {
+		let storage_key = this.memory.get(
+			storage_key_data,
+			storage_key_len as usize
+		).map_err(|_| UserError("Invalid attempt to determine storage_key in ext_exists_child_storage"))?;
+		let key = this.memory.get(key_data, key_len as usize).map_err(|_| UserError("Invalid attempt to determine key in ext_exists_child_storage"))?;
+		let storage_key = ChildStorageKey::from_vec(storage_key)
+			.ok_or_else(||
+				UserError("ext_exists_child_storage: child storage key is not valid")
 			)?;
+		Ok(if this.ext.exists_child_storage(storage_key, &key) { 1 } else { 0 })
+	},
+	ext_clear_prefix(prefix_data: *const u8, prefix_len: u32) => {
+		let prefix = this.memory.get(prefix_data, prefix_len as usize).map_err(|_| UserError("Invalid attempt to determine prefix in ext_clear_prefix"))?;
+		this.ext.clear_prefix(&prefix);
+		Ok(())
+	},
+	ext_kill_child_storage(storage_key_data: *const u8, storage_key_len: u32) => {
+		let storage_key = this.memory.get(
+			storage_key_data,
+			storage_key_len as usize
+		).map_err(|_| UserError("Invalid attempt to determine storage_key in ext_kill_child_storage"))?;
+		let storage_key = ChildStorageKey::from_vec(storage_key)
+			.ok_or_else(||
+				UserError("ext_exists_child_storage: child storage key is not valid")
+			)?;
+		this.ext.kill_child_storage(storage_key);
+		Ok(())
+	},
+	// return 0 and place u32::max_value() into written_out if no value exists for the key.
+	ext_get_allocated_storage(key_data: *const u8, key_len: u32, written_out: *mut u32) -> *mut u8 => {
+		let key = this.memory.get(
+			key_data,
+			key_len as usize
+		).map_err(|_| UserError("Invalid attempt to determine key in ext_get_allocated_storage"))?;
+		let maybe_value = this.ext.storage(&key);
 
-			if let Some(value) = maybe_value {
-				let data = &value[value.len().min(value_offset as usize)..];
-				let written = std::cmp::min(value_len as usize, data.len());
-				context.write_memory(value_data, &data[..written])
-					.map_err(|_| "Invalid attempt to set value in ext_get_storage_into")?;
-				Ok(value.len() as u32)
+		debug_trace!(target: "wasm-trace", "*** Getting storage: {} == {}   [k={}]",
+			if let Some(_preimage) = this.hash_lookup.get(&key) {
+				format!("%{}", ::primitives::hexdisplay::ascii_format(&_preimage))
 			} else {
 				Ok(u32::max_value())
 			}
@@ -693,23 +651,30 @@ impl_wasm_host_interface! {
 				.map_err(|_| "Invalid attempt to write written_out in ext_child_storage_root")?;
 			Ok(offset)
 		}
+	},
+	// return 0 and place u32::max_value() into written_out if no value exists for the key.
+	ext_get_allocated_child_storage(storage_key_data: *const u8, storage_key_len: u32, key_data: *const u8, key_len: u32, written_out: *mut u32) -> *mut u8 => {
+		let storage_key = this.memory.get(
+			storage_key_data,
+			storage_key_len as usize
+		).map_err(|_| UserError("Invalid attempt to determine storage_key in ext_get_allocated_child_storage"))?;
+		let key = this.memory.get(
+			key_data,
+			key_len as usize
+		).map_err(|_| UserError("Invalid attempt to determine key in ext_get_allocated_child_storage"))?;
 
-		ext_storage_changes_root(
-			parent_hash_data: Pointer<u8>,
-			_len: WordSize,
-			result: Pointer<u8>,
-		) -> u32 {
-			let mut parent_hash = [0u8; 32];
-			context.read_memory_into(parent_hash_data, &mut parent_hash[..])
-				.map_err(|_| "Invalid attempt to get parent_hash in ext_storage_changes_root")?;
-			let r = with_external_storage(move ||
-				Ok(runtime_io::storage_changes_root(parent_hash))
-			)?;
+		let maybe_value = {
+			let storage_key = ChildStorageKey::from_slice(&storage_key)
+				.ok_or_else(||
+					UserError("ext_get_allocated_child_storage: child storage key is not valid")
+				)?;
+			this.ext.child_storage(storage_key, &key)
+		};
 
-			if let Some(r) = r {
-				context.write_memory(result, &r[..])
-					.map_err(|_| "Invalid attempt to set memory in ext_storage_changes_root")?;
-				Ok(1)
+		debug_trace!(target: "wasm-trace", "*** Getting child storage: {} -> {} == {}   [k={}]",
+			::primitives::hexdisplay::ascii_format(&storage_key),
+			if let Some(_preimage) = this.hash_lookup.get(&key) {
+				format!("%{}", ::primitives::hexdisplay::ascii_format(&_preimage))
 			} else {
 				Ok(0)
 			}
@@ -788,10 +753,37 @@ impl_wasm_host_interface! {
 			Ok(())
 		}
 
-		ext_blake2_128(data: Pointer<u8>, len: WordSize, out: Pointer<u8>) {
-			let result: [u8; 16] = if len == 0 {
-				let hashed = blake2_128(&[0u8; 0]);
-				hashed
+		if let Some(value) = maybe_value {
+			let value = &value[value_offset as usize..];
+			let written = ::std::cmp::min(value_len as usize, value.len());
+			this.memory.set(value_data, &value[..written]).map_err(|_| UserError("Invalid attempt to set value in ext_get_storage_into"))?;
+			Ok(written as u32)
+		} else {
+			Ok(u32::max_value())
+		}
+	},
+	// return u32::max_value() if no value exists for the key.
+	ext_get_child_storage_into(storage_key_data: *const u8, storage_key_len: u32, key_data: *const u8, key_len: u32, value_data: *mut u8, value_len: u32, value_offset: u32) -> u32 => {
+		let storage_key = this.memory.get(
+			storage_key_data,
+			storage_key_len as usize
+		).map_err(|_| UserError("Invalid attempt to determine storage_key in ext_get_child_storage_into"))?;
+		let key = this.memory.get(
+			key_data,
+			key_len as usize
+		).map_err(|_| UserError("Invalid attempt to get key in ext_get_child_storage_into"))?;
+
+		let maybe_value = {
+			let storage_key = ChildStorageKey::from_slice(&*storage_key)
+				.ok_or_else(||
+					UserError("ext_get_child_storage_into: child storage key is not valid")
+				)?;
+			this.ext.child_storage(storage_key, &key)
+		};
+		debug_trace!(target: "wasm-trace", "*** Getting storage: {} -> {} == {}   [k={}]",
+			::primitives::hexdisplay::ascii_format(&storage_key),
+			if let Some(_preimage) = this.hash_lookup.get(&key) {
+				format!("%{}", ::primitives::hexdisplay::ascii_format(&_preimage))
 			} else {
 				let key = context.read_memory(data, len)
 					.map_err(|_| "Invalid attempt to get key in ext_blake2_128")?;
@@ -846,102 +838,193 @@ impl_wasm_host_interface! {
 			context.write_primitive(result_len, len)
 				.map_err(|_| "Invalid attempt to write result_len in ext_ed25519_public_keys")?;
 
-			Ok(offset)
+		if let Some(value) = maybe_value {
+			let value = &value[value_offset as usize..];
+			let written = ::std::cmp::min(value_len as usize, value.len());
+			this.memory.set(value_data, &value[..written]).map_err(|_| UserError("Invalid attempt to set value in ext_get_child_storage_into"))?;
+			Ok(written as u32)
+		} else {
+			Ok(u32::max_value())
 		}
+	},
+	ext_storage_root(result: *mut u8) => {
+		let r = this.ext.storage_root();
+		this.memory.set(result, r.as_ref()).map_err(|_| UserError("Invalid attempt to set memory in ext_storage_root"))?;
+		Ok(())
+	},
+	ext_child_storage_root(storage_key_data: *const u8, storage_key_len: u32, written_out: *mut u32) -> *mut u8 => {
+		let storage_key = this.memory.get(storage_key_data, storage_key_len as usize).map_err(|_| UserError("Invalid attempt to determine storage_key in ext_child_storage_root"))?;
+		let storage_key = ChildStorageKey::from_slice(&*storage_key)
+			.ok_or_else(||
+				UserError("ext_child_storage_root: child storage key is not valid")
+			)?;
+		let value = this.ext.child_storage_root(storage_key);
 
-		ext_ed25519_verify(
-			msg_data: Pointer<u8>,
-			msg_len: WordSize,
-			sig_data: Pointer<u8>,
-			pubkey_data: Pointer<u8>,
-		) -> u32 {
-			let mut sig = [0u8; 64];
-			context.read_memory_into(sig_data, &mut sig[..])
-				.map_err(|_| "Invalid attempt to get signature in ext_ed25519_verify")?;
-			let mut pubkey = [0u8; 32];
-			context.read_memory_into(pubkey_data, &mut pubkey[..])
-				.map_err(|_| "Invalid attempt to get pubkey in ext_ed25519_verify")?;
-			let msg = context.read_memory(msg_data, msg_len)
-				.map_err(|_| "Invalid attempt to get message in ext_ed25519_verify")?;
-
-			Ok(if ed25519::Pair::verify_weak(&sig, &msg, &pubkey) {
-				0
-			} else {
-				1
-			})
+		let offset = this.heap.allocate(value.len() as u32)? as u32;
+		this.memory.set(offset, &value).map_err(|_| UserError("Invalid attempt to set memory in ext_child_storage_root"))?;
+		this.memory.write_primitive(written_out, value.len() as u32)
+			.map_err(|_| UserError("Invalid attempt to write written_out in ext_child_storage_root"))?;
+		Ok(offset)
+	},
+	ext_storage_changes_root(parent_hash_data: *const u8, parent_hash_len: u32, parent_number: u64, result: *mut u8) -> u32 => {
+		let mut parent_hash = H256::default();
+		if parent_hash_len != parent_hash.as_ref().len() as u32 {
+			return Err(UserError("Invalid parent_hash_len in ext_storage_changes_root").into());
 		}
-
-		ext_ed25519_generate(
-			id_data: Pointer<u8>,
-			seed: Pointer<u8>,
-			seed_len: WordSize,
-			out: Pointer<u8>,
-		) {
-			let mut id = [0u8; 4];
-			context.read_memory_into(id_data, &mut id[..])
-				.map_err(|_| "Invalid attempt to get id in ext_ed25519_generate")?;
-			let key_type = KeyTypeId(id);
-
-			let seed = if seed_len == 0 {
-				None
-			} else {
-				Some(
-					context.read_memory(seed, seed_len)
-						.map_err(|_| "Invalid attempt to get seed in ext_ed25519_generate")?
-				)
-			};
-
-			let seed = seed.as_ref()
-				.map(|seed|
-					std::str::from_utf8(&seed)
-						.map_err(|_| "Seed not a valid utf8 string in ext_sr25119_generate")
-				).transpose()?;
-
-			let pubkey = runtime_io::ed25519_generate(key_type, seed);
-
-			context.write_memory(out, pubkey.as_ref())
-				.map_err(|_| "Invalid attempt to set out in ext_ed25519_generate".into())
+		let raw_parent_hash = this.memory.get(parent_hash_data, parent_hash_len as usize)
+			.map_err(|_| UserError("Invalid attempt to get parent_hash in ext_storage_changes_root"))?;
+		parent_hash.as_mut().copy_from_slice(&raw_parent_hash[..]);
+		let r = this.ext.storage_changes_root(parent_hash, parent_number);
+		if let Some(r) = r {
+			this.memory.set(result, &r[..]).map_err(|_| UserError("Invalid attempt to set memory in ext_storage_changes_root"))?;
+			Ok(1)
+		} else {
+			Ok(0)
 		}
+	},
+	ext_blake2_256_enumerated_trie_root(values_data: *const u8, lens_data: *const u32, lens_len: u32, result: *mut u8) => {
+		let values = (0..lens_len)
+			.map(|i| this.memory.read_primitive(lens_data + i * 4))
+			.collect::<::std::result::Result<Vec<u32>, UserError>>()?
+			.into_iter()
+			.scan(0u32, |acc, v| { let o = *acc; *acc += v; Some((o, v)) })
+			.map(|(offset, len)|
+				this.memory.get(values_data + offset, len as usize)
+					.map_err(|_| UserError("Invalid attempt to get memory in ext_blake2_256_enumerated_trie_root"))
+			)
+			.collect::<::std::result::Result<Vec<_>, UserError>>()?;
+		let r = ordered_trie_root::<Blake2Hasher, _, _>(values.into_iter());
+		this.memory.set(result, &r[..]).map_err(|_| UserError("Invalid attempt to set memory in ext_blake2_256_enumerated_trie_root"))?;
+		Ok(())
+	},
+	ext_chain_id() -> u64 => {
+		Ok(this.ext.chain_id())
+	},
+	ext_twox_64(data: *const u8, len: u32, out: *mut u8) => {
+		let result: [u8; 8] = if len == 0 {
+			let hashed = twox_64(&[0u8; 0]);
+			debug_trace!(target: "xxhash", "XXhash: '' -> {}", HexDisplay::from(&hashed));
+			this.hash_lookup.insert(hashed.to_vec(), vec![]);
+			hashed
+		} else {
+			let key = this.memory.get(data, len as usize).map_err(|_| UserError("Invalid attempt to get key in ext_twox_64"))?;
+			let hashed_key = twox_64(&key);
+			debug_trace!(target: "xxhash", "XXhash: {} -> {}",
+				if let Ok(_skey) = ::std::str::from_utf8(&key) {
+					_skey
+				} else {
+					&format!("{}", HexDisplay::from(&key))
+				},
+				HexDisplay::from(&hashed_key)
+			);
+			this.hash_lookup.insert(hashed_key.to_vec(), key);
+			hashed_key
+		};
 
-		ext_ed25519_sign(
-			id_data: Pointer<u8>,
-			pubkey_data: Pointer<u8>,
-			msg_data: Pointer<u8>,
-			msg_len: WordSize,
-			out: Pointer<u8>,
-		) -> u32 {
-			let mut id = [0u8; 4];
-			context.read_memory_into(id_data, &mut id[..])
-				.map_err(|_| "Invalid attempt to get id in ext_ed25519_sign")?;
-			let key_type = KeyTypeId(id);
-
-			let mut pubkey = [0u8; 32];
-			context.read_memory_into(pubkey_data, &mut pubkey[..])
-				.map_err(|_| "Invalid attempt to get pubkey in ext_ed25519_sign")?;
-
-			let msg = context.read_memory(msg_data, msg_len)
-				.map_err(|_| "Invalid attempt to get message in ext_ed25519_sign")?;
-
-			let pub_key = ed25519::Public::try_from(pubkey.as_ref())
-				.map_err(|_| "Invalid `ed25519` public key")?;
-
-			let signature = runtime_io::ed25519_sign(key_type, &pub_key, &msg);
-
-			match signature {
-				Some(signature) => {
-					context.write_memory(out, signature.as_ref())
-						.map_err(|_| "Invalid attempt to set out in ext_ed25519_sign")?;
-					Ok(0)
+		this.memory.set(out, &result).map_err(|_| UserError("Invalid attempt to set result in ext_twox_64"))?;
+		Ok(())
+	},
+	ext_twox_128(data: *const u8, len: u32, out: *mut u8) => {
+		let result: [u8; 16] = if len == 0 {
+			let hashed = twox_128(&[0u8; 0]);
+			debug_trace!(target: "xxhash", "XXhash: '' -> {}", HexDisplay::from(&hashed));
+			this.hash_lookup.insert(hashed.to_vec(), vec![]);
+			hashed
+		} else {
+			let key = this.memory.get(data, len as usize).map_err(|_| UserError("Invalid attempt to get key in ext_twox_128"))?;
+			let hashed_key = twox_128(&key);
+			debug_trace!(target: "xxhash", "XXhash: {} -> {}",
+				if let Ok(_skey) = ::std::str::from_utf8(&key) {
+					_skey
+				} else {
+					&format!("{}", HexDisplay::from(&key))
 				},
 				None => Ok(1),
 			}
 		}
 
-		ext_sr25519_public_keys(id_data: Pointer<u8>, result_len: Pointer<u32>) -> Pointer<u8> {
-			let mut id = [0u8; 4];
-			context.read_memory_into(id_data, &mut id[..])
-				.map_err(|_| "Invalid attempt to get id in ext_sr25519_public_keys")?;
-			let key_type = KeyTypeId(id);
+		this.memory.set(out, &result).map_err(|_| UserError("Invalid attempt to set result in ext_twox_128"))?;
+		Ok(())
+	},
+	ext_twox_256(data: *const u8, len: u32, out: *mut u8) => {
+		let result: [u8; 32] = if len == 0 {
+			twox_256(&[0u8; 0])
+		} else {
+			twox_256(&this.memory.get(data, len as usize).map_err(|_| UserError("Invalid attempt to get data in ext_twox_256"))?)
+		};
+		this.memory.set(out, &result).map_err(|_| UserError("Invalid attempt to set result in ext_twox_256"))?;
+		Ok(())
+	},
+	ext_blake2_128(data: *const u8, len: u32, out: *mut u8) => {
+		let result: [u8; 16] = if len == 0 {
+			let hashed = blake2_128(&[0u8; 0]);
+			this.hash_lookup.insert(hashed.to_vec(), vec![]);
+			hashed
+		} else {
+			let key = this.memory.get(data, len as usize).map_err(|_| UserError("Invalid attempt to get key in ext_blake2_128"))?;
+			let hashed_key = blake2_128(&key);
+			this.hash_lookup.insert(hashed_key.to_vec(), key);
+			hashed_key
+		};
+
+		this.memory.set(out, &result).map_err(|_| UserError("Invalid attempt to set result in ext_blake2_128"))?;
+		Ok(())
+	},
+	ext_blake2_256(data: *const u8, len: u32, out: *mut u8) => {
+		let result: [u8; 32] = if len == 0 {
+			blake2_256(&[0u8; 0])
+		} else {
+			blake2_256(&this.memory.get(data, len as usize).map_err(|_| UserError("Invalid attempt to get data in ext_blake2_256"))?)
+		};
+		this.memory.set(out, &result).map_err(|_| UserError("Invalid attempt to set result in ext_blake2_256"))?;
+		Ok(())
+	},
+	ext_keccak_256(data: *const u8, len: u32, out: *mut u8) => {
+		let result: [u8; 32] = if len == 0 {
+			tiny_keccak::keccak256(&[0u8; 0])
+		} else {
+			tiny_keccak::keccak256(&this.memory.get(data, len as usize).map_err(|_| UserError("Invalid attempt to get data in ext_keccak_256"))?)
+		};
+		this.memory.set(out, &result).map_err(|_| UserError("Invalid attempt to set result in ext_keccak_256"))?;
+		Ok(())
+	},
+	ext_ed25519_verify(msg_data: *const u8, msg_len: u32, sig_data: *const u8, pubkey_data: *const u8) -> u32 => {
+		let mut sig = [0u8; 64];
+		this.memory.get_into(sig_data, &mut sig[..]).map_err(|_| UserError("Invalid attempt to get signature in ext_ed25519_verify"))?;
+		let mut pubkey = [0u8; 32];
+		this.memory.get_into(pubkey_data, &mut pubkey[..]).map_err(|_| UserError("Invalid attempt to get pubkey in ext_ed25519_verify"))?;
+		let msg = this.memory.get(msg_data, msg_len as usize).map_err(|_| UserError("Invalid attempt to get message in ext_ed25519_verify"))?;
+
+		Ok(if ed25519::Pair::verify_weak(&sig, &msg, &pubkey) {
+			0
+		} else {
+			5
+		})
+	},
+	ext_sr25519_verify(msg_data: *const u8, msg_len: u32, sig_data: *const u8, pubkey_data: *const u8) -> u32 => {
+		let mut sig = [0u8; 64];
+		this.memory.get_into(sig_data, &mut sig[..]).map_err(|_| UserError("Invalid attempt to get signature in ext_sr25519_verify"))?;
+		let mut pubkey = [0u8; 32];
+		this.memory.get_into(pubkey_data, &mut pubkey[..]).map_err(|_| UserError("Invalid attempt to get pubkey in ext_sr25519_verify"))?;
+		let msg = this.memory.get(msg_data, msg_len as usize).map_err(|_| UserError("Invalid attempt to get message in ext_sr25519_verify"))?;
+
+		Ok(if sr25519::Pair::verify_weak(&sig, &msg, &pubkey) {
+			0
+		} else {
+			5
+		})
+	},
+	ext_secp256k1_ecdsa_recover(msg_data: *const u8, sig_data: *const u8, pubkey_data: *mut u8) -> u32 => {
+		let mut sig = [0u8; 65];
+		this.memory.get_into(sig_data, &mut sig[..]).map_err(|_| UserError("Invalid attempt to get signature in ext_secp256k1_ecdsa_recover"))?;
+		let rs = match secp256k1::Signature::parse_slice(&sig[0..64]) {
+			Ok(rs) => rs,
+			_ => return Ok(1),
+		};
+		let v = match secp256k1::RecoveryId::parse(if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8) {
+			Ok(v) => v,
+			_ => return Ok(2),
+		};
 
 			let keys = runtime_io::sr25519_public_keys(key_type).encode();
 
@@ -1672,7 +1755,7 @@ mod tests {
 	#[test]
 	fn blake2_128_should_work() {
 		let mut ext = TestExternalities::default();
-		let test_code = WASM_BINARY;
+		let test_code = include_bytes!("../wasm/target/wasm32-unknown-unknown/release/runtime_test.compact.wasm");
 		assert_eq!(
 			WasmExecutor::new().call(&mut ext, 8, &test_code[..], "test_blake2_128", &[]).unwrap(),
 			blake2_128(&b""[..]).encode()

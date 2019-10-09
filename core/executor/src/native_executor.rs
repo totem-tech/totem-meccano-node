@@ -26,7 +26,58 @@ use log::{trace, warn};
 use crate::RuntimesCache;
 
 thread_local! {
-	static RUNTIMES_CACHE: RefCell<RuntimesCache> = RefCell::new(RuntimesCache::new());
+	static RUNTIMES_CACHE: RefCell<CacheType> = RefCell::new(HashMap::new());
+}
+
+/// fetch a runtime version from the cache or if there is no cached version yet, create
+/// the runtime version entry for `code`, determines whether `Compatibility::IsCompatible`
+/// can be used by comparing returned RuntimeVersion to `ref_version`
+fn fetch_cached_runtime_version<'a, E: Externalities<Blake2Hasher>>(
+	wasm_executor: &WasmExecutor,
+	cache: &'a mut RefMut<CacheType>,
+	ext: &mut E,
+	default_heap_pages: Option<u64>,
+) -> Result<(&'a WasmModuleInstanceRef, &'a Option<RuntimeVersion>)> {
+
+	let code_hash = match ext.original_storage_hash(well_known_keys::CODE) {
+		Some(code_hash) => code_hash,
+		None => return Err(ErrorKind::InvalidCode(vec![]).into()),
+	};
+	let maybe_runtime_preproc = cache.borrow_mut().entry(code_hash.into())
+		.or_insert_with(|| {
+			let code = match ext.original_storage(well_known_keys::CODE) {
+				Some(code) => code,
+				None => return RuntimePreproc::InvalidCode,
+			};
+			let heap_pages = ext.storage(well_known_keys::HEAP_PAGES)
+				.and_then(|pages| u64::decode(&mut &pages[..]))
+				.or(default_heap_pages)
+				.unwrap_or(DEFAULT_HEAP_PAGES);
+			match WasmModule::from_buffer(code)
+				.map_err(|_| ErrorKind::InvalidCode(vec![]).into())
+				.and_then(|module| wasm_executor.prepare_module(ext, heap_pages as usize, &module))
+			{
+				Ok(module) => {
+					let version = wasm_executor.call_in_wasm_module(ext, &module, "Core_version", &[])
+						.ok()
+						.and_then(|v| RuntimeVersion::decode(&mut v.as_slice()));
+					RuntimePreproc::ValidCode(module, version)
+				}
+				Err(e) => {
+					trace!(target: "executor", "Invalid code presented to executor ({:?})", e);
+					RuntimePreproc::InvalidCode
+				}
+			}
+		});
+	match maybe_runtime_preproc {
+		RuntimePreproc::InvalidCode => {
+			let code = ext.original_storage(well_known_keys::CODE).unwrap_or(vec![]);
+			Err(ErrorKind::InvalidCode(code).into())
+		},
+		RuntimePreproc::ValidCode(m, v) => {
+			Ok((m, v))
+		}
+	}
 }
 
 fn safe_call<F, U>(f: F) -> Result<U>

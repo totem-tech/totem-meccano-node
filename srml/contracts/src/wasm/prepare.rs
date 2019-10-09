@@ -708,9 +708,9 @@ mod tests {
 				)
 				"#
 			).unwrap();
-			let mut schedule = Schedule::default();
+			let mut schedule = Schedule::<u64>::default();
 			schedule.enable_println = true;
-			let r = prepare_contract::<TestEnv>(wasm.as_ref(), &schedule);
+			let r = prepare_contract::<Test, TestEnv>(wasm.as_ref(), &schedule);
 			assert_matches!(r, Ok(_));
 		}
 	}

@@ -638,15 +638,90 @@ impl StorageApi for () {
 		}
 	}
 
-	fn set_child_storage(storage_key: &[u8], key: &[u8], value: &[u8]) {
-		unsafe {
-			ext_set_child_storage.get()(
-				storage_key.as_ptr(), storage_key.len() as u32,
-				key.as_ptr(), key.len() as u32,
-				value.as_ptr(), value.len() as u32
-			);
-		}
-	}
+	/// A child storage function.
+	///
+	/// See [`ext_set_storage`] for details.
+	///
+	/// A child storage is used e.g. by a contract.
+	fn ext_set_child_storage(storage_key_data: *const u8, storage_key_len: u32, key_data: *const u8, key_len: u32, value_data: *const u8, value_len: u32);
+	/// A child storage function.
+	///
+	/// See [`ext_clear_storage`] for details.
+	///
+	/// A child storage is used e.g. by a contract.
+	fn ext_clear_child_storage(storage_key_data: *const u8, storage_key_len: u32, key_data: *const u8, key_len: u32);
+	/// A child storage function.
+	///
+	/// See [`ext_exists_storage`] for details.
+	///
+	/// A child storage is used e.g. by a contract.
+	fn ext_exists_child_storage(storage_key_data: *const u8, storage_key_len: u32, key_data: *const u8, key_len: u32) -> u32;
+	/// A child storage function.
+	///
+	/// See [`ext_kill_storage`] for details.
+	///
+	/// A child storage is used e.g. by a contract.
+	fn ext_kill_child_storage(storage_key_data: *const u8, storage_key_len: u32);
+	/// A child storage function.
+	///
+	/// See [`ext_get_allocated_storage`] for details.
+	///
+	/// A child storage is used e.g. by a contract.
+	fn ext_get_allocated_child_storage(
+		storage_key_data: *const u8,
+		storage_key_len: u32,
+		key_data: *const u8,
+		key_len: u32,
+		written_out: *mut u32
+	) -> *mut u8;
+	/// A child storage function.
+	///
+	/// See [`ext_get_storage_into`] for details.
+	///
+	/// A child storage is used e.g. by a contract.
+	fn ext_get_child_storage_into(
+		storage_key_data: *const u8,
+		storage_key_len: u32,
+		key_data: *const u8,
+		key_len: u32,
+		value_data: *mut u8,
+		value_len: u32,
+		value_offset: u32
+	) -> u32;
+	/// Commits all changes and calculates the child-storage root.
+	///
+	/// A child storage is used e.g. by a contract.
+	///
+	/// # Returns
+	///
+	/// - The pointer to the result vector and `written_out` contains its length.
+	fn ext_child_storage_root(storage_key_data: *const u8, storage_key_len: u32, written_out: *mut u32) -> *mut u8;
+
+	/// The current relay chain identifier.
+	fn ext_chain_id() -> u64;
+
+	/// Hash calculation and verification
+	fn ext_blake2_256_enumerated_trie_root(values_data: *const u8, lens_data: *const u32, lens_len: u32, result: *mut u8);
+	fn ext_blake2_128(data: *const u8, len: u32, out: *mut u8);
+	fn ext_blake2_256(data: *const u8, len: u32, out: *mut u8);
+	fn ext_twox_64(data: *const u8, len: u32, out: *mut u8);
+	fn ext_twox_128(data: *const u8, len: u32, out: *mut u8);
+	fn ext_twox_256(data: *const u8, len: u32, out: *mut u8);
+	fn ext_keccak_256(data: *const u8, len: u32, out: *mut u8);
+	/// Note: ext_ed25519_verify returns 0 if the signature is correct, nonzero otherwise.
+	fn ext_ed25519_verify(msg_data: *const u8, msg_len: u32, sig_data: *const u8, pubkey_data: *const u8) -> u32;
+	/// Note: ext_sr25519_verify returns 0 if the signature is correct, nonzero otherwise.
+	fn ext_sr25519_verify(msg_data: *const u8, msg_len: u32, sig_data: *const u8, pubkey_data: *const u8) -> u32;
+	/// Note: ext_secp256k1_ecdsa_recover returns 0 if the signature is correct, nonzero otherwise.
+	fn ext_secp256k1_ecdsa_recover(msg_data: *const u8, sig_data: *const u8, pubkey_data: *mut u8) -> u32;
+
+	//================================
+	// Offchain-worker Context
+	//================================
+
+	/// Submit extrinsic.
+	fn ext_submit_extrinsic(data: *const u8, len: u32);
+}
 
 	fn clear_storage(key: &[u8]) {
 		unsafe {
@@ -786,10 +861,14 @@ impl OtherApi for () {
 		}
 	}
 
-	fn print_hex(data: &[u8]) {
-		unsafe {
-			ext_print_hex.get()(data.as_ptr(), data.len() as u32);
-		}
+/// Set the child storage of some particular key to Some value.
+pub fn set_child_storage(storage_key: &[u8], key: &[u8], value: &[u8]) {
+	unsafe {
+		ext_set_child_storage.get()(
+			storage_key.as_ptr(), storage_key.len() as u32,
+			key.as_ptr(), key.len() as u32,
+			value.as_ptr(), value.len() as u32
+		);
 	}
 }
 
@@ -895,44 +974,19 @@ impl CryptoApi for () {
 		}
 	}
 
-	fn sr25519_public_keys(id: KeyTypeId) -> Vec<sr25519::Public> {
-		let mut res_len = 0u32;
-		unsafe {
-			let res_ptr = ext_sr25519_public_keys.get()(id.0.as_ptr(), &mut res_len);
-			Vec::decode(&mut rstd::slice::from_raw_parts(res_ptr, res_len as usize)).unwrap_or_default()
-		}
-	}
-
-	fn sr25519_generate(id: KeyTypeId, seed: Option<&str>) -> sr25519::Public {
-		let mut res = [0u8;32];
-		let seed = seed.as_ref().map(|s| s.as_bytes()).unwrap_or(&[]);
-		unsafe {
-			ext_sr25519_generate.get()(id.0.as_ptr(), seed.as_ptr(), seed.len() as u32, res.as_mut_ptr())
-		};
-		sr25519::Public(res)
-	}
-
-	fn sr25519_sign(
-		id: KeyTypeId,
-		pubkey: &sr25519::Public,
-		msg: &[u8],
-	) -> Option<sr25519::Signature> {
-		let mut res = [0u8; 64];
-		let success = unsafe {
-			ext_sr25519_sign.get()(
-				id.0.as_ptr(),
-				pubkey.0.as_ptr(),
-				msg.as_ptr(),
-				msg.len() as u32,
-				res.as_mut_ptr(),
-			) == 0
-		};
-
-		if success {
-			Some(sr25519::Signature(res))
-		} else {
-			None
-		}
+/// "Commit" all existing operations and compute the resultant child storage root.
+pub fn child_storage_root(storage_key: &[u8]) -> Vec<u8> {
+	let mut length: u32 = 0;
+	unsafe {
+		let ptr = ext_child_storage_root.get()(
+			storage_key.as_ptr(),
+			storage_key.len() as u32,
+			&mut length
+		);
+		// Invariants required by Vec::from_raw_parts are not formally fulfilled.
+		// We don't allocate via String/Vec<T>, but use a custom allocator instead.
+		// See #300 for more details.
+		<Vec<u8>>::from_raw_parts(ptr, length as usize, length as usize)
 	}
 
 	fn sr25519_verify(sig: &sr25519::Signature, msg: &[u8], pubkey: &sr25519::Public) -> bool {
@@ -997,10 +1051,20 @@ impl OffchainApi for () {
 		})
 	}
 
-	fn sleep_until(deadline: offchain::Timestamp) {
-		unsafe {
-			ext_sleep_until.get()(deadline.unix_millis())
-		}
+/// Conduct a 128-bit Blake2 hash.
+pub fn blake2_128(data: &[u8]) -> [u8; 16] {
+	let mut result: [u8; 16] = Default::default();
+	unsafe {
+		ext_blake2_128.get()(data.as_ptr(), data.len() as u32, result.as_mut_ptr());
+	}
+	result
+}
+
+/// Conduct a 256-bit Keccak hash.
+pub fn keccak_256(data: &[u8]) -> [u8; 32] {
+	let mut result: [u8; 32] = Default::default();
+	unsafe {
+		ext_keccak_256.get()(data.as_ptr(), data.len() as u32, result.as_mut_ptr());
 	}
 
 	fn random_seed() -> [u8; 32] {
@@ -1023,31 +1087,19 @@ impl OffchainApi for () {
 		}
 	}
 
-	fn local_storage_compare_and_set(
-		kind: offchain::StorageKind,
-		key: &[u8],
-		old_value: Option<&[u8]>,
-		new_value: &[u8],
-	) -> bool {
-		let (ptr, len) = match old_value {
-			Some(old_value) => (
-				old_value.as_ptr(),
-				old_value.len() as u32,
-			),
-			None => (0 as *const u8, u32::max_value()),
-		};
+/// Conduct two XX hashes to give a 64-bit result.
+pub fn twox_64(data: &[u8]) -> [u8; 8] {
+	let mut result: [u8; 8] = Default::default();
+	unsafe {
+		ext_twox_64.get()(data.as_ptr(), data.len() as u32, result.as_mut_ptr());
+	}
+	result
+}
 
-		unsafe {
-			ext_local_storage_compare_and_set.get()(
-				kind.into(),
-				key.as_ptr(),
-				key.len() as u32,
-				ptr,
-				len,
-				new_value.as_ptr(),
-				new_value.len() as u32,
-			) == 0
-		}
+/// Verify a ed25519 signature.
+pub fn ed25519_verify<P: AsRef<[u8]>>(sig: &[u8; 64], msg: &[u8], pubkey: P) -> bool {
+	unsafe {
+		ext_ed25519_verify.get()(msg.as_ptr(), msg.len() as u32, sig.as_ptr(), pubkey.as_ref().as_ptr()) == 0
 	}
 
 	fn local_storage_get(kind: offchain::StorageKind, key: &[u8]) -> Option<Vec<u8>> {

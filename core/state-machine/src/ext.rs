@@ -18,19 +18,13 @@
 
 use std::{error, fmt, cmp::Ord};
 use log::warn;
-use crate::{
-	backend::Backend, OverlayedChanges,
-	changes_trie::{
-		Storage as ChangesTrieStorage, CacheAction as ChangesTrieCacheAction, build_changes_trie,
-	},
-};
+use crate::backend::{Backend, Consolidate};
+use crate::changes_trie::{AnchorBlockId, Storage as ChangesTrieStorage, compute_changes_trie_root};
+use crate::{Externalities, OverlayedChanges, OffchainExt, ChildStorageKey};
 use hash_db::Hasher;
-use primitives::{
-	offchain, storage::well_known_keys::is_child_storage_key,
-	traits::{BareCryptoStorePtr, Externalities}, child_storage_key::ChildStorageKey,
-};
-use trie::{MemoryDB, default_child_trie_root};
-use trie::trie_types::Layout;
+use primitives::storage::well_known_keys::is_child_storage_key;
+use trie::{MemoryDB, TrieDBMut, TrieMut, default_child_trie_root};
+use heapsize::HeapSizeOf;
 
 const EXT_NOT_ALLOWED_TO_FAIL: &str = "Externalities not allowed to fail within runtime";
 
@@ -194,35 +188,19 @@ where	H: Hasher,
 	}
 
 	fn original_storage(&self, key: &[u8]) -> Option<Vec<u8>> {
-		let _guard = panic_handler::AbortGuard::force_abort();
+		let _guard = panic_handler::AbortGuard::new(true);
 		self.backend.storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
 
 	fn original_storage_hash(&self, key: &[u8]) -> Option<H::Out> {
-		let _guard = panic_handler::AbortGuard::force_abort();
+		let _guard = panic_handler::AbortGuard::new(true);
 		self.backend.storage_hash(key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
 
-	fn child_storage(&self, storage_key: ChildStorageKey, key: &[u8]) -> Option<Vec<u8>> {
-		let _guard = panic_handler::AbortGuard::force_abort();
+	fn child_storage(&self, storage_key: ChildStorageKey<H>, key: &[u8]) -> Option<Vec<u8>> {
+		let _guard = panic_handler::AbortGuard::new(true);
 		self.overlay.child_storage(storage_key.as_ref(), key).map(|x| x.map(|x| x.to_vec())).unwrap_or_else(||
 			self.backend.child_storage(storage_key.as_ref(), key).expect(EXT_NOT_ALLOWED_TO_FAIL))
-	}
-
-	fn child_storage_hash(&self, storage_key: ChildStorageKey, key: &[u8]) -> Option<H::Out> {
-		let _guard = panic_handler::AbortGuard::force_abort();
-		self.overlay.child_storage(storage_key.as_ref(), key).map(|x| x.map(|x| H::hash(x))).unwrap_or_else(||
-			self.backend.storage_hash(key).expect(EXT_NOT_ALLOWED_TO_FAIL))
-	}
-
-	fn original_child_storage(&self, storage_key: ChildStorageKey, key: &[u8]) -> Option<Vec<u8>> {
-		let _guard = panic_handler::AbortGuard::force_abort();
-		self.backend.child_storage(storage_key.as_ref(), key).expect(EXT_NOT_ALLOWED_TO_FAIL)
-	}
-
-	fn original_child_storage_hash(&self, storage_key: ChildStorageKey, key: &[u8]) -> Option<H::Out> {
-		let _guard = panic_handler::AbortGuard::force_abort();
-		self.backend.child_storage_hash(storage_key.as_ref(), key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
 
 	fn exists_storage(&self, key: &[u8]) -> bool {
@@ -233,8 +211,8 @@ where	H: Hasher,
 		}
 	}
 
-	fn exists_child_storage(&self, storage_key: ChildStorageKey, key: &[u8]) -> bool {
-		let _guard = panic_handler::AbortGuard::force_abort();
+	fn exists_child_storage(&self, storage_key: ChildStorageKey<H>, key: &[u8]) -> bool {
+		let _guard = panic_handler::AbortGuard::new(true);
 
 		match self.overlay.child_storage(storage_key.as_ref(), key) {
 			Some(x) => x.is_some(),
@@ -253,15 +231,15 @@ where	H: Hasher,
 		self.overlay.set_storage(key, value);
 	}
 
-	fn place_child_storage(&mut self, storage_key: ChildStorageKey, key: Vec<u8>, value: Option<Vec<u8>>) {
-		let _guard = panic_handler::AbortGuard::force_abort();
+	fn place_child_storage(&mut self, storage_key: ChildStorageKey<H>, key: Vec<u8>, value: Option<Vec<u8>>) {
+		let _guard = panic_handler::AbortGuard::new(true);
 
 		self.mark_dirty();
 		self.overlay.set_child_storage(storage_key.into_owned(), key, value);
 	}
 
-	fn kill_child_storage(&mut self, storage_key: ChildStorageKey) {
-		let _guard = panic_handler::AbortGuard::force_abort();
+	fn kill_child_storage(&mut self, storage_key: ChildStorageKey<H>) {
+		let _guard = panic_handler::AbortGuard::new(true);
 
 		self.mark_dirty();
 		self.overlay.clear_child_storage(storage_key.as_ref());
@@ -304,16 +282,9 @@ where	H: Hasher,
 			return root.clone();
 		}
 
-		let child_storage_keys =
-			self.overlay.prospective.children.keys()
-				.chain(self.overlay.committed.children.keys());
-		let child_delta_iter = child_storage_keys.map(|storage_key|
-			(storage_key.clone(), self.overlay.committed.children.get(storage_key)
-				.into_iter()
-				.flat_map(|map| map.iter().map(|(k, v)| (k.clone(), v.value.clone())))
-				.chain(self.overlay.prospective.children.get(storage_key)
-					.into_iter()
-					.flat_map(|map| map.iter().map(|(k, v)| (k.clone(), v.value.clone()))))));
+		let mut transaction = B::Transaction::default();
+		let child_storage_keys: std::collections::BTreeSet<_> = self.overlay.prospective.children.keys().cloned()
+			.chain(self.overlay.committed.children.keys().cloned()).collect();
 
 
 		// compute and memoize
@@ -325,30 +296,16 @@ where	H: Hasher,
 		root
 	}
 
-	fn child_storage_root(&mut self, storage_key: ChildStorageKey) -> Vec<u8> {
-		let _guard = panic_handler::AbortGuard::force_abort();
+	fn child_storage_root(&mut self, storage_key: ChildStorageKey<H>) -> Vec<u8> {
+		let _guard = panic_handler::AbortGuard::new(true);
 		if self.storage_transaction.is_some() {
 			self
 				.storage(storage_key.as_ref())
 				.unwrap_or(
-					default_child_trie_root::<Layout<H>>(storage_key.as_ref())
+					default_child_trie_root::<H>(storage_key.as_ref())
 				)
 		} else {
-			let storage_key = storage_key.as_ref();
-
-			let delta = self.overlay.committed.children.get(storage_key)
-				.into_iter()
-				.flat_map(|map| map.iter().map(|(k, v)| (k.clone(), v.value.clone())))
-				.chain(self.overlay.prospective.children.get(storage_key)
-						.into_iter()
-						.flat_map(|map| map.clone().into_iter().map(|(k, v)| (k.clone(), v.value.clone()))));
-
-			let root = self.backend.child_storage_root(storage_key, delta).0;
-
-			self.overlay.set_storage(storage_key.to_vec(), Some(root.to_vec()));
-
-			root
-
+			self.child_storage_root_transaction(storage_key.as_ref()).0
 		}
 	}
 

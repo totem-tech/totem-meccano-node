@@ -294,7 +294,6 @@ pub trait Derive: Sized {
 	/// Derive a child key from a series of given junctions.
 	///
 	/// Will be `None` for public keys if there are any hard junctions in there.
-	#[cfg(feature = "std")]
 	fn derive<Iter: Iterator<Item=DeriveJunction>>(&self, _path: Iter) -> Option<Self> {
 		None
 	}
@@ -441,112 +440,6 @@ impl<T: AsMut<[u8]> + AsRef<[u8]> + Default + Derive> Ss58Codec for T {
 			addr.derive(path)
 				.ok_or(PublicError::InvalidPath)
 		}
-	}
-
-	fn from_string_with_version(s: &str) -> Result<(Self, Ss58AddressFormat), PublicError> {
-		let re = Regex::new(r"^(?P<ss58>[\w\d]+)?(?P<path>(//?[^/]+)*)$")
-			.expect("constructed from known-good static value; qed");
-		let cap = re.captures(s).ok_or(PublicError::InvalidFormat)?;
-		let re_junction = Regex::new(r"/(/?[^/]+)")
-			.expect("constructed from known-good static value; qed");
-		let (addr, v) = Self::from_ss58check_with_version(
-			cap.name("ss58")
-				.map(|r| r.as_str())
-				.unwrap_or(DEV_ADDRESS)
-		)?;
-		if cap["path"].is_empty() {
-			Ok((addr, v))
-		} else {
-			let path = re_junction.captures_iter(&cap["path"])
-				.map(|f| DeriveJunction::from(&f[1]));
-			addr.derive(path)
-				.ok_or(PublicError::InvalidPath)
-				.map(|a| (a, v))
-		}
-	}
-}
-
-/// Trait suitable for typical cryptographic PKI key public type.
-pub trait Public: AsRef<[u8]> + AsMut<[u8]> + Default + Derive + CryptoType + PartialEq + Eq + Clone + Send + Sync {
-	/// A new instance from the given slice.
-	///
-	/// NOTE: No checking goes on to ensure this is a real public key. Only use it if
-	/// you are certain that the array actually is a pubkey. GIGO!
-	fn from_slice(data: &[u8]) -> Self;
-
-	/// Return a `Vec<u8>` filled with raw data.
-	#[cfg(feature = "std")]
-	fn to_raw_vec(&self) -> Vec<u8> { self.as_slice().to_owned() }
-
-	/// Return a slice filled with raw data.
-	fn as_slice(&self) -> &[u8] { self.as_ref() }
-}
-
-#[cfg(feature = "std")]
-pub use self::dummy::*;
-
-#[cfg(feature = "std")]
-mod dummy {
-	use super::*;
-
-	/// Dummy cryptography. Doesn't do anything.
-	#[derive(Clone, Hash, Default, Eq, PartialEq)]
-	pub struct Dummy;
-
-	impl AsRef<[u8]> for Dummy {
-		fn as_ref(&self) -> &[u8] { &b""[..] }
-	}
-
-	impl AsMut<[u8]> for Dummy {
-		fn as_mut(&mut self) -> &mut[u8] {
-			unsafe {
-				#[allow(mutable_transmutes)]
-				rstd::mem::transmute::<_, &'static mut [u8]>(&b""[..])
-			}
-		}
-	}
-
-	impl CryptoType for Dummy {
-		type Pair = Dummy;
-	}
-
-	impl Derive for Dummy {}
-
-	impl Public for Dummy {
-		fn from_slice(_: &[u8]) -> Self { Self }
-		#[cfg(feature = "std")]
-		fn to_raw_vec(&self) -> Vec<u8> { vec![] }
-		fn as_slice(&self) -> &[u8] { b"" }
-	}
-
-	impl Pair for Dummy {
-		type Public = Dummy;
-		type Seed = Dummy;
-		type Signature = Dummy;
-		type DeriveError = ();
-		fn generate_with_phrase(_: Option<&str>) -> (Self, String, Self::Seed) { Default::default() }
-		fn from_phrase(_: &str, _: Option<&str>)
-			-> Result<(Self, Self::Seed), SecretStringError>
-		{
-			Ok(Default::default())
-		}
-		fn derive<
-			Iter: Iterator<Item=DeriveJunction>
-		>(&self, _: Iter) -> Result<Self, Self::DeriveError> { Ok(Self) }
-		fn from_seed(_: &Self::Seed) -> Self { Self }
-		fn from_seed_slice(_: &[u8]) -> Result<Self, SecretStringError> { Ok(Self) }
-		fn from_standard_components<
-			I: Iterator<Item=DeriveJunction>
-		>(
-			_: &str,
-			_: Option<&str>,
-			_: I
-		) -> Result<Self, SecretStringError> { Ok(Self) }
-		fn sign(&self, _: &[u8]) -> Self::Signature { Self }
-		fn verify<M: AsRef<[u8]>>(_: &Self::Signature, _: M, _: &Self::Public) -> bool { true }
-		fn verify_weak<P: AsRef<[u8]>, M: AsRef<[u8]>>(_: &[u8], _: M, _: P) -> bool { true }
-		fn public(&self) -> Self::Public { Self }
-		fn to_raw_vec(&self) -> Vec<u8> { vec![] }
 	}
 }
 

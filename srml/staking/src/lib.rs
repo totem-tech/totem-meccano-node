@@ -58,11 +58,10 @@
 //!
 //! #### Staking
 //!
-//! Almost any interaction with the Staking module requires a process of _**bonding**_ (also known
-//! as being a _staker_). To become *bonded*, a fund-holding account known as the _stash account_,
-//! which holds some or all of the funds that become frozen in place as part of the staking process,
-//! is paired with an active **controller** account, which issues instructions on how they shall be
-//! used.
+//! Almost any interaction with the staking module requires a process of _**bonding**_ (also known as
+//! being a _staker_). To become *bonded* a fund-holding account known as the _stash account_, which holds some or all of the
+//! funds that become frozen in place as part of the staking process, is paired with an active **controller** account which issues
+//! instructions on how they shall be used.
 //!
 //! An account pair can become bonded using the [`bond`](./enum.Call.html#variant.bond) call.
 //!

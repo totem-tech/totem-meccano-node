@@ -24,8 +24,13 @@ pub use srml_metadata::{EventMetadata, DecodeDifferent, OuterEventMetadata, FnEn
 /// # Simple Event Example:
 ///
 /// ```rust
-/// srml_support::decl_event!(
-///    pub enum Event {
+/// #[macro_use]
+/// extern crate srml_support;
+/// #[macro_use]
+/// extern crate parity_codec as codec;
+///
+/// decl_event!(
+///	   pub enum Event {
 ///       Success,
 ///       Failure(String),
 ///    }
@@ -37,6 +42,12 @@ pub use srml_metadata::{EventMetadata, DecodeDifferent, OuterEventMetadata, FnEn
 /// # Generic Event Example:
 ///
 /// ```rust
+/// #[macro_use]
+/// extern crate srml_support;
+/// extern crate parity_codec as codec;
+/// #[macro_use]
+/// extern crate parity_codec;
+///
 /// trait Trait {
 ///     type Balance;
 ///     type Token;
@@ -79,6 +90,12 @@ pub use srml_metadata::{EventMetadata, DecodeDifferent, OuterEventMetadata, FnEn
 /// # Generic Event with Instance Example:
 ///
 /// ```rust
+/// #[macro_use]
+/// extern crate srml_support;
+/// extern crate parity_codec as codec;
+/// #[macro_use]
+/// extern crate parity_codec;
+///
 ///# struct DefaultInstance;
 ///# trait Instance {}
 ///# impl Instance for DefaultInstance {}
@@ -555,7 +572,7 @@ macro_rules! __impl_outer_event_json_metadata {
 mod tests {
 	use super::*;
 	use serde::Serialize;
-	use codec::{Encode, Decode};
+	use parity_codec::{Encode, Decode};
 
 	mod system {
 		pub trait Trait {

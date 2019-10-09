@@ -15,16 +15,15 @@
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit="128"]
 
-use runtime_io::with_externalities;
-use support::{
-	Parameter, traits::Get, parameter_types,
-	sr_primitives::{generic, BuildStorage, traits::{BlakeTwo256, Block as _, Verify}},
-	metadata::{
-		DecodeDifferent, StorageMetadata, StorageEntryModifier, StorageEntryType, DefaultByteGetter,
-		StorageEntryMetadata, StorageHasher
-	},
-	StorageValue, StorageMap, StorageLinkedMap, StorageDoubleMap,
-};
+#[cfg(feature = "std")]
+use serde::Serialize;
+use runtime_io::{with_externalities, Blake2Hasher};
+use srml_support::rstd::prelude::*;
+use srml_support::rstd as rstd;
+use srml_support::codec::{Encode, Decode};
+use srml_support::runtime_primitives::{generic, BuildStorage};
+use srml_support::runtime_primitives::traits::{BlakeTwo256, Block as _, Verify, Digest};
+use srml_support::Parameter;
 use inherents::{
 	ProvideInherent, InherentData, InherentIdentifier, RuntimeString, MakeFatalError
 };
@@ -92,7 +91,20 @@ mod module1 {
 	#[cfg_attr(feature = "std", derive(Debug))]
 	pub enum Origin<T: Trait<I>, I> where T::BlockNumber: From<u32> {
 		Members(u32),
-		_Phantom(std::marker::PhantomData<(T, I)>),
+		_Phantom(rstd::marker::PhantomData<(T, I)>),
+	}
+
+	pub type Log<T, I> = RawLog<
+		T,
+		I,
+	>;
+
+	/// A logs in this module.
+	#[cfg_attr(feature = "std", derive(serde::Serialize, Debug))]
+	#[derive(parity_codec::Encode, parity_codec::Decode, PartialEq, Eq, Clone)]
+	pub enum RawLog<T, I> {
+		_Phantom(rstd::marker::PhantomData<(T, I)>),
+		AmountChange(u32),
 	}
 
 	pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"12345678";
@@ -155,7 +167,20 @@ mod module2 {
 	#[cfg_attr(feature = "std", derive(Debug))]
 	pub enum Origin<T: Trait<I>, I=DefaultInstance> {
 		Members(u32),
-		_Phantom(std::marker::PhantomData<(T, I)>),
+		_Phantom(rstd::marker::PhantomData<(T, I)>),
+	}
+
+	pub type Log<T, I=DefaultInstance> = RawLog<
+		T,
+		I,
+	>;
+
+	/// A logs in this module.
+	#[cfg_attr(feature = "std", derive(serde::Serialize, Debug))]
+	#[derive(parity_codec::Encode, parity_codec::Decode, PartialEq, Eq, Clone)]
+	pub enum RawLog<T, I=DefaultInstance> {
+		_Phantom(rstd::marker::PhantomData<(T, I)>),
+		AmountChange(u32),
 	}
 
 	pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"12345678";

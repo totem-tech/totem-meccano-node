@@ -33,9 +33,9 @@ core = [
 ]
 std = [
 	"serde",
-	"codec/std",
-	"primitives/std",
-	"sr-primitives/std",
+	"parity-codec/std",
+	"substrate-primitives/std",
+	"runtime-primitives/std",
 	"runtime-io/std",
 	"rstd/std",
 	"sandbox/std",

@@ -20,12 +20,11 @@ use std::collections::HashMap;
 use std::iter::FromIterator;
 use crate::backend::{Backend, InMemory};
 use hash_db::Hasher;
-use trie::{TrieConfiguration, default_child_trie_root};
-use trie::trie_types::Layout;
-use primitives::{
-	storage::well_known_keys::is_child_storage_key, child_storage_key::ChildStorageKey, offchain,
-	traits::Externalities,
-};
+use heapsize::HeapSizeOf;
+use trie::trie_root;
+use primitives::storage::well_known_keys::{CHANGES_TRIE_CONFIG, CODE, HEAP_PAGES};
+use parity_codec::Encode;
+use super::{ChildStorageKey, Externalities, OverlayedChanges};
 use log::warn;
 
 /// Simple HashMap-based Externalities impl.
@@ -97,12 +96,8 @@ impl<H: Hasher> Externalities<H> for BasicExternalities where H::Out: Ord {
 		Externalities::<H>::storage(self, key)
 	}
 
-	fn child_storage(&self, storage_key: ChildStorageKey, key: &[u8]) -> Option<Vec<u8>> {
-		self.children.get(storage_key.as_ref()).and_then(|child| child.get(key)).cloned()
-	}
-
-	fn original_child_storage(&self, storage_key: ChildStorageKey, key: &[u8]) -> Option<Vec<u8>> {
-		Externalities::<H>::child_storage(self, storage_key, key)
+	fn child_storage(&self, _storage_key: ChildStorageKey<H>, _key: &[u8]) -> Option<Vec<u8>> {
+		None
 	}
 
 	fn place_storage(&mut self, key: Vec<u8>, maybe_value: Option<Vec<u8>>) {
@@ -117,23 +112,10 @@ impl<H: Hasher> Externalities<H> for BasicExternalities where H::Out: Ord {
 		}
 	}
 
-	fn place_child_storage(
-		&mut self,
-		storage_key: ChildStorageKey,
-		key: Vec<u8>,
-		value: Option<Vec<u8>>,
-	) {
-		let child_map = self.children.entry(storage_key.into_owned()).or_default();
-		if let Some(value) = value {
-			child_map.insert(key, value);
-		} else {
-			child_map.remove(&key);
-		}
+	fn place_child_storage(&mut self, _storage_key: ChildStorageKey<H>, _key: Vec<u8>, _value: Option<Vec<u8>>) {
 	}
 
-	fn kill_child_storage(&mut self, storage_key: ChildStorageKey) {
-		self.children.remove(storage_key.as_ref());
-	}
+	fn kill_child_storage(&mut self, _storage_key: ChildStorageKey<H>) { }
 
 	fn clear_prefix(&mut self, prefix: &[u8]) {
 		if is_child_storage_key(prefix) {
@@ -178,18 +160,8 @@ impl<H: Hasher> Externalities<H> for BasicExternalities where H::Out: Ord {
 		Layout::<H>::trie_root(self.top.clone())
 	}
 
-	fn child_storage_root(&mut self, storage_key: ChildStorageKey) -> Vec<u8> {
-		if let Some(child) = self.children.get(storage_key.as_ref()) {
-			let delta = child.clone().into_iter().map(|(k, v)| (k, Some(v)));
-
-			InMemory::<H>::default().child_storage_root(storage_key.as_ref(), delta).0
-		} else {
-			default_child_trie_root::<Layout<H>>(storage_key.as_ref())
-		}
-	}
-
-	fn storage_changes_root(&mut self, _parent: H::Out) -> Result<Option<H::Out>, ()> {
-		Ok(None)
+	fn child_storage_root(&mut self, _storage_key: ChildStorageKey<H>) -> Vec<u8> {
+		vec![42]
 	}
 
 	fn offchain(&mut self) -> Option<&mut dyn offchain::Externalities> {

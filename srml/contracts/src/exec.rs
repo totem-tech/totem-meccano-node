@@ -155,28 +155,11 @@ pub trait Ext {
 	/// Returns a reference to the timestamp of the current block
 	fn now(&self) -> &MomentOf<Self::T>;
 
-	/// Returns the minimum balance that is required for creating an account.
-	fn minimum_balance(&self) -> BalanceOf<Self::T>;
+	/// Returns a reference to the random seed for the current block
+	fn random_seed(&self) -> &SeedOf<Self::T>;
 
-	/// Returns a random number for the current block with the given subject.
-	fn random(&self, subject: &[u8]) -> SeedOf<Self::T>;
-
-	/// Deposit an event with the given topics.
-	///
-	/// There should not be any duplicates in `topics`.
-	fn deposit_event(&mut self, topics: Vec<TopicOf<Self::T>>, data: Vec<u8>);
-
-	/// Set rent allowance of the contract
-	fn set_rent_allowance(&mut self, rent_allowance: BalanceOf<Self::T>);
-
-	/// Rent allowance of the contract
-	fn rent_allowance(&self) -> BalanceOf<Self::T>;
-
-	/// Returns the current block number.
-	fn block_number(&self) -> BlockNumberOf<Self::T>;
-
-	/// Returns the maximum allowed size of a storage item.
-	fn max_value_size(&self) -> u32;
+	/// Deposit an event.
+	fn deposit_event(&mut self, data: Vec<u8>);
 }
 
 /// Loader is a companion of the `Vm` trait. It loads an appropriate abstract
@@ -761,30 +744,8 @@ where
 		&self.timestamp
 	}
 
-	fn minimum_balance(&self) -> BalanceOf<T> {
-		self.ctx.config.existential_deposit
-	}
-
-	fn deposit_event(&mut self, topics: Vec<T::Hash>, data: Vec<u8>) {
-		self.ctx.deferred.push(DeferredAction::DepositEvent {
-			topics,
-			event: RawEvent::Contract(self.ctx.self_account.clone(), data),
-		});
-	}
-
-	fn set_rent_allowance(&mut self, rent_allowance: BalanceOf<T>) {
-		self.ctx.overlay.set_rent_allowance(&self.ctx.self_account, rent_allowance)
-	}
-
-	fn rent_allowance(&self) -> BalanceOf<T> {
-		self.ctx.overlay.get_rent_allowance(&self.ctx.self_account)
-			.unwrap_or(<BalanceOf<T>>::max_value()) // Must never be triggered actually
-	}
-
-	fn block_number(&self) -> T::BlockNumber { self.block_number }
-
-	fn max_value_size(&self) -> u32 {
-		self.ctx.config.max_value_size
+	fn deposit_event(&mut self, data: Vec<u8>) {
+		self.ctx.events.push(RawEvent::Contract(self.ctx.self_account.clone(), data));
 	}
 }
 

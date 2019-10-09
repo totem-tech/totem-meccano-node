@@ -27,15 +27,14 @@ use log::{debug, error, trace, warn};
 use rand::distributions::{Distribution as _, Uniform};
 use sr_primitives::traits::Block as BlockT;
 use smallvec::SmallVec;
-use std::{borrow::Cow, collections::hash_map::Entry, cmp, error, marker::PhantomData, mem, pin::Pin};
-use std::time::{Duration, Instant};
+use std::{borrow::Cow, collections::hash_map::Entry, cmp, error, marker::PhantomData, mem, time::Duration, time::Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
 
 /// Network behaviour that handles opening substreams for custom protocols with other nodes.
 ///
 /// ## How it works
 ///
-/// The role of the `LegacyProto` is to synchronize the following components:
+/// The role of the `CustomProto` is to synchronize the following components:
 ///
 /// - The libp2p swarm that opens new connections and reports disconnects.
 /// - The connection handler (see `handler.rs`) that handles individual connections.
@@ -61,12 +60,12 @@ use tokio_io::{AsyncRead, AsyncWrite};
 /// Note that this "banning" system is not an actual ban. If a "banned" node tries to connect to
 /// us, we accept the connection. The "banning" system is only about delaying dialing attempts.
 ///
-pub struct LegacyProto<B: BlockT, TSubstream> {
+pub struct CustomProto<TMessage, TSubstream> {
 	/// List of protocols to open with peers. Never modified.
 	protocol: RegisteredProtocol<B>,
 
 	/// Receiver for instructions about who to connect to or disconnect from.
-	peerset: peerset::Peerset,
+	peerset: substrate_peerset::Peerset,
 
 	/// List of peers in our state.
 	peers: FnvHashMap<PeerId, PeerState>,
@@ -229,9 +228,8 @@ pub enum LegacyProtoOut<B: BlockT> {
 impl<B: BlockT, TSubstream> LegacyProto<B, TSubstream> {
 	/// Creates a `CustomProtos`.
 	pub fn new(
-		protocol: impl Into<ProtocolId>,
-		versions: &[u8],
-		peerset: peerset::Peerset,
+		protocol: RegisteredProtocol<TMessage>,
+		peerset: substrate_peerset::Peerset,
 	) -> Self {
 		let protocol = RegisteredProtocol::new(protocol, versions);
 
@@ -642,7 +640,7 @@ where
 				debug!(target: "sub-libp2p", "Handler({:?}) <= Enable", peer_id);
 				self.events.push(NetworkBehaviourAction::SendEvent {
 					peer_id: peer_id.clone(),
-					event: CustomProtoHandlerIn::Enable,
+					event: CustomProtoHandlerIn::Enable(connected_point.clone().into()),
 				});
 				*st = PeerState::Enabled { open: false, connected_point };
 			}
@@ -729,7 +727,7 @@ where
 					(through {:?}) but pending enable", peer_id, endpoint);
 				debug!(target: "sub-libp2p", "PSM <= Dropped({:?})", peer_id);
 				self.peerset.dropped(peer_id.clone());
-				self.peers.insert(peer_id.clone(), PeerState::Banned { until: timer_deadline });
+				self.peers.insert(peer_id.clone(), PeerState::Banned { until: timer.deadline() });
 				if open {
 					debug!(target: "sub-libp2p", "External API <= Closed({:?})", peer_id);
 					let event = LegacyProtoOut::CustomProtocolClosed {
@@ -746,11 +744,6 @@ where
 					(through {:?})", peer_id, endpoint);
 				debug!(target: "sub-libp2p", "PSM <= Dropped({:?})", peer_id);
 				self.peerset.dropped(peer_id.clone());
-
-				let ban_dur = Uniform::new(5, 10).sample(&mut rand::thread_rng());
-				self.peers.insert(peer_id.clone(), PeerState::Banned {
-					until: Instant::now() + Duration::from_secs(ban_dur)
-				});
 
 				if open {
 					debug!(target: "sub-libp2p", "External API <= Closed({:?})", peer_id);
@@ -839,7 +832,7 @@ where
 				};
 
 				debug!(target: "sub-libp2p", "External API <= Closed({:?})", source);
-				let event = LegacyProtoOut::CustomProtocolClosed {
+				let event = CustomProtoOut::CustomProtocolClosed {
 					reason,
 					peer_id: source.clone(),
 				};
@@ -868,14 +861,9 @@ where
 						debug_assert!(open);
 						*entry.into_mut() = PeerState::Disabled { open: false, connected_point, banned_until };
 					},
-					PeerState::DisabledPendingEnable { open, connected_point, timer, timer_deadline } => {
+					PeerState::DisabledPendingEnable { open, connected_point, timer } => {
 						debug_assert!(open);
-						*entry.into_mut() = PeerState::DisabledPendingEnable {
-							open: false,
-							connected_point,
-							timer,
-							timer_deadline
-						};
+						*entry.into_mut() = PeerState::DisabledPendingEnable { open: false, connected_point, timer };
 					},
 					_ => error!(target: "sub-libp2p", "State mismatch in the custom protos handler"),
 				}

@@ -5,7 +5,7 @@ authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2018"
 
 [dependencies]
-primitives = { package = "substrate-primitives",  version = "*", path = "../core/primitives" }
+substrate-primitives = { version = "*", path = "../core/primitives" }
 node-runtime = { version = "*", path = "../node/runtime" }
 node-primitives = { version = "*", path = "../node/primitives" }
 sr-primitives = { version = "*", path = "../core/sr-primitives" }
@@ -15,10 +15,8 @@ tiny-bip39 = "0.6.0"
 rustc-hex = "2.0"
 substrate-bip39 = "0.3.1"
 hex = "0.3"
-hex-literal = "0.2"
-codec = { package = "parity-scale-codec", version = "1.0.0" }
-system = { package = "srml-system", path = "../srml/system" }
-balances = { package = "srml-balances", path = "../srml/balances" }
+hex-literal = "0.1"
+parity-codec = "3.2"
 
 [features]
 bench = []

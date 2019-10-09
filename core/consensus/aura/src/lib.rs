@@ -641,7 +641,6 @@ pub fn import_queue<B, C, P, T>(
 	finality_proof_import: Option<BoxFinalityProofImport<B>>,
 	client: Arc<C>,
 	inherent_data_providers: InherentDataProviders,
-	transaction_pool: Option<Arc<T>>,
 ) -> Result<AuraImportQueue<B>, consensus_common::Error> where
 	B: BlockT,
 	C: 'static + ProvideRuntimeApi + BlockOf + ProvideCache<B> + Send + Sync + AuxStore,
@@ -655,18 +654,51 @@ pub fn import_queue<B, C, P, T>(
 	register_aura_inherent_data_provider(&inherent_data_providers, slot_duration.get())?;
 	initialize_authorities_cache(&*client)?;
 
-	let verifier = AuraVerifier {
-		client: client.clone(),
-		inherent_data_providers,
-		phantom: PhantomData,
-		transaction_pool,
-	};
-	Ok(BasicQueue::new(
-		verifier,
-		block_import,
-		justification_import,
-		finality_proof_import,
-	))
+	let verifier = Arc::new(
+		AuraVerifier {
+			client: client.clone(),
+			extra,
+			inherent_data_providers,
+			phantom: PhantomData,
+			allow_old_seals: false,
+		}
+	);
+	Ok(BasicQueue::new(verifier, block_import, justification_import))
+}
+
+/// Start an import queue for the Aura consensus algorithm with backwards compatibility.
+#[deprecated(
+	note = "should not be used unless backwards compatibility with an older chain is needed."
+)]
+pub fn import_queue_accept_old_seals<B, C, E, P>(
+	slot_duration: SlotDuration,
+	block_import: SharedBlockImport<B>,
+	justification_import: Option<SharedJustificationImport<B>>,
+	client: Arc<C>,
+	extra: E,
+	inherent_data_providers: InherentDataProviders,
+) -> Result<AuraImportQueue<B>, consensus_common::Error> where
+	B: Block,
+	C: 'static + ProvideRuntimeApi + ProvideCache<B> + Send + Sync,
+	C::Api: BlockBuilderApi<B> + AuthoritiesApi<B>,
+	DigestItemFor<B>: CompatibleDigestItem<P> + DigestItem<AuthorityId=AuthorityId<P>>,
+	E: 'static + ExtraVerification<B>,
+	P: Pair + Send + Sync + 'static,
+	P::Public: Clone + Eq + Send + Sync + Hash + Debug + Encode + Decode + AsRef<P::Public>,
+	P::Signature: Encode + Decode,
+{
+	register_aura_inherent_data_provider(&inherent_data_providers, slot_duration.get())?;
+
+	let verifier = Arc::new(
+		AuraVerifier {
+			client: client.clone(),
+			extra,
+			inherent_data_providers,
+			phantom: PhantomData,
+			allow_old_seals: true,
+		}
+	);
+	Ok(BasicQueue::new(verifier, block_import, justification_import))
 }
 
 #[cfg(test)]
@@ -837,13 +869,21 @@ mod tests {
 			runtime.spawn(aura);
 		}
 
-		runtime.spawn(futures01::future::poll_fn(move || {
-			net.lock().poll();
-			Ok::<_, ()>(futures01::Async::NotReady::<()>)
-		}));
+		// wait for all finalized on each.
+		let wait_for = ::futures::future::join_all(import_notifications)
+			.map(|_| ())
+			.map_err(|_| ());
 
-		runtime.block_on(future::join_all(import_notifications)
-			.map(|_| Ok::<(), ()>(())).compat()).unwrap();
+		let drive_to_completion = ::tokio::timer::Interval::new_interval(TEST_ROUTING_INTERVAL)
+			.for_each(move |_| {
+				net.lock().send_import_notifications();
+				net.lock().sync_without_disconnects();
+				Ok(())
+			})
+			.map(|_| ())
+			.map_err(|_| ());
+
+		runtime.block_on(wait_for.select(drive_to_completion).map_err(|_| ())).unwrap();
 	}
 
 	#[test]

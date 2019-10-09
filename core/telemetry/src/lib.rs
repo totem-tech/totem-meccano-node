@@ -67,8 +67,10 @@ use std::{pin::Pin, sync::Arc, task::{Context, Poll}, time::{Duration, Instant}}
 
 pub use slog_scope::with_logger;
 pub use slog;
-
-mod worker;
+use serde::{Serialize, Deserialize};
+use slog::OwnedKVList;
+use slog::Record;
+use core::result;
 
 /// Configuration for telemetry.
 pub struct TelemetryConfig {

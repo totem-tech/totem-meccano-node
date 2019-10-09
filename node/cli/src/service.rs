@@ -222,76 +222,27 @@ pub fn new_full<C: Send + Default + 'static>(config: Configuration<C, GenesisCon
 	new_full!(config).map(|(service, _)| service)
 }
 
-/// Builds a new service for a light client.
-pub fn new_light<C: Send + Default + 'static>(config: Configuration<C, GenesisConfig>)
--> Result<impl AbstractService, ServiceError> {
-	use futures::Future;
-
-	let inherent_data_providers = InherentDataProviders::new();
-	let mut tasks_to_spawn = Vec::new();
-
-	let service = ServiceBuilder::new_light::<Block, RuntimeApi, node_executor::Executor>(config)?
-		.with_select_chain(|_config, backend| {
-			Ok(LongestChain::new(backend.clone()))
-		})?
-		.with_transaction_pool(|config, client|
-			Ok(TransactionPool::new(config, transaction_pool::ChainApi::new(client)))
-		)?
-		.with_import_queue_and_fprb(|_config, client, backend, fetcher, _select_chain, transaction_pool| {
-			let fetch_checker = fetcher
-				.map(|fetcher| fetcher.checker().clone())
-				.ok_or_else(|| "Trying to start light import queue without active fetch checker")?;
-			let block_import = grandpa::light_block_import::<_, _, _, RuntimeApi, _>(
-				client.clone(), backend, Arc::new(fetch_checker), client.clone()
-			)?;
-
-			let finality_proof_import = block_import.clone();
-			let finality_proof_request_builder =
-				finality_proof_import.create_finality_proof_request_builder();
-
-			let (import_queue, _, _, pruning_task) = import_queue(
-				Config::get_or_compute(&*client)?,
-				block_import,
-				None,
-				Some(Box::new(finality_proof_import)),
-				client.clone(),
-				client,
-				inherent_data_providers.clone(),
-				Some(transaction_pool)
-			)?;
-
-			tasks_to_spawn.push(Box::new(pruning_task));
-
-			Ok((import_queue, finality_proof_request_builder))
-		})?
-		.with_network_protocol(|_| Ok(NodeProtocol::new()))?
-		.with_finality_proof_provider(|client, backend|
-			Ok(Arc::new(GrandpaFinalityProofProvider::new(backend, client)) as _)
-		)?
-		.with_rpc_extensions(|client, pool| {
-			use node_rpc::{
-				accounts::{Accounts, AccountsApi},
-				contracts::{Contracts, ContractsApi},
-			};
-
-			let mut io = jsonrpc_core::IoHandler::default();
-			io.extend_with(
-				AccountsApi::to_delegate(Accounts::new(client.clone(), pool))
-			);
-			io.extend_with(
-				ContractsApi::to_delegate(Contracts::new(client))
-			);
-			io
-		})?
-		.build()?;
-
-	// spawn any futures that were created in the previous setup steps
-	for task in tasks_to_spawn.drain(..) {
-		service.spawn_task(
-			task.select(service.on_exit())
-				.map(|_| ())
-				.map_err(|_| ())
-		);
+				import_queue::<_, _, _, ed25519::Pair>(
+					slot_duration,
+					block_import,
+					Some(justification_import),
+					client,
+					NothingExtra,
+					config.custom.inherent_data_providers.clone(),
+				).map_err(Into::into)
+			}},
+		LightImportQueue = AuraImportQueue<Self::Block>
+			{ |config: &FactoryFullConfiguration<Self>, client: Arc<LightClient<Self>>| {
+				import_queue::<_, _, _, ed25519::Pair>(
+					SlotDuration::get_or_compute(&*client)?,
+					client.clone(),
+					None,
+					client,
+					NothingExtra,
+					config.custom.inherent_data_providers.clone(),
+				).map_err(Into::into)
+			}
+		},
 	}
 
 	Ok(service)

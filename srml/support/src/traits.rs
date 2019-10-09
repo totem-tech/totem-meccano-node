@@ -20,15 +20,10 @@
 
 use crate::rstd::{prelude::*, result, marker::PhantomData, ops::Div};
 use crate::codec::{Codec, Encode, Decode};
-use primitives::u32_trait::Value as U32;
-use crate::sr_primitives::traits::{MaybeSerializeDebug, SimpleArithmetic, Saturating};
-use crate::sr_primitives::ConsensusEngineId;
-
-/// Anything that can have a `::len()` method.
-pub trait Len {
-	/// Return the length of data type.
-	fn len(&self) -> usize;
-}
+use crate::runtime_primitives::traits::{
+	MaybeSerializeDebug, SimpleArithmetic, As
+};
+use super::for_each_tuple;
 
 impl<T: IntoIterator + Clone,> Len for T where <T as IntoIterator>::IntoIter: ExactSizeIterator {
 	fn len(&self) -> usize {
@@ -36,36 +31,23 @@ impl<T: IntoIterator + Clone,> Len for T where <T as IntoIterator>::IntoIter: Ex
 	}
 }
 
-/// A trait for querying a single fixed value from a type.
-pub trait Get<T> {
-	/// Return a constant value.
-	fn get() -> T;
-}
+macro_rules! impl_on_free_balance_zero {
+	() => (
+		impl<AccountId> OnFreeBalanceZero<AccountId> for () {
+			fn on_free_balance_zero(_: &AccountId) {}
+		}
+	);
 
-impl<T: Default> Get<T> for () {
-	fn get() -> T { T::default() }
-}
-
-/// A trait for querying whether a type can be said to statically "contain" a value. Similar
-/// in nature to `Get`, except it is designed to be lazy rather than active (you can't ask it to
-/// enumerate all values that it contains) and work for multiple values rather than just one.
-pub trait Contains<T> {
-	/// Return `true` if this "contains" the given value `t`.
-	fn contains(t: &T) -> bool;
-}
-
-impl<V: PartialEq, T: Get<V>> Contains<V> for T {
-	fn contains(t: &V) -> bool {
-		&Self::get() == t
+	( $($t:ident)* ) => {
+		impl<AccountId, $($t: OnFreeBalanceZero<AccountId>),*> OnFreeBalanceZero<AccountId> for ($($t,)*) {
+			fn on_free_balance_zero(who: &AccountId) {
+				$($t::on_free_balance_zero(who);)*
+			}
+		}
 	}
 }
 
-/// The account with the given id was killed.
-#[impl_trait_for_tuples::impl_for_tuples(30)]
-pub trait OnFreeBalanceZero<AccountId> {
-	/// The account was the given id was killed.
-	fn on_free_balance_zero(who: &AccountId);
-}
+for_each_tuple!(impl_on_free_balance_zero);
 
 /// Trait for a hook to get called when some balance has been minted, causing dilution.
 pub trait OnDilution<Balance> {

@@ -14,20 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Main entry point of the substrate-network crate.
-//!
-//! There are two main structs in this module: [`NetworkWorker`] and [`NetworkService`].
-//! The [`NetworkWorker`] *is* the network and implements the `Future` trait. It must be polled in
-//! order fo the network to advance.
-//! The [`NetworkService`] is merely a shared version of the [`NetworkWorker`]. You can obtain an
-//! `Arc<NetworkService>` by calling [`NetworkWorker::service`].
-//!
-//! The methods of the [`NetworkService`] are implemented by sending a message over a channel,
-//! which is then processed by [`NetworkWorker::poll`].
-
-use std::{collections::{HashMap, HashSet}, fs, marker::PhantomData, io, path::Path};
-use std::sync::{Arc, atomic::{AtomicBool, AtomicUsize, Ordering}};
-
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::{io, thread};
+use log::{warn, debug, error, trace};
+use futures::{Async, Future, Stream, stream, sync::oneshot, sync::mpsc};
+use parking_lot::{Mutex, RwLock};
+use network_libp2p::{ProtocolId, NetworkConfiguration, Severity};
+use network_libp2p::{start_service, parse_str_addr, Service as NetworkService, ServiceEvent as NetworkServiceEvent};
+use network_libp2p::{RegisteredProtocol, NetworkState};
+use peerset::PeersetHandle;
 use consensus::import_queue::{ImportQueue, Link};
 use consensus::import_queue::{BlockImportResult, BlockImportError};
 use futures::{prelude::*, sync::mpsc};
@@ -100,11 +97,12 @@ pub struct NetworkService<B: BlockT + 'static, S: NetworkSpecialization<B>, H: E
 	/// Peerset manager (PSM); manages the reputation of nodes and indicates the network which
 	/// nodes it should be connected to or not.
 	peerset: PeersetHandle,
-	/// Channel that sends messages to the actual worker.
-	to_worker: mpsc::UnboundedSender<ServerToWorkerMsg<B, S>>,
-	/// Marker to pin the `H` generic. Serves no purpose except to not break backwards
-	/// compatibility.
-	_marker: PhantomData<H>,
+	/// Protocol sender
+	protocol_sender: Sender<ProtocolMsg<B, S>>,
+	/// Sender for messages to the background service task, and handle for the background thread.
+	/// Dropping the sender should close the task and the thread.
+	/// This is an `Option` because we need to extract it in the destructor.
+	bg_thread: Option<(oneshot::Sender<()>, thread::JoinHandle<()>)>,
 }
 
 impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> NetworkWorker<B, S, H> {
@@ -503,8 +501,17 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> NetworkServic
 			parse_addr(p).map_err(|e| format!("{:?}", e))
 		}).collect::<Result<Vec<(PeerId, Multiaddr)>, String>>()?;
 
-		let peer_ids = peers.iter().map(|(peer_id, _addr)| peer_id.clone()).collect();
-		self.peerset.set_priority_group(group_id, peer_ids);
+/// Trait for managing network
+pub trait ManageNetwork {
+	/// Set to allow unreserved peers to connect
+	fn accept_unreserved_peers(&self);
+	/// Set to deny unreserved peers to connect
+	fn deny_unreserved_peers(&self);
+	/// Remove reservation for the peer
+	fn remove_reserved_peer(&self, peer: PeerId);
+	/// Add reserved peer
+	fn add_reserved_peer(&self, peer: String) -> Result<(), String>;
+}
 
 		for (peer_id, addr) in peers.into_iter() {
 			let _ = self
@@ -520,9 +527,8 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> NetworkServic
 		self.num_connected.load(Ordering::Relaxed)
 	}
 
-	/// Returns the local external addresses.
-	pub fn external_addresses(&self) -> Vec<Multiaddr> {
-		self.external_addresses.lock().clone()
+	fn remove_reserved_peer(&self, peer: PeerId) {
+		self.peerset.remove_reserved_peer(peer);
 	}
 }
 
@@ -530,10 +536,6 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT>
 	::consensus::SyncOracle for NetworkService<B, S, H> {
 	fn is_major_syncing(&mut self) -> bool {
 		NetworkService::is_major_syncing(self)
-	}
-
-	fn is_offline(&mut self) -> bool {
-		self.num_connected.load(Ordering::Relaxed) == 0
 	}
 }
 
@@ -710,56 +712,102 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> Stream for Ne
 			SyncState::Downloading => true,
 		}, Ordering::Relaxed);
 
-		Ok(Async::NotReady)
-	}
+/// Messages to be handled by NetworkService.
+#[derive(Debug)]
+pub enum NetworkMsg<B: BlockT + 'static> {
+	/// Send an outgoing custom message.
+	Outgoing(PeerId, Message<B>),
+	/// Report a peer.
+	ReportPeer(PeerId, Severity),
+	/// Synchronization response.
+	#[cfg(any(test, feature = "test-helpers"))]
+	Synchronized,
 }
 
-/// The libp2p swarm, customized for our needs.
-type Swarm<B, S, H> = libp2p::swarm::Swarm<
-	Boxed<(PeerId, StreamMuxerBox), io::Error>,
-	Behaviour<B, S, H>
->;
+/// Starts the background thread that handles the networking.
+fn start_thread<B: BlockT + 'static>(
+	protocol_sender: Sender<FromNetworkMsg<B>>,
+	network_port: NetworkPort<B>,
+	config: NetworkConfiguration,
+	registered: RegisteredProtocol<Message<B>>,
+) -> Result<((oneshot::Sender<()>, thread::JoinHandle<()>), Arc<Mutex<NetworkService<Message<B>>>>, PeersetHandle), Error> {
+	// Start the main service.
+	let (service, peerset) = match start_service(config, registered) {
+		Ok((service, peerset)) => (Arc::new(Mutex::new(service)), peerset),
+		Err(err) => {
+			warn!("Error starting network: {}", err);
+			return Err(err.into())
+		},
+	};
+
+	let (close_tx, close_rx) = oneshot::channel();
+	let service_clone = service.clone();
+	let mut runtime = RuntimeBuilder::new().name_prefix("libp2p-").build()?;
+	let peerset_clone = peerset.clone();
+	let thread = thread::Builder::new().name("network".to_string()).spawn(move || {
+		let fut = run_thread(protocol_sender, service_clone, network_port, peerset_clone)
+			.select(close_rx.then(|_| Ok(())))
+			.map(|(val, _)| val)
+			.map_err(|(err,_ )| err);
+
+		// Note that we use `block_on` and not `block_on_all` because we want to kill the thread
+		// instantly if `close_rx` receives something.
+		match runtime.block_on(fut) {
+			Ok(()) => debug!(target: "sub-libp2p", "Networking thread finished"),
+			Err(err) => error!(target: "sub-libp2p", "Error while running libp2p: {:?}", err),
+		};
+	})?;
 
 // Implementation of `import_queue::Link` trait using the available local variables.
 struct NetworkLink<'a, B: BlockT, S: NetworkSpecialization<B>, H: ExHashT> {
 	protocol: &'a mut Swarm<B, S, H>,
 }
 
-impl<'a, B: BlockT, S: NetworkSpecialization<B>, H: ExHashT> Link<B> for NetworkLink<'a, B, S, H> {
-	fn blocks_processed(
-		&mut self,
-		imported: usize,
-		count: usize,
-		results: Vec<(Result<BlockImportResult<NumberFor<B>>, BlockImportError>, B::Hash)>
-	) {
-		self.protocol.user_protocol_mut().blocks_processed(imported, count, results)
-	}
-	fn justification_imported(&mut self, who: PeerId, hash: &B::Hash, number: NumberFor<B>, success: bool) {
-		self.protocol.user_protocol_mut().justification_import_result(hash.clone(), number, success);
-		if !success {
-			info!("Invalid justification provided by {} for #{}", who, hash);
-			self.protocol.user_protocol_mut().disconnect_peer(&who);
-			self.protocol.user_protocol_mut().report_peer(who, i32::min_value());
+/// Runs the background thread that handles the networking.
+fn run_thread<B: BlockT + 'static>(
+	protocol_sender: Sender<FromNetworkMsg<B>>,
+	network_service: Arc<Mutex<NetworkService<Message<B>>>>,
+	network_port: NetworkPort<B>,
+	peerset: PeersetHandle,
+) -> impl Future<Item = (), Error = io::Error> {
+
+	let network_service_2 = network_service.clone();
+
+	// Protocol produces a stream of messages about what happens in sync.
+	let protocol = stream::poll_fn(move || {
+		match network_port.take_one_message() {
+			Ok(Some(message)) => Ok(Async::Ready(Some(message))),
+			Ok(None) => Ok(Async::NotReady),
+			Err(_) => Err(())
 		}
-	}
-	fn request_justification(&mut self, hash: &B::Hash, number: NumberFor<B>) {
-		self.protocol.user_protocol_mut().request_justification(hash, number)
-	}
-	fn request_finality_proof(&mut self, hash: &B::Hash, number: NumberFor<B>) {
-		self.protocol.user_protocol_mut().request_finality_proof(hash, number)
-	}
-	fn finality_proof_imported(
-		&mut self,
-		who: PeerId,
-		request_block: (B::Hash, NumberFor<B>),
-		finalization_result: Result<(B::Hash, NumberFor<B>), ()>,
-	) {
-		let success = finalization_result.is_ok();
-		self.protocol.user_protocol_mut().finality_proof_import_result(request_block, finalization_result);
-		if !success {
-			info!("Invalid finality proof provided by {} for #{}", who, request_block.0);
-			self.protocol.user_protocol_mut().disconnect_peer(&who);
-			self.protocol.user_protocol_mut().report_peer(who, i32::min_value());
+	}).for_each(move |msg| {
+		// Handle message from Protocol.
+		match msg {
+			NetworkMsg::Outgoing(who, outgoing_message) => {
+				network_service_2
+					.lock()
+					.send_custom_message(&who, outgoing_message);
+			},
+			NetworkMsg::ReportPeer(who, severity) => {
+				match severity {
+					Severity::Bad(message) => {
+						debug!(target: "sync", "Banning {:?} because {:?}", who, message);
+						network_service_2.lock().drop_node(&who);
+						// temporary: make sure the peer gets dropped from the peerset
+						peerset.report_peer(who, i32::min_value());
+					},
+					Severity::Useless(message) => {
+						debug!(target: "sync", "Dropping {:?} because {:?}", who, message);
+						network_service_2.lock().drop_node(&who)
+					},
+					Severity::Timeout => {
+						debug!(target: "sync", "Dropping {:?} because it timed out", who);
+						network_service_2.lock().drop_node(&who)
+					},
+				}
+			},
+			#[cfg(any(test, feature = "test-helpers"))]
+			NetworkMsg::Synchronized => (),
 		}
 	}
 }

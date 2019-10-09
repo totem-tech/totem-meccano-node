@@ -624,7 +624,7 @@ impl<T: Trait<I>, I: Instance> Module<T, I> {
 	}
 }
 
-// wrapping these imbalances in a private module is necessary to ensure absolute privacy
+// wrapping these imbalanes in a private module is necessary to ensure absolute privacy
 // of the inner member.
 mod imbalances {
 	use super::{
@@ -812,12 +812,6 @@ impl<T: Subtrait<I>, I: Instance> Trait<I> for ElevatedTrait<T, I> {
 	type TransactionPayment = ();
 	type TransferPayment = ();
 	type DustRemoval = ();
-	type ExistentialDeposit = T::ExistentialDeposit;
-	type TransferFee = T::TransferFee;
-	type CreationFee = T::CreationFee;
-	type TransactionBaseFee = T::TransactionBaseFee;
-	type TransactionByteFee = T::TransactionByteFee;
-	type WeightToFee = T::WeightToFee;
 }
 
 impl<T: Trait<I>, I: Instance> Currency<T::AccountId> for Module<T, I>

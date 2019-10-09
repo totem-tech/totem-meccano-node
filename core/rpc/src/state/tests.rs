@@ -18,7 +18,7 @@ use super::*;
 use super::state_full::split_range;
 use self::error::Error;
 
-use std::sync::Arc;
+use sr_io::blake2_256;
 use assert_matches::assert_matches;
 use futures::stream::Stream;
 use primitives::storage::well_known_keys;
@@ -152,7 +152,7 @@ fn should_send_initial_storage_changes_and_notifications() {
 		let client = Arc::new(test_client::new());
 		let api = new_full(client.clone(), Subscriptions::new(Arc::new(remote)));
 
-		let alice_balance_key = blake2_256(&runtime::system::balance_of_key(AccountKeyring::Alice.into()));
+		let alice_balance_key = blake2_256(&test_runtime::system::balance_of_key(AccountKeyring::Alice.into()));
 
 		api.subscribe_storage(Default::default(), subscriber, Some(vec![
 			StorageKey(alice_balance_key.to_vec()),
@@ -207,6 +207,8 @@ fn should_query_storage() {
 		let block1_hash = add_block(0);
 		let block2_hash = add_block(1);
 		let genesis_hash = client.genesis_hash();
+
+		let alice_balance_key = blake2_256(&test_runtime::system::balance_of_key(AccountKeyring::Alice.into()));
 
 		let mut expected = vec![
 			StorageChangeSet {

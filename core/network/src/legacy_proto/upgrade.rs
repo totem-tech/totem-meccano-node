@@ -19,7 +19,7 @@ use crate::protocol::message::Message;
 use bytes::Bytes;
 use libp2p::core::{Negotiated, Endpoint, UpgradeInfo, InboundUpgrade, OutboundUpgrade, upgrade::ProtocolName};
 use libp2p::tokio_codec::Framed;
-use log::debug;
+use log::warn;
 use std::{collections::VecDeque, io, marker::PhantomData, vec::IntoIter as VecIntoIter};
 use futures::{prelude::*, future, stream};
 use codec::{Decode, Encode};
@@ -65,6 +65,11 @@ impl<B> RegisteredProtocol<B> {
 			marker: PhantomData,
 		}
 	}
+
+	/// Returns the ID of the protocol.
+	pub fn id(&self) -> &ProtocolId {
+		&self.id
+	}
 }
 
 impl<B> Clone for RegisteredProtocol<B> {
@@ -100,7 +105,13 @@ pub struct RegisteredProtocolSubstream<B, TSubstream> {
 	marker: PhantomData<B>,
 }
 
-impl<B, TSubstream> RegisteredProtocolSubstream<B, TSubstream> {
+impl<TMessage, TSubstream> RegisteredProtocolSubstream<TMessage, TSubstream> {
+	/// Returns the protocol id.
+	#[inline]
+	pub fn protocol_id(&self) -> &ProtocolId {
+		&self.protocol_id
+	}
+
 	/// Returns the version of the protocol that was negotiated.
 	pub fn protocol_version(&self) -> u8 {
 		self.protocol_version
@@ -130,7 +141,30 @@ impl<B, TSubstream> RegisteredProtocolSubstream<B, TSubstream> {
 			return
 		}
 
-		self.send_queue.push_back(data.encode());
+		self.send_queue.push_back(data.into_bytes());
+	}
+}
+
+/// Implemented on messages that can be sent or received on the network.
+pub trait CustomMessage {
+	/// Turns a message into the raw bytes to send over the network.
+	fn into_bytes(self) -> Vec<u8>;
+
+	/// Tries to parse `bytes` received from the network into a message.
+	fn from_bytes(bytes: &[u8]) -> Result<Self, ()>
+		where Self: Sized;
+}
+
+// This trait implementation exist mostly for testing convenience. This should eventually be
+// removed.
+
+impl CustomMessage for Vec<u8> {
+	fn into_bytes(self) -> Vec<u8> {
+		self
+	}
+
+	fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
+		Ok(bytes.to_vec())
 	}
 }
 

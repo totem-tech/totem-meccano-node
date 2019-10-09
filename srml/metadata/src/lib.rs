@@ -264,6 +264,17 @@ pub enum StorageHasher {
 	Twox64Concat,
 }
 
+/// A storage function type.
+#[derive(Clone, PartialEq, Eq, Encode)]
+#[cfg_attr(feature = "std", derive(Decode, Debug, Serialize))]
+pub enum StorageHasher {
+	Blake2_128,
+	Blake2_256,
+	Twox128,
+	Twox256,
+	Twox64Concat,
+}
+
 /// A storage entry type.
 #[derive(Clone, PartialEq, Eq, Encode)]
 #[cfg_attr(feature = "std", derive(Decode, Debug, Serialize))]
@@ -320,14 +331,8 @@ pub enum RuntimeMetadata {
 	V2(RuntimeMetadataDeprecated),
 	/// Version 3 for runtime metadata. No longer used.
 	V3(RuntimeMetadataDeprecated),
-	/// Version 4 for runtime metadata. No longer used.
-	V4(RuntimeMetadataDeprecated),
-	/// Version 5 for runtime metadata. No longer used.
-	V5(RuntimeMetadataDeprecated),
-	/// Version 6 for runtime metadata. No longer used.
-	V6(RuntimeMetadataDeprecated),
-	/// Version 7 for runtime metadata.
-	V7(RuntimeMetadataV7),
+	/// Version 4 for runtime metadata.
+	V4(RuntimeMetadataV4),
 }
 
 /// Enum that should fail.
@@ -351,7 +356,7 @@ impl Decode for RuntimeMetadataDeprecated {
 /// The metadata of a runtime.
 #[derive(Eq, Encode, PartialEq)]
 #[cfg_attr(feature = "std", derive(Decode, Debug, Serialize))]
-pub struct RuntimeMetadataV7 {
+pub struct RuntimeMetadataV4 {
 	pub modules: DecodeDifferentArray<ModuleMetadata>,
 }
 

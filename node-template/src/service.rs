@@ -179,6 +179,36 @@ pub fn new_full<C: Send + Default + 'static>(config: Configuration<C, GenesisCon
 				service.network(),
 			)?;
 		},
+		LightService = LightComponents<Self>
+			{ |config, executor| <LightComponents<Factory>>::new(config, executor) },
+		FullImportQueue = AuraImportQueue<
+			Self::Block,
+		>
+			{ |config: &mut FactoryFullConfiguration<Self> , client: Arc<FullClient<Self>>| {
+					import_queue::<_, _, _, Pair>(
+						SlotDuration::get_or_compute(&*client)?,
+						client.clone(),
+						None,
+						client,
+						NothingExtra,
+						config.custom.inherent_data_providers.clone(),
+					).map_err(Into::into)
+				}
+			},
+		LightImportQueue = AuraImportQueue<
+			Self::Block,
+		>
+			{ |config: &mut FactoryFullConfiguration<Self>, client: Arc<LightClient<Self>>| {
+					import_queue::<_, _, _, Pair>(
+						SlotDuration::get_or_compute(&*client)?,
+						client.clone(),
+						None,
+						client,
+						NothingExtra,
+						config.custom.inherent_data_providers.clone(),
+					).map_err(Into::into)
+				}
+			},
 	}
 
 	Ok(service)

@@ -30,6 +30,8 @@
 // re-export since this is necessary for `impl_apis` in runtime.
 pub use substrate_finality_grandpa_primitives as fg_primitives;
 
+#[cfg(feature = "std")]
+use serde::Serialize;
 use rstd::prelude::*;
 use codec::{self as codec, Encode, Decode, Error};
 use support::{

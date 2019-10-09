@@ -14,13 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 
-use primitives::{
-	blake2_128, blake2_256, twox_128, twox_256, twox_64, ed25519, Blake2Hasher, sr25519, Pair, H256,
-	traits::Externalities, child_storage_key::ChildStorageKey, hexdisplay::HexDisplay, offchain,
+#[doc(hidden)]
+pub use parity_codec as codec;
+// re-export hashing functions.
+pub use primitives::{
+	blake2_128, blake2_256, twox_128, twox_256, twox_64, ed25519, Blake2Hasher,
+	sr25519, Pair
 };
 // Switch to this after PoC-3
 // pub use primitives::BlakeHasher;
-pub use substrate_state_machine::{BasicExternalities, TestExternalities};
+pub use substrate_state_machine::{
+	Externalities,
+	BasicExternalities,
+	TestExternalities,
+	ChildStorageKey
+};
 
 use environmental::environmental;
 use trie::{TrieConfiguration, trie_types::Layout};
@@ -51,22 +59,32 @@ impl StorageApi for () {
 			.expect("storage cannot be called outside of an Externalities-provided environment.")
 	}
 
-	fn read_storage(key: &[u8], value_out: &mut [u8], value_offset: usize) -> Option<usize> {
-		ext::with(|ext| ext.storage(key).map(|value| {
-			let data = &value[value_offset.min(value.len())..];
-			let written = std::cmp::min(data.len(), value_out.len());
-			value_out[..written].copy_from_slice(&data[..written]);
-			value.len()
-		})).expect("read_storage cannot be called outside of an Externalities-provided environment.")
+/// Returns a `ChildStorageKey` if the given `storage_key` slice is a valid storage
+/// key or panics otherwise.
+///
+/// Panicking here is aligned with what the `without_std` environment would do
+/// in the case of an invalid child storage key.
+fn child_storage_key_or_panic(storage_key: &[u8]) -> ChildStorageKey<Blake2Hasher> {
+	match ChildStorageKey::from_slice(storage_key) {
+		Some(storage_key) => storage_key,
+		None => panic!("child storage key is invalid"),
 	}
+}
 
-	fn child_storage(storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-		ext::with(|ext| {
-			let storage_key = child_storage_key_or_panic(storage_key);
-			ext.child_storage(storage_key, key).map(|s| s.to_vec())
-		})
+/// Get `key` from storage and return a `Vec`, empty if there's a problem.
+pub fn storage(key: &[u8]) -> Option<Vec<u8>> {
+	ext::with(|ext| ext.storage(key).map(|s| s.to_vec()))
 		.expect("storage cannot be called outside of an Externalities-provided environment.")
-	}
+}
+
+/// Get `key` from child storage and return a `Vec`, empty if there's a problem.
+pub fn child_storage(storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+	ext::with(|ext| {
+		let storage_key = child_storage_key_or_panic(storage_key);
+		ext.child_storage(storage_key, key).map(|s| s.to_vec())
+	})
+	.expect("storage cannot be called outside of an Externalities-provided environment.")
+}
 
 	fn set_storage(key: &[u8], value: &[u8]) {
 		ext::with(|ext|
@@ -74,24 +92,28 @@ impl StorageApi for () {
 		);
 	}
 
-	fn read_child_storage(
-		storage_key: &[u8],
-		key: &[u8],
-		value_out: &mut [u8],
-		value_offset: usize,
-	) -> Option<usize> {
-		ext::with(|ext| {
-			let storage_key = child_storage_key_or_panic(storage_key);
-			ext.child_storage(storage_key, key)
-				.map(|value| {
-					let data = &value[value_offset.min(value.len())..];
-					let written = std::cmp::min(data.len(), value_out.len());
-					value_out[..written].copy_from_slice(&data[..written]);
-					value.len()
-				})
-		})
-		.expect("read_child_storage cannot be called outside of an Externalities-provided environment.")
-	}
+/// Get `key` from child storage, placing the value into `value_out` (as much of it as possible) and return
+/// the number of bytes that the entry in storage had beyond the offset or None if the storage entry
+/// doesn't exist at all. Note that if the buffer is smaller than the storage entry length, the returned
+/// number of bytes is not equal to the number of bytes written to the `value_out`.
+pub fn read_child_storage(
+	storage_key: &[u8],
+	key: &[u8],
+	value_out: &mut [u8],
+	value_offset: usize,
+) -> Option<usize> {
+	ext::with(|ext| {
+		let storage_key = child_storage_key_or_panic(storage_key);
+		ext.child_storage(storage_key, key)
+			.map(|value| {
+				let value = &value[value_offset..];
+				let written = ::std::cmp::min(value.len(), value_out.len());
+				value_out[..written].copy_from_slice(&value[..written]);
+				value.len()
+			})
+	})
+	.expect("read_child_storage cannot be called outside of an Externalities-provided environment.")
+}
 
 	fn set_child_storage(storage_key: &[u8], key: &[u8], value: &[u8]) {
 		ext::with(|ext| {
@@ -100,11 +122,13 @@ impl StorageApi for () {
 		});
 	}
 
-	fn clear_storage(key: &[u8]) {
-		ext::with(|ext|
-			ext.clear_storage(key)
-		);
-	}
+/// Set the child storage of a key to some value.
+pub fn set_child_storage(storage_key: &[u8], key: &[u8], value: &[u8]) {
+	ext::with(|ext| {
+		let storage_key = child_storage_key_or_panic(storage_key);
+		ext.set_child_storage(storage_key, key.to_vec(), value.to_vec())
+	});
+}
 
 	fn clear_child_storage(storage_key: &[u8], key: &[u8]) {
 		ext::with(|ext| {
@@ -113,12 +137,13 @@ impl StorageApi for () {
 		});
 	}
 
-	fn kill_child_storage(storage_key: &[u8]) {
-		ext::with(|ext| {
-			let storage_key = child_storage_key_or_panic(storage_key);
-			ext.kill_child_storage(storage_key)
-		});
-	}
+/// Clear the storage of a key.
+pub fn clear_child_storage(storage_key: &[u8], key: &[u8]) {
+	ext::with(|ext| {
+		let storage_key = child_storage_key_or_panic(storage_key);
+		ext.clear_child_storage(storage_key, key)
+	});
+}
 
 	fn exists_storage(key: &[u8]) -> bool {
 		ext::with(|ext|
@@ -126,12 +151,13 @@ impl StorageApi for () {
 		).unwrap_or(false)
 	}
 
-	fn exists_child_storage(storage_key: &[u8], key: &[u8]) -> bool {
-		ext::with(|ext| {
-			let storage_key = child_storage_key_or_panic(storage_key);
-			ext.exists_child_storage(storage_key, key)
-		}).unwrap_or(false)
-	}
+/// Check whether a given `key` exists in storage.
+pub fn exists_child_storage(storage_key: &[u8], key: &[u8]) -> bool {
+	ext::with(|ext| {
+		let storage_key = child_storage_key_or_panic(storage_key);
+		ext.exists_child_storage(storage_key, key)
+	}).unwrap_or(false)
+}
 
 	fn clear_prefix(prefix: &[u8]) {
 		ext::with(|ext|
@@ -139,12 +165,13 @@ impl StorageApi for () {
 		);
 	}
 
-	fn clear_child_prefix(storage_key: &[u8], prefix: &[u8]) {
-		ext::with(|ext| {
-			let storage_key = child_storage_key_or_panic(storage_key);
-			ext.clear_child_prefix(storage_key, prefix)
-		});
-	}
+/// Clear an entire child storage.
+pub fn kill_child_storage(storage_key: &[u8]) {
+	ext::with(|ext| {
+		let storage_key = child_storage_key_or_panic(storage_key);
+		ext.kill_child_storage(storage_key)
+	});
+}
 
 	fn storage_root() -> [u8; 32] {
 		ext::with(|ext|
@@ -159,11 +186,13 @@ impl StorageApi for () {
 		}).expect("child_storage_root cannot be called outside of an Externalities-provided environment.")
 	}
 
-	fn storage_changes_root(parent_hash: [u8; 32]) -> Option<[u8; 32]> {
-		ext::with(|ext|
-			ext.storage_changes_root(parent_hash.into()).map(|h| h.map(|h| h.into()))
-		).unwrap_or(Ok(None)).expect("Invalid parent hash passed to storage_changes_root")
-	}
+/// "Commit" all existing operations and compute the resultant child storage root.
+pub fn child_storage_root(storage_key: &[u8]) -> Vec<u8> {
+	ext::with(|ext| {
+		let storage_key = child_storage_key_or_panic(storage_key);
+		ext.child_storage_root(storage_key)
+	}).expect("child_storage_root cannot be called outside of an Externalities-provided environment.")
+}
 
 	fn blake2_256_trie_root(input: Vec<(Vec<u8>, Vec<u8>)>) -> H256 {
 		Layout::<Blake2Hasher>::trie_root(input)

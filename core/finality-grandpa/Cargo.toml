@@ -28,7 +28,7 @@ fg_primitives = { package = "substrate-finality-grandpa-primitives", path = "pri
 grandpa = { package = "finality-grandpa", version = "0.9.0", features = ["derive-codec"] }
 
 [dev-dependencies]
-grandpa = { package = "finality-grandpa", version = "0.9.0", features = ["derive-codec", "test-helpers"] }
+consensus_common = { package = "substrate-consensus-common", path = "../consensus/common", features = ["test-helpers"] }
 network = { package = "substrate-network", path = "../network", features = ["test-helpers"] }
 keyring = { package = "substrate-keyring", path = "../keyring" }
 test-client = { package = "substrate-test-runtime-client", path = "../test-runtime/client"}

@@ -18,8 +18,7 @@
 
 #[cfg(any(feature = "std", test))]
 use serde::{Serialize, Deserialize};
-use codec::{Encode, Decode};
-use num_traits::Zero;
+use parity_codec::{Encode, Decode};
 
 /// Substrate changes trie configuration.
 #[cfg_attr(any(feature = "std", test), derive(Serialize, Deserialize))]

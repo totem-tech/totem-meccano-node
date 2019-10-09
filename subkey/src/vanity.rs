@@ -107,8 +107,7 @@ pub(super) fn generate_key<C: Crypto>(desired: &str) -> Result<KeyPair<C>, &str>
 #[cfg(test)]
 mod tests {
 	use super::super::Ed25519;
-	use super::*;
-	use primitives::{crypto::Ss58Codec, Pair};
+	use substrate_primitives::{Pair, crypto::Ss58Codec};
 	#[cfg(feature = "bench")]
 	use test::Bencher;
 

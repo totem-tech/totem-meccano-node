@@ -203,6 +203,19 @@ macro_rules! new_impl {
 			specialization: network_protocol,
 		};
 
+		let protocol_id = {
+			let protocol_id_full = match config.chain_spec.protocol_id() {
+				Some(pid) => pid,
+				None => {
+					warn!("Using default protocol ID {:?} because none is configured in the \
+						chain specs", DEFAULT_PROTOCOL_ID
+					);
+					DEFAULT_PROTOCOL_ID
+				}
+			}.as_bytes();
+			network::ProtocolId::from(protocol_id_full)
+		};
+
 		let has_bootnodes = !network_params.network_config.boot_nodes.is_empty();
 		let network_mut = network::NetworkWorker::new(network_params)?;
 		let network = network_mut.service().clone();

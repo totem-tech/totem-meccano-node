@@ -17,7 +17,9 @@
 //! Operation on unhashed runtime storage.
 
 use crate::rstd::borrow::Borrow;
-use super::{Codec, Encode, Decode, KeyedVec, Vec};
+use super::{Codec, Encode, Decode, KeyedVec, Vec, IncrementalInput};
+
+pub mod generator;
 
 /// Return the value of the item in storage under `key`, or `None` if there is no explicit entry.
 pub fn get<T: Decode + Sized>(key: &[u8]) -> Option<T> {
