@@ -53,13 +53,32 @@ pub use runtime_primitives::{Permill, Perbill};
 pub use support::StorageValue;
 pub use staking::StakerStatus;
 
-/// Runtime version.
+// Totem Runtime Modules
+mod projects;
+mod timekeeping;
+
+// /// Runtime version.
+// pub const VERSION: RuntimeVersion = RuntimeVersion {
+// 	spec_name: create_runtime_str!("node"),
+// 	impl_name: create_runtime_str!("substrate-node"),
+// 	authoring_version: 10,
+// 	spec_version: 60,
+// 	impl_version: 62,
+// 	apis: RUNTIME_API_VERSIONS,
+// };
+
+/// This is the Totem runtime version.
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("node"),
-	impl_name: create_runtime_str!("substrate-node"),
-	authoring_version: 10,
-	spec_version: 60,
-	impl_version: 62,
+	// node runtime name // fork risk, on change
+	spec_name: create_runtime_str!("totem-meccano-node"),
+	// team/implementation name
+	impl_name: create_runtime_str!("totem-meccano-team"),
+	// for block authoring // fork risk, on change
+	authoring_version: 1,
+	// spec version // fork risk, on change
+	spec_version: 1,
+    // incremental changes
+	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -207,6 +226,15 @@ impl finality_tracker::Trait for Runtime {
 	type OnFinalizationStalled = grandpa::SyncedAuthorities<Runtime>;
 }
 
+// Totem impl
+impl projects::Trait for Runtime {
+	type Event = Event;
+}
+
+impl timekeeping::Trait for Runtime {
+	type Event = Event;
+}
+
 construct_runtime!(
 	pub enum Runtime with Log(InternalLog: DigestItem<Hash, AuthorityId, AuthoritySignature>) where
 		Block = Block,
@@ -231,6 +259,8 @@ construct_runtime!(
 		Treasury: treasury,
 		Contract: contract::{Module, Call, Storage, Config<T>, Event<T>},
 		Sudo: sudo,
+		ProjectModule: projects::{Module, Call, Storage, Event<T>},
+		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
 	}
 );
 

@@ -2,13 +2,13 @@ use parity_codec::{Encode, Decode};
 use support::{ensure, decl_module, decl_storage, decl_event, StorageMap, dispatch::Result};
 use system::{self, ensure_signed};
 use rstd::prelude::*;
-use primitives::H256;
+use node_primitives::Hash;
 
 pub trait Trait: system::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
-pub type ProjectHash = H256; // Reference supplied externally
+pub type ProjectHash = Hash; // Reference supplied externally
 pub type ProjectStatus = u16; // Reference supplied externally
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode)]

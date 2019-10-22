@@ -1,7 +1,7 @@
 [package]
 name = "node-runtime"
 version = "1.0.0"
-authors = ["Parity Technologies <admin@parity.io>"]
+authors = ["Totem Live Accounting <chris.dcosta@totemaccounting.com>"]
 edition = "2018"
 
 [dependencies]
