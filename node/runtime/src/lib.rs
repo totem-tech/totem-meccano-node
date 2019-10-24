@@ -60,25 +60,32 @@ pub use sr_primitives::{Permill, Perbill};
 pub use support::StorageValue;
 pub use staking::StakerStatus;
 
-/// Implementations of some helper traits passed into runtime modules as associated types.
-pub mod impls;
-use impls::{CurrencyToVoteHandler, WeightMultiplierUpdateHandler, Author, WeightToFee};
+// Totem Runtime Modules
+mod projects;
+mod timekeeping;
 
-/// Constant values used within the runtime.
-pub mod constants;
-use constants::{time::*, currency::*};
+// /// Runtime version.
+// pub const VERSION: RuntimeVersion = RuntimeVersion {
+// 	spec_name: create_runtime_str!("node"),
+// 	impl_name: create_runtime_str!("substrate-node"),
+// 	authoring_version: 10,
+// 	spec_version: 60,
+// 	impl_version: 62,
+// 	apis: RUNTIME_API_VERSIONS,
+// };
 
-// Make the WASM binary available.
-#[cfg(feature = "std")]
-include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
-
-/// Runtime version.
+/// This is the Totem runtime version.
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("node"),
-	impl_name: create_runtime_str!("substrate-node"),
-	authoring_version: 10,
-	spec_version: 60,
-	impl_version: 62,
+	// node runtime name // fork risk, on change
+	spec_name: create_runtime_str!("totem-meccano-node"),
+	// team/implementation name
+	impl_name: create_runtime_str!("totem-meccano-team"),
+	// for block authoring // fork risk, on change
+	authoring_version: 1,
+	// spec version // fork risk, on change
+	spec_version: 1,
+    // incremental changes
+	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -454,6 +461,15 @@ impl system::offchain::CreateTransaction<Runtime, UncheckedExtrinsic> for Runtim
 	}
 }
 
+// Totem impl
+impl projects::Trait for Runtime {
+	type Event = Event;
+}
+
+impl timekeeping::Trait for Runtime {
+	type Event = Event;
+}
+
 construct_runtime!(
 	pub enum Runtime where
 		Block = Block,
@@ -478,9 +494,8 @@ construct_runtime!(
 		Treasury: treasury::{Module, Call, Storage, Event<T>},
 		Contracts: contracts,
 		Sudo: sudo,
-		ImOnline: im_online::{Module, Call, Storage, Event<T>, ValidateUnsigned, Config<T>},
-		AuthorityDiscovery: authority_discovery::{Module, Call, Config<T>},
-		Offences: offences::{Module, Call, Storage, Event},
+		ProjectModule: projects::{Module, Call, Storage, Event<T>},
+		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
 	}
 );
 

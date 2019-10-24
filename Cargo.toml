@@ -1,11 +1,11 @@
 [[bin]]
-name = "substrate"
+name = "totem-meccano"
 path = "node/src/main.rs"
 
 [package]
-name = "substrate"
-version = "2.0.0"
-authors = ["Parity Technologies <admin@parity.io>"]
+name = "totem-meccano"
+version = "1.0.0"
+authors = ["Totem Live Accounting <chris.dcosta@totemaccounting.com>"]
 build = "build.rs"
 edition = "2018"
 
