@@ -20,4 +20,5 @@ nohup.out
 rls*.log
 *.orig
 *.rej
+**/wip/*.stderr
 *totem-meccanoSpec.json

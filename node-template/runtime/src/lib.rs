@@ -62,9 +62,7 @@ pub type Hash = primitives::H256;
 pub type DigestItem = generic::DigestItem<Hash>;
 
 /// Used for the module template in `./template.rs`
-// mod template;
-mod projects;
-mod timekeeping;
+mod template;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -96,16 +94,11 @@ pub mod opaque {
 
 /// This runtime version.
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	// node runtime name // fork risk, on change
-	spec_name: create_runtime_str!("totem-meccano-node"),
-	// team/implementation name
-	impl_name: create_runtime_str!("totem-meccano-team"),
-	// for block authoring // fork risk, on change
-	authoring_version: 1,
-	// spec version // fork risk, on change
-	spec_version: 1,
-    // incremental changes
-	impl_version: 1,
+	spec_name: create_runtime_str!("node-template"),
+	impl_name: create_runtime_str!("node-template"),
+	authoring_version: 3,
+	spec_version: 4,
+	impl_version: 4,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -258,20 +251,10 @@ impl sudo::Trait for Runtime {
 	type Proposal = Call;
 }
 
-// /// Used for the module template in `./template.rs`
-// impl template::Trait for Runtime {
-// 	type Event = Event;
-// }
-
-impl projects::Trait for Runtime {
+/// Used for the module template in `./template.rs`
+impl template::Trait for Runtime {
 	type Event = Event;
 }
-
-impl timekeeping::Trait for Runtime {
-	type Event = Event;
-}
-
-
 
 construct_runtime!(
 	pub enum Runtime where
@@ -286,8 +269,8 @@ construct_runtime!(
 		Indices: indices::{default, Config<T>},
 		Balances: balances::{default, Error},
 		Sudo: sudo,
-		ProjectModule: projects::{Module, Call, Storage, Event<T>},
-		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
+		// Used for the module template in `./template.rs`
+		TemplateModule: template::{Module, Call, Storage, Event<T>},
 	}
 );
 
