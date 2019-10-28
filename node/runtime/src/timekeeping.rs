@@ -185,7 +185,7 @@ decl_module! {
             Ok(())
         }
 
-        fn worker_acceptance_project(origin, project_hash: ProjectHashRef) -> Result {
+        fn worker_acceptance_project(origin, project_hash: ProjectHashRef, accepted: AcceptAssignedStatus) -> Result {
             let who = ensure_signed(origin)?;
 
             // check that this project is still active (not closed or deleted or with no status)
@@ -199,16 +199,40 @@ decl_module! {
             {
 
             // Sets the new status of the acceptance to work on the project
-            let accepted_status: AcceptAssignedStatus = true;
             let status_tuple_key = (project_hash.clone(), who.clone());
-                // Check that the project worker has accepted the project, then update storage
-                match Self::worker_projects_backlog_status(&status_tuple_key) {
-                    // Worker confirms acceptance of project assignment. This effectively is an agreement that
-                   // the project owner will accept time bookings from the worker as long as the project is still active.
-                    Some(false) => Self::store_worker_acceptance(project_hash, who, accepted_status),
-                    Some(true) => return Err("Project worker has already accepted the project."),
-                    None => return Err("Project worker has not been assigned to this project yet."), 
-                };
+                // Check that the project worker has accepted the project or rejected.
+                match &accepted {
+                    true => {
+                        // let accepted_status: AcceptAssignedStatus = true;
+                        match Self::worker_projects_backlog_status(&status_tuple_key) {
+                            // Worker confirms acceptance of project assignment. This effectively is an agreement that
+                            // the project owner will accept time bookings from the worker as long as the project is still active.
+                            // Some(false) => Self::store_worker_acceptance(project_hash, who, accepted_status),
+                            Some(false) => Self::store_worker_acceptance(project_hash, who, accepted),
+                            Some(true) => return Err("Project worker has already accepted the project."),
+                            None => return Err("Project worker has not been assigned to this project yet."), 
+                        };
+                    },
+                    false => {
+                        match Self::worker_projects_backlog_status(&status_tuple_key) {
+                            // Only allow remove if the worker has been assigned this project, 
+                            // and that the status is unaccepted. 
+                            Some(false) => {
+                                // Worker is removing this acceptance status
+                                <WorkerProjectsBacklogStatus<T>>::take(&status_tuple_key);
+                                
+                                // Remove project assignment from list
+                                <WorkerProjectsBacklogList<T>>::mutate(&who, |worker_projects_backlog_list| {
+                                    worker_projects_backlog_list.retain(|h| h != &project_hash)
+                                });
+                            },
+                            Some(true) => return Err("Cannot remove project that has been accepted already."),
+                            None => return Err("Project worker has not been assigned to this project yet."), 
+                        };
+
+                    }
+                }
+
             };
 
             Ok(())
@@ -440,7 +464,6 @@ decl_module! {
     }
 }
 
-// functions that are called externally to check values internal to this module.
 impl<T: Trait> Module<T> {
     fn store_worker_acceptance(
         project_hash: ProjectHashRef,
