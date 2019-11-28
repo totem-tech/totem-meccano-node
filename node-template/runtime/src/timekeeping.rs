@@ -44,7 +44,7 @@ pub type AcceptAssignedStatus = bool; // (true/false)
 pub type LockStatus = bool; // Locked true, unlocked false
 pub type ReasonCode = u16; // Reason for status change (TODO codes to be defined)
 pub type ReasonCodeType = u16; // Category of reason code (TODO categories to be defined)
-// pub type ReasonCodeText = Vec<u8>; // Reason for status change in text (not on chain!)
+                               // pub type ReasonCodeText = Vec<u8>; // Reason for status change in text (not on chain!)
 pub type BanStatus = bool; // Ban status (default is false)
 
 // Tuple for reason code changes
@@ -61,6 +61,8 @@ pub struct BannedStruct(BanStatus, ReasonCodeStruct);
 #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, Default)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Timekeeper<
+    AccountId,
+    ProjectHashRef,
     NumberOfBlocks,
     LockStatus,
     StatusOfTimeRecord,
@@ -68,6 +70,8 @@ pub struct Timekeeper<
     PostingPeriod,
     StartOrEndBlockNumber,
 > {
+    pub worker: AccountId,
+    pub project_hash: ProjectHashRef,
     pub total_blocks: NumberOfBlocks,
     pub locked_status: LockStatus,
     pub locked_reason: ReasonCodeStruct,
@@ -130,22 +134,14 @@ decl_storage! {
         // Unbounded! TODO
         WorkerTimeRecordsHashList get(worker_time_records_hash_list): map T::AccountId => Vec<T::Hash>;
         TimeHashOwner get(time_hash_owner): map T::Hash => Option<T::AccountId>;
+
+        // All the time records for a given project
+        // Unbounded! TODO
+        ProjectTimeRecordsHashList get(project_time_records_hash_list): map ProjectHashRef => Vec<T::Hash>;
+
         // This records the amount of blocks per address, per project, per entry. // start block number can be calculated. Only accepted if an end block number is given in the transaction as this is the "service rendered" date for accounting purposes.
         //    .map(Address, Project Hash, End Block number => number of blocks, StatusOfTimeRecors (submitted, accepted, rejected, disputed, blocked, invoiced, locked, reason_code, reason text.), posting-period)
-        TimeRecord get(time_record):
-        map (
-            T::AccountId,
-            ProjectHashRef,
-            T::Hash
-            ) =>
-                Option<Timekeeper
-                            <NumberOfBlocks,
-                            LockStatus,
-                            StatusOfTimeRecord,
-                            ReasonCodeStruct,
-                            PostingPeriod,
-                            StartOrEndBlockNumber>
-                        >;
+        TimeRecord get(time_record): map T::Hash => Option<Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber>>;
     }
 }
 
@@ -165,7 +161,7 @@ decl_module! {
 
             match Self::worker_projects_backlog_status(&status_tuple_key) {
                 Some(true) => return Err("Worker already accepted the project."),
-                Some(false) => return Err("Worker already assigned the project, but hasn't formally accepted."), 
+                Some(false) => return Err("Worker already assigned the project, but hasn't formally accepted."),
                 None => (),  // OK this project has not been assigned yet.
             };
 
@@ -176,7 +172,7 @@ decl_module! {
            // Worker does not therefore need to be notified of new project assigned to them, as it will appear in
            // a list of projects
            <WorkerProjectsBacklogList<T>>::mutate(&worker, |worker_projects_backlog_list| worker_projects_backlog_list.push(project_hash.clone()));
-        
+
            // set initial status
            <WorkerProjectsBacklogStatus<T>>::insert(&status_tuple_key, accepted_status);
 
@@ -185,7 +181,7 @@ decl_module! {
             Ok(())
         }
 
-        fn worker_acceptance_project(origin, project_hash: ProjectHashRef) -> Result {
+        fn worker_acceptance_project(origin, project_hash: ProjectHashRef, accepted: AcceptAssignedStatus) -> Result {
             let who = ensure_signed(origin)?;
 
             // check that this project is still active (not closed or deleted or with no status)
@@ -199,16 +195,40 @@ decl_module! {
             {
 
             // Sets the new status of the acceptance to work on the project
-            let accepted_status: AcceptAssignedStatus = true;
             let status_tuple_key = (project_hash.clone(), who.clone());
-                // Check that the project worker has accepted the project, then update storage
-                match Self::worker_projects_backlog_status(&status_tuple_key) {
-                    // Worker confirms acceptance of project assignment. This effectively is an agreement that
-                   // the project owner will accept time bookings from the worker as long as the project is still active.
-                    Some(false) => Self::store_worker_acceptance(project_hash, who, accepted_status),
-                    Some(true) => return Err("Project worker has already accepted the project."),
-                    None => return Err("Project worker has not been assigned to this project yet."), 
-                };
+                // Check that the project worker has accepted the project or rejected.
+                match &accepted {
+                    true => {
+                        // let accepted_status: AcceptAssignedStatus = true;
+                        match Self::worker_projects_backlog_status(&status_tuple_key) {
+                            // Worker confirms acceptance of project assignment. This effectively is an agreement that
+                            // the project owner will accept time bookings from the worker as long as the project is still active.
+                            // Some(false) => Self::store_worker_acceptance(project_hash, who, accepted_status),
+                            Some(false) => Self::store_worker_acceptance(project_hash, who, accepted),
+                            Some(true) => return Err("Project worker has already accepted the project."),
+                            None => return Err("Project worker has not been assigned to this project yet."),
+                        };
+                    },
+                    false => {
+                        match Self::worker_projects_backlog_status(&status_tuple_key) {
+                            // Only allow remove if the worker has been assigned this project,
+                            // and that the status is unaccepted.
+                            Some(false) => {
+                                // Worker is removing this acceptance status
+                                <WorkerProjectsBacklogStatus<T>>::take(&status_tuple_key);
+
+                                // Remove project assignment from list
+                                <WorkerProjectsBacklogList<T>>::mutate(&who, |worker_projects_backlog_list| {
+                                    worker_projects_backlog_list.retain(|h| h != &project_hash)
+                                });
+                            },
+                            Some(true) => return Err("Cannot remove project that has been accepted already."),
+                            None => return Err("Project worker has not been assigned to this project yet."),
+                        };
+
+                    }
+                }
+
             };
 
             Ok(())
@@ -232,7 +252,7 @@ decl_module! {
             // Check worker is not on the banned list
             let ban_list_key = (project_hash.clone(), who.clone());
             ensure!(!<ProjectWorkersBanList<T>>::exists(&ban_list_key), "This worker is banned!");
-            
+
             // Check worker is part of the team
             let check_team_member = who.clone();
             if let worker_ok = Self::project_workers_list(project_hash.clone())
@@ -243,61 +263,79 @@ decl_module! {
                 // For testing
                 // let input_time_hash = hex!("e4d673a76e8b32ca3989dbb9f444f71813c88d36120170b15151d58c7106cc83");
                 // let default_hash: T::Hash = hex!("e4d673a76e8b32ca3989dbb9f444f71813c88d36120170b15151d58c7106cc83");
-                
+
                 let default_bytes = "Default hash";
                 let default_hash: T::Hash = T::Hashing::hash(&default_bytes.encode().as_slice()); // default hash BlakeTwo256
- 
+
                 // set default lock and reason code and type default values
                 let mut other_reason = ReasonCodeStruct(0, 0);
                 let mut locked_reason = ReasonCodeStruct(0, 0);
 
                 // check that the submission is using either the default hash or some other hash.
                 if let default_hash = input_time_hash {
-                    
-                    // This is the default hash therefore it is a new submission. 
+
+                    // This is the default hash therefore it is a new submission.
                     // Create a new random hash
                     let time_hash: T::Hash = <system::Module<T>>::random_seed().using_encoded(<T as system::Trait>::Hashing::hash);
 
-
                     // prepare new time key
-                    let time_key = (who.clone(), project_hash.clone(), time_hash.clone());
-                                        
+                    // let time_key = (who.clone(), project_hash.clone(), time_hash.clone());
+                    let time_key = time_hash.clone();
+
                     // prepare time record
-                    let time_data: Timekeeper<NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber> = Timekeeper {
-                        total_blocks: number_of_blocks.into(),
-                        locked_status: false,
-                        locked_reason: locked_reason,
-                        submit_status: 0,
-                        reason_code: other_reason,
-                        posting_period: 0, // temporary for this version. 
-                        start_block: start_block_number.into(),
-                        end_block: end_block_number.into()
-                    };
+                    let time_data: Timekeeper<
+                                        T::AccountId,
+                                        ProjectHashRef,
+                                        NumberOfBlocks,
+                                        LockStatus,
+                                        StatusOfTimeRecord,
+                                        ReasonCodeStruct,
+                                        PostingPeriod,
+                                        StartOrEndBlockNumber> = Timekeeper {
+                                            worker: who.clone(),
+                                            project_hash: project_hash.clone(),
+                                            total_blocks: number_of_blocks.into(),
+                                            locked_status: false,
+                                            locked_reason: locked_reason,
+                                            submit_status: 0,
+                                            reason_code: other_reason,
+                                            posting_period: 0, // temporary for this version.
+                                            start_block: start_block_number.into(),
+                                            end_block: end_block_number.into()
+                                        };
 
 
                     // Now update all time relevant records
-                    
+
                     //WorkerTimeRecordsHashList
                     <WorkerTimeRecordsHashList<T>>::mutate(&who, |worker_time_records_hash_list| worker_time_records_hash_list.push(time_hash.clone()));
+
+                    // Add time hash to project list
+                    <ProjectTimeRecordsHashList<T>>::mutate(&project_hash, |project_time_hash_list| {
+                        project_time_hash_list.push(time_hash.clone())
+                    });
 
                     //TimeHashOwner
                     <TimeHashOwner<T>>::insert(time_hash.clone(), who.clone());
 
                     // Insert record
                     <TimeRecord<T>>::insert(time_key, &time_data);
-                    Self::deposit_event(RawEvent::SubmitedTimeRecord(who, project_hash, time_hash));
+                    Self::deposit_event(RawEvent::SubmitedTimeRecord(time_hash));
 
                 } else {
-                    
-                    // prepare new time key
-                    let original_time_key = (who.clone(), project_hash.clone(), input_time_hash.clone());
 
-                    // Check this is an existing time record 
+                    // prepare new time key
+                    // let original_time_key = (who.clone(), project_hash.clone(), input_time_hash.clone());
+                    let original_time_key = input_time_hash.clone();
+
+                    // Check this is an existing time record
                     // and get the details using the resubmitted hash
                     let old_time_record = Self::time_record(&original_time_key).ok_or("Time record does not exist, or this is not from the worker.")?;
-                    
+
                     // prepare new time record.
-                    let new_time_data: Timekeeper<NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber> = Timekeeper {
+                    let new_time_data: Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber> = Timekeeper {
+                        worker: who.clone(),
+                        project_hash: project_hash.clone(),
                         total_blocks: number_of_blocks.into(),
                         locked_status: false,
                         locked_reason: locked_reason,
@@ -309,7 +347,7 @@ decl_module! {
                     };
 
                     // Check on the record status
-                    // Possible states are 
+                    // Possible states are
                     // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5)
                     // do not process if
                     // accepted
@@ -440,7 +478,6 @@ decl_module! {
     }
 }
 
-// functions that are called externally to check values internal to this module.
 impl<T: Trait> Module<T> {
     fn store_worker_acceptance(
         project_hash: ProjectHashRef,
@@ -463,23 +500,38 @@ impl<T: Trait> Module<T> {
         });
 
         // issue event
-        Self::deposit_event(RawEvent::WorkerAcceptanceStatus(who, project_hash, accepted_status));
+        Self::deposit_event(RawEvent::WorkerAcceptanceStatus(
+            who,
+            project_hash,
+            accepted_status,
+        ));
     }
 
-    fn store_time_record((a,b,c): (T::AccountId,ProjectHashRef,T::Hash), d: Timekeeper<NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber>) {
-        
-        let time_record_key = (a.clone(), b.clone(), c.clone());
+    fn store_time_record(
+        // (a, b, c): (T::AccountId, ProjectHashRef, T::Hash),
+        c: T::Hash,
+        d: Timekeeper<
+            T::AccountId,
+            ProjectHashRef,
+            NumberOfBlocks,
+            LockStatus,
+            StatusOfTimeRecord,
+            ReasonCodeStruct,
+            PostingPeriod,
+            StartOrEndBlockNumber,
+        >,
+    ) {
+        // let time_record_key = (\a.clone(), b.clone(), c.clone());
+        let time_record_key = c.clone();
         // remove existing record
-        <TimeRecord<T>>::take(&time_record_key); 
-        // store new time record 
+        <TimeRecord<T>>::take(&time_record_key);
+        // store new time record
         <TimeRecord<T>>::insert(&time_record_key, d);
 
         // issue event
-        Self::deposit_event(RawEvent::SubmitedTimeRecord(a, b, c));
+        // Self::deposit_event(RawEvent::SubmitedTimeRecord(a, b, c));
+        Self::deposit_event(RawEvent::SubmitedTimeRecord(c));
     }
-
-
-
 }
 
 decl_event!(
@@ -488,7 +540,7 @@ decl_event!(
         AccountId = <T as system::Trait>::AccountId,
         Hash = <T as system::Trait>::Hash,
     {
-        SubmitedTimeRecord(AccountId, ProjectHashRef, Hash),
+        SubmitedTimeRecord(Hash),
         NotifyProjectWorker(AccountId, ProjectHashRef),
         WorkerAcceptanceStatus(AccountId, ProjectHashRef, AcceptAssignedStatus),
         SetAuthoriseStatus(AccountId),
