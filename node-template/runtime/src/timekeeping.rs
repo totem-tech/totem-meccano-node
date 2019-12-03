@@ -107,14 +107,17 @@ decl_storage! {
 
         // List of all workers (team) booking time on the project
         // Used mainly by the Project owner, but other workers can be seen.
+        // The two here will logically replace the above two storage items, however as much of the code is dependent on the status
+        // there will have to be a re-write.
         // Note: Currently unbounded Vec!
+        ProjectInvitesList get(project_invites_list): map ProjectHashRef => Vec<T::AccountId>;
         ProjectWorkersList get(project_workers_list): map ProjectHashRef => Vec<T::AccountId>;
 
         // project worker can be banned by project owner.
         // NOTE Project owner should not ban itself!!
         ProjectWorkersBanList get(project_workers_ban_list): map (ProjectHashRef, T::AccountId) => Option<BannedStruct>;
 
-        // When did the project first book time (blocknumber = first seen block nuimber)
+        // When did the project first book time (blocknumber = first seen block number)
         // maybe this should be moved to the projects.rs file?
         ProjectFirstSeen get(project_first_seen): map ProjectHashRef => Option<StartOrEndBlockNumber>;
 
@@ -175,6 +178,11 @@ decl_module! {
 
            // set initial status
            <WorkerProjectsBacklogStatus<T>>::insert(&status_tuple_key, accepted_status);
+
+            // add worker to project team invitations, pending acceptance.
+            <ProjectInvitesList<T>>::mutate(&project_hash, |project_invites_list| {
+                project_invites_list.push(worker.clone())
+            });
 
             // issue event
             Self::deposit_event(RawEvent::NotifyProjectWorker(worker, project_hash));
@@ -239,6 +247,10 @@ decl_module! {
             origin,
             project_hash: ProjectHashRef,
             input_time_hash: T::Hash,
+            submit_status: StatusOfTimeRecord,
+            reason_for_change: ReasonCodeStruct,
+            locked_status: LockStatus,
+            reason_for_lock: ReasonCodeStruct,
             number_of_blocks:  NumberOfBlocks,
             posting_period: PostingPeriod,
             start_block_number: StartOrEndBlockNumber,
@@ -268,8 +280,8 @@ decl_module! {
                 let default_hash: T::Hash = T::Hashing::hash(&default_bytes.encode().as_slice()); // default hash BlakeTwo256
 
                 // set default lock and reason code and type default values
-                let mut other_reason = ReasonCodeStruct(0, 0);
-                let mut locked_reason = ReasonCodeStruct(0, 0);
+                let mut initial_submit_reason = ReasonCodeStruct(0, 0);
+                let mut initial_reason_for_lock = ReasonCodeStruct(0, 0);
 
                 // check that the submission is using either the default hash or some other hash.
                 if let default_hash = input_time_hash {
@@ -296,14 +308,13 @@ decl_module! {
                                             project_hash: project_hash.clone(),
                                             total_blocks: number_of_blocks.into(),
                                             locked_status: false,
-                                            locked_reason: locked_reason,
+                                            locked_reason: initial_reason_for_lock,
                                             submit_status: 0,
-                                            reason_code: other_reason,
+                                            reason_code: initial_submit_reason,
                                             posting_period: 0, // temporary for this version.
                                             start_block: start_block_number.into(),
                                             end_block: end_block_number.into()
                                         };
-
 
                     // Now update all time relevant records
 
@@ -321,51 +332,105 @@ decl_module! {
                     // Insert record
                     <TimeRecord<T>>::insert(time_key, &time_data);
                     Self::deposit_event(RawEvent::SubmitedTimeRecord(time_hash));
-
-                } else {
-
+                    
+                } else { // This is not the default hash, therefore it is a resubmission, and should have a new status code.
+                    
                     // prepare new time key
-                    // let original_time_key = (who.clone(), project_hash.clone(), input_time_hash.clone());
                     let original_time_key = input_time_hash.clone();
-
+                    
                     // Check this is an existing time record
                     // and get the details using the resubmitted hash
                     let old_time_record = Self::time_record(&original_time_key).ok_or("Time record does not exist, or this is not from the worker.")?;
+                    ensure!(!old_time_record.locked_status, "You cannot change a locked time record!");
+                    
+                    let proposed_new_status = submit_status.clone();
 
                     // prepare new time record.
-                    let new_time_data: Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber> = Timekeeper {
+                    let mut new_time_data: Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber> = Timekeeper {
                         worker: who.clone(),
                         project_hash: project_hash.clone(),
                         total_blocks: number_of_blocks.into(),
                         locked_status: false,
-                        locked_reason: locked_reason,
+                        locked_reason: initial_reason_for_lock,
                         submit_status: 0,
-                        reason_code: other_reason,
+                        reason_code: initial_submit_reason,
                         posting_period: 0,
                         start_block: start_block_number.into(),
                         end_block: end_block_number.into()
                     };
-
-                    // Check on the record status
+                    
                     // Possible states are
-                    // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5)
-                    // do not process if
-                    // accepted
-                    // blocked
-                    ensure!(!old_time_record.locked_status, "You cannot change a locked time record!");
-                    ensure!(1 != old_time_record.submit_status, "The time record has already been accepted!");
-                    ensure!(4 != old_time_record.submit_status, "Record is blocked by the project owner!");
+                    // draft(0), 
+                    // submitted(1), 
+                    // disputed(100), can be resubmitted, if the current status is < 100 return this state
+                    // rejected(200), can be resubmitted, if the current status is < 100 return this state
+                    // accepted(300), can no longer be rejected or disputed, > 200 < 400
+                    // invoiced(400), can no longer be rejected or disputed, > 300 < 500
+                    // blocked(999), 
+                    
+                    // Submit
+                    // project owner disputes, setting the state to 100... 100 can only be set if the current status is 0
+                    // project owner rejects, setting the state to 200... 200 can only be set if the current status is 0
+                    // Worker can resubmit time setting it back to 0... 0 can only be set if the current status < 300
 
-                    // if status is rejected||disputed, check that the values have changed. If not then error.
+                    // project owner accepts time setting status to 300... 300 can only be set if the current status is 0 or 400 - a worker can invoice before acceptance
+                    // Project worker makes invoice. Worker can only create invoice if the current status is 0 or 300. 
+                    
+                    // project owner response window expires 
+
                     match old_time_record.submit_status {
-                         // submitted pending aproval, but can be changed
-                        0 => Self::store_time_record(original_time_key, new_time_data),
-                        2 => Self::store_time_record(original_time_key, new_time_data), // rejected
-                        3 => Self::store_time_record(original_time_key, new_time_data), // disputed
-                        _ => (), // unimplemented other values
-                    }
+                        0 => {
+                            match proposed_new_status {
+                                0 => (), // changing an already sumitted record. OK, do nothing.
+                                1 => {new_time_data.submit_status = proposed_new_status}, // Draft to submitted.
+                                // not appropriate to set these codes here. Other specific functions exist.
+                                _ => return Err("This status has not been implemented or is not to be set this way."),
+                            }
+                        },
+                        100 | 200 => {
+                            // The existing record is rejected or disputed. The sender is therefore attempting to change the
+                            // record. Only the worker can change the record.
+                            // Ensure that the sender is the owner of the time record
+                            ensure!({old_time_record.worker == new_time_data.worker}, "You cannot change a time record you do not own!");
+                            ensure!({
+                                old_time_record.total_blocks != new_time_data.total_blocks &&   
+                                old_time_record.start_block != new_time_data.start_block &&   
+                                old_time_record.end_block != new_time_data.end_block   
+                            }, "Nothing has changed! Record will not be updated.");
+                            
+                            // TODO remove any submitted reason codes.
+                            // 0, 0 initial reason code is the default
+
+                            // No matter what the submlitted value as long as the owner is making the change
+                            // the submit_status is already set to 0. No further processing necessary.
+                            
+                        },
+                        300 => {
+                            // The project owner has already accepted, but a correction is agreed with worker. 
+                            // therefore reset the record to "draft"
+                            let hash_has_correct_owner = <projects::Module<T>>::check_owner_valid_project(who.clone(), project_hash.clone());
+                            ensure!(hash_has_correct_owner, "Invalid project or project owner is not correct");
+                            
+                            // ensure that a correct reason is given by project owner
+                            // TODO inspect reason code values, change if necessary
+                            
+                            // force change pending above
+                            // [1, 1] = [time record can be re-edited by the team member, set in time module]
+                            new_time_data.reason_code = ReasonCodeStruct(1, 1); 
+                            
+                            // No matter what the submlitted value as long as the owner is making the change
+                            // the submit_status is already set to 0. No further processing necessary.
+                        },
+                        400 => return Err("Time record already invoiced. It cannot be changed."),
+                        999 => return Err("Time has been blocked by Project Owner. Check the reason code."),
+                        _ => return Err("This should not occur. Your time record has an invalid Status Code"),
+                    };
+
+                    Self::update_time_record(original_time_key, new_time_data);
+                    
                 };
-            }
+            } // no explicit else needed.
+
             Ok(())
         }
 
@@ -375,24 +440,65 @@ decl_module! {
             worker: T::AccountId,
             project_hash: ProjectHashRef,
             input_time_hash: T::Hash,
-            status_time: StatusOfTimeRecord,
+            status_of_record: StatusOfTimeRecord,
             locked: LockStatus,
             reason: ReasonCodeStruct
             ) -> Result {
             let who = ensure_signed(origin)?;
 
             // ensure that the caller is the project owner
+            let hash_has_correct_owner = <projects::Module<T>>::check_owner_valid_project(who.clone(), project_hash.clone());
+            ensure!(hash_has_correct_owner, "Invalid project or project owner is not correct");
 
+            // prepare new time key
+            let original_time_key = input_time_hash.clone();
+            
+            // Check this is an existing time record
+            // and get the details using the resubmitted hash
+            let mut changing_time_record = Self::time_record(&original_time_key).ok_or("Time record does not exist, or this is not from the worker.")?;
+            ensure!(!changing_time_record.locked_status, "You cannot change a locked time record!");
+            
+            let proposed_new_status = status_of_record.clone();
 
-            // accepted, rejected, disputed, blocked(user), locked, reason_code, reason text.
+            match changing_time_record.submit_status {
+                0 => return Err("Time record has not been finalised by worker."), 
+                1 => {
+                    match proposed_new_status {
+                        0 | 400 => return Err("Project owner cannot set this status for the  time record."), // changing an already sumitted record. OK, do nothing.
+                        100 | 200 | 300 | 999  => {
+                            // Record is being disputed or rejected or accepted of blocked by project owner
 
-            // If project has not ever been seen before then
-            // ProjectFirstSeen
-            // else if it has then check if start blocknumber is lower than currently stored value. If so, replace.
-            // this is in the event that the projecxt owner initially approves a time record that was later than
+                            // ensure that a correct reason is given by project owner
+                            // TODO inpect reason code values
+                            // new_time_data.reason_code = ReasonCodeStruct(1, 1); 
+                            
+                            changing_time_record.submit_status = proposed_new_status;
+                        }, 
+                        _ => return Err("This status has not been implemented"),
+                    }
+                }
+                // The existing record is in a state that cannot be changed by the project owner. 
+                100 | 200 | 300 | 400 | 999 => return Err("The project cannot be changed by the project owner anymore."),
+                _ => return Err("This should not occur. The stored time record has an invalid Status Code"),
+            };
+            
+            // If project has not ever been seen before and time has not been booked then
+            // check if record start blocknumber is lower than currently stored value. If so, replace.
+            // this is in the event that the project owner initially approves a time record that was later than
             // a subsequent time record.
-
+            if <ProjectFirstSeen<T>>::exists(&changing_time_record.project_hash) && Self::project_first_seen(&changing_time_record.project_hash) > Some(changing_time_record.start_block) {                
+                // Remove existing record
+                <ProjectFirstSeen<T>>::take(&changing_time_record.project_hash);
+                // insert new record
+                <ProjectFirstSeen<T>>::insert(&changing_time_record.project_hash, changing_time_record.start_block);
+                
+            } else {
+                <ProjectFirstSeen<T>>::insert(&changing_time_record.project_hash, changing_time_record.start_block);
+            };
+            
+            Self::update_time_record(original_time_key, changing_time_record);    
             Self::deposit_event(RawEvent::SetAuthoriseStatus(who));
+
             Ok(())
         }
         // Worker invoices the time record
@@ -457,7 +563,7 @@ decl_module! {
         fn ban_worker(
             origin,
             project_hash: ProjectHashRef,
-            input_time_hash: T::Hash
+            worker: T::AccountId
         ) -> Result {
             // check that you are not banning is not yourself!
 
@@ -469,7 +575,7 @@ decl_module! {
         fn unban_worker(
             origin,
             project_hash: ProjectHashRef,
-            input_time_hash: T::Hash
+            worker: T::AccountId
         ) -> Result {
 
             Self::deposit_event(RawEvent::UnBanned());
@@ -491,6 +597,12 @@ impl<T: Trait> Module<T> {
             project_workers_list.push(who.clone())
         });
 
+        // Remove from invitations list
+        <ProjectInvitesList<T>>::mutate(&project_hash, |project_invites_list| {
+            project_invites_list.retain(|h| h != &who)
+        });
+
+
         // set new status
         <WorkerProjectsBacklogStatus<T>>::insert(status_tuple_key, &accepted_status);
 
@@ -507,9 +619,9 @@ impl<T: Trait> Module<T> {
         ));
     }
 
-    fn store_time_record(
+    fn update_time_record(
         // (a, b, c): (T::AccountId, ProjectHashRef, T::Hash),
-        c: T::Hash,
+        k: T::Hash,
         d: Timekeeper<
             T::AccountId,
             ProjectHashRef,
@@ -519,18 +631,20 @@ impl<T: Trait> Module<T> {
             ReasonCodeStruct,
             PostingPeriod,
             StartOrEndBlockNumber,
-        >,
+        >,        
     ) {
         // let time_record_key = (\a.clone(), b.clone(), c.clone());
-        let time_record_key = c.clone();
-        // remove existing record
-        <TimeRecord<T>>::take(&time_record_key);
+        let time_record_key = k.clone();
+
+        // remove existing record (if one exists)
+        <TimeRecord<T>>::take(&time_record_key);        
+        
         // store new time record
         <TimeRecord<T>>::insert(&time_record_key, d);
 
         // issue event
         // Self::deposit_event(RawEvent::SubmitedTimeRecord(a, b, c));
-        Self::deposit_event(RawEvent::SubmitedTimeRecord(c));
+        Self::deposit_event(RawEvent::SubmitedTimeRecord(k));
     }
 }
 

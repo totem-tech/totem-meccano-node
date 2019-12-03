@@ -129,7 +129,7 @@ decl_module! {
             // TODO Implement a sudo for cleaning data in cases where owner is lost
             // Otherwise onlu the owner can change the data
             ensure!(project_owner == changer, "You cannot close a project you do not own");
-            let project_status: ProjectStatus = 2;
+            let project_status: ProjectStatus = 50;
             <ProjectHashStatus<T>>::insert(&project_hash, &project_status);
 
             Self::deposit_event(RawEvent::ProjectChanged(project_hash, changer, project_status));
@@ -140,7 +140,7 @@ decl_module! {
         fn reopen_project(origin, project_hash: ProjectHash) -> Result {
             // Can only reopen a project that is in status "closed"
             let project_status: ProjectStatus = match Self::project_hash_status(&project_hash) {
-                Some(2) => 1,
+                Some(50) => 1,
                 _ => return Err("Project has the wrong status to be changed"),
                 None => return Err("Project has no status"),
             };
@@ -162,7 +162,7 @@ decl_module! {
             Ok(())
         }
 
-        fn end_or_unend_project(origin, project_hash: ProjectHash, project_status: ProjectStatus, state_change: bool) -> Result {
+        fn end_or_unend_project(origin, project_hash: ProjectHash, project_status: ProjectStatus) -> Result {
             ensure!(<ProjectHashStatus<T>>::exists(&project_hash), "The project does not exist!");
 
             let changer = ensure_signed(origin)?;
@@ -174,64 +174,55 @@ decl_module! {
             // Otherwise only the owner can change the data
             ensure!(project_owner == changer, "You cannot change a project you do not own");
 
-            let mut new_project_status: ProjectStatus;
-            // check if state change is re-opening
-            // state_change = true, then it is ending/closing a project
-            // state_change = reopening, then it is re-opening/unending a project
+            let current_project_status = Self::project_hash_status(&project_hash).ok_or("Error fetching project status")?;
+            // let proposed_project_status: ProjectStatus = project_status.clone();
+            let proposed_project_status = project_status.clone();
 
-            match state_change {
-                true => {
-                    new_project_status = match Self::project_hash_status(&project_hash) {
-                        Some(0) => { // project is open
-                            match project_status {
-                                3 => project_status, // on-hold
-                                4 => project_status, // abandoned
-                                5 => project_status, // cancelled
-                                _ => return Err("Current state prevents setting new state."),
-                            }
-                        },
-                        Some(1) => { //project reopened
-                            match project_status {
-                                3 => project_status, // on-hold
-                                4 => project_status, // abandoned
-                                5 => project_status, // cancelled
-                                _ => return Err("Current state prevents setting new state."),
-                            }
-                        },
-                        _ => return Err("Project cannot be set to closed."), // all other project states
-                        None => return Err("Project has no status"), // some error
-                    }
-                },
-                false => {
-                    // Can only reopen a project that is in status "closed" or "on-hold"
-                    new_project_status = match Self::project_hash_status(&project_hash) {
-                        Some(2) => { // project closed can be reopened
-                            match project_status {
-                                1 => project_status, // set status to 1
-                                _ => return Err("existing status cannot be reopened!"),
-                            }
-                        },
-                        Some(3) => { // project was on-hold can be reopened
-                            match project_status {
-                                1 => project_status, // set status to 1
-                                _ => return Err("existing status cannot be reopened!"),
-                            }
-                        },
-                        _ => return Err("Project has the wrong status. Cannot be reopened"),
-                        None => return Err("Project has no status"),
-                    }
-                }
-            };
+            // Open	0
+            // Reopen	100
+            // On Hold	200
+            // Abandon	300
+            // Cancel	400
+            // Close	500
+            // Delete	999
 
-            <ProjectHashStatus<T>>::insert(&project_hash, &new_project_status);
+            // Project owner creates project, set status to 0
+            // Project owner puts on hold, setting the state to 200... 200 can only be set if the current status is  <= 101
+            // Project owner abandons, setting the state to 300... 300 can only be set if the current status is  <= 101
+            // Project owner cancels, setting the state to 400... 400 can only be set if the current status is  <= 101
+            // Project owner close, setting the state to 500... 500 can only be set if the current status is  <= 101
+            // Project owner reopen, setting the state to 100... 100 can only be set if the current status is  200 || 300 || 500
+            // Project owner deletes, setting the state to 999... 999 cannot be set here.
+            // Project owner other, setting the state to other value... cannot be set here.
 
-            Self::deposit_event(RawEvent::ProjectChanged(project_hash, changer, new_project_status));
+                match current_project_status {
+                    0 | 100 => {
+                        // can set 200, 300, 400, 500
+                        match proposed_project_status {
+                            0 | 100  => return Err("The proposed project status is the same as the existing one."),
+                            200 | 300 | 400 | 500  => (),
+                            _ => return Err("The proposed project status cannot be applied to the current project status."),
+                        };
+                    },
+                    200 | 300 | 500 => {
+                        // only set 100
+                        match proposed_project_status {
+                            100  => (),
+                            _ => return Err("The proposed project status cannot be applied to the current project status."),
+                        };
+                    },
+                    _ => return Err("This proposed project status may not yet be implemented or is incorrect."),
+                };
+
+            let allowed_project_status: ProjectStatus =  proposed_project_status.into();
+
+            <ProjectHashStatus<T>>::insert(&project_hash, &allowed_project_status);
+
+            Self::deposit_event(RawEvent::ProjectChanged(project_hash, changer, allowed_project_status));
 
             Ok(())
         }
 
-        // TODO Refactor to a single function for status change on projects
-        // incorporate open(0), re-open(1), closed(2), abandoned(3), on-hold(4), cancelled(5), deleted(99) in refactoring.
     }
 }
 
@@ -271,8 +262,7 @@ impl<T: Trait> Module<T> {
 
         // check that the status of the project exists and is open or reopened.
         match Self::project_hash_status(&project_hash) {
-            Some(0) => valid = true,
-            Some(1) => valid = true,
+            Some(0) | Some(1) => valid = true,
             _ => return valid,
             None => return valid,
         }
