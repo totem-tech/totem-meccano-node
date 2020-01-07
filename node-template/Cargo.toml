@@ -1,12 +1,12 @@
 [package]
-name = "node-template"
+name = "totem-meccano-node"
 version = "1.0.0"
-authors = ["Parity Technologies <admin@parity.io>"]
+authors = ["Totem Live Accounting <info@totemaccounting.com>"]
 build = "build.rs"
 edition = "2018"
 
 [[bin]]
-name = "node-template"
+name = "totem-meccano-node"
 path = "src/main.rs"
 
 [dependencies]
