@@ -1,7 +1,7 @@
 [package]
 name = "node-template-runtime"
 version = "1.0.0"
-authors = ["Parity Technologies <admin@parity.io>"]
+authors = ["Totem Live Accounting <info@totemaccounting.com>"]
 edition = "2018"
 
 [dependencies]
@@ -27,6 +27,7 @@ client = { package = "substrate-client", path = "../../core/client", default_fea
 consensus-aura = { package = "substrate-consensus-aura-primitives", path = "../../core/consensus/aura/primitives", default_features = false }
 offchain-primitives = { package = "substrate-offchain-primitives", path = "../../core/offchain/primitives", default-features = false }
 consensus_authorities = { package = "substrate-consensus-authorities", path = "../../core/consensus/authorities", default-features = false }
+sodalite = "0.3.0"
 
 [features]
 default = ["std"]

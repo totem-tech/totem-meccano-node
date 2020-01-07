@@ -1,3 +1,20 @@
+// Copyright 2019 Chris D'Costa
+// This file is part of Totem Live Accounting.
+// Author Chris D'Costa email: chris.dcosta@totemaccounting.com
+
+// Totem is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// Totem is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with Totem.  If not, see <http://www.gnu.org/licenses/>.
+
 use parity_codec::{Decode, Encode};
 use primitives::H256;
 use rstd::prelude::*;
@@ -142,7 +159,7 @@ decl_module! {
             let project_status: ProjectStatus = match Self::project_hash_status(&project_hash) {
                 Some(50) => 1,
                 _ => return Err("Project has the wrong status to be changed"),
-                None => return Err("Project has no status"),
+                // None => return Err("Project has no status"),
             };
             // ensure!(<ProjectHashStatus<T>>::exists(&project_hash), "The project has no status!");
 
@@ -262,9 +279,9 @@ impl<T: Trait> Module<T> {
 
         // check that the status of the project exists and is open or reopened.
         match Self::project_hash_status(&project_hash) {
-            Some(0) | Some(1) => valid = true,
+            Some(0) | Some(100) => valid = true,
             _ => return valid,
-            None => return valid,
+            // None => return valid,
         }
 
         return valid;
