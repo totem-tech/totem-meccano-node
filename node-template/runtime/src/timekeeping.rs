@@ -152,8 +152,8 @@ decl_storage! {
         TimeRecord get(time_record): map T::Hash => Option<Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber,NumberOfBreaks>>;
         
         // ARCHIVE Experimental! May go somewhere else in future
-        WorkerTimeRecordsHashArchiveList get(worker_time_records_hash_archive_list): map T::AccountId => Vec<T::Hash>;
-        ProjectTimeRecordsHashArchiveList get(project_time_records_hash_archive_list): map ProjectHashRef => Vec<T::Hash>;
+        WorkerTimeRecordsHashListArchive get(worker_time_records_hash_list_archive): map T::AccountId => Vec<T::Hash>;
+        ProjectTimeRecordsHashListArchive get(project_time_records_hash_list_archive): map ProjectHashRef => Vec<T::Hash>;
     }
 }
 
@@ -205,11 +205,10 @@ decl_module! {
             ensure!(<projects::Module<T>>::check_valid_project(project_hash.clone()), "Project not active.");
 
             // check that the worker on this project is the signer
-            if let worker_project = Self::worker_projects_backlog_list(&who)
+            Self::worker_projects_backlog_list(&who)
                 .into_iter()
                 .find(| &x| x == project_hash.clone())
-                .ok_or("This identity has not been assigned the project!")?
-            {
+                .ok_or("This identity has not been assigned the project!")?;
 
             // Sets the new status of the acceptance to work on the project
             let status_tuple_key = (project_hash.clone(), who.clone());
@@ -221,7 +220,12 @@ decl_module! {
                             // Worker confirms acceptance of project assignment. This effectively is an agreement that
                             // the project owner will accept time bookings from the worker as long as the project is still active.
                             // Some(false) => Self::store_worker_acceptance(project_hash, who, accepted_status),
-                            Some(false) => Self::store_worker_acceptance(project_hash, who, accepted),
+                            Some(false) => {
+                                match Self::store_worker_acceptance(project_hash, who, accepted) {
+                                    Err(_e) => return Err("Store worker acceptance failed"),
+                                    _ => (),
+                                }
+                            },
                             Some(true) => return Err("Project worker has already accepted the project."),
                             None => return Err("Project worker has not been assigned to this project yet."),
                         };
@@ -253,8 +257,6 @@ decl_module! {
                     }
                 }
 
-            };
-
             Ok(())
         }
 
@@ -279,176 +281,180 @@ decl_module! {
             // Check worker is not on the banned list
             let ban_list_key = (project_hash.clone(), who.clone());
             ensure!(!<ProjectWorkersBanList<T>>::exists(&ban_list_key), "This worker is banned!");
-
+            
             // Check worker is part of the team
             let check_team_member = who.clone();
-            if let worker_ok = Self::project_workers_list(project_hash.clone())
-                .into_iter()
-                .find(| x| x == &check_team_member)
-                .ok_or("This identity has not been assigned the project!")?
-            {
+            
+            Self::project_workers_list(project_hash.clone())
+            .into_iter()
+            .find(| x| x == &check_team_member)
+            .ok_or("This identity has not been assigned the project!")?;
+
                 // For testing
                 // let input_time_hash = hex!("e4d673a76e8b32ca3989dbb9f444f71813c88d36120170b15151d58c7106cc83");
                 // let default_hash: T::Hash = hex!("e4d673a76e8b32ca3989dbb9f444f71813c88d36120170b15151d58c7106cc83");
-
+                
                 let default_bytes = "Default hash";
                 let default_hash: T::Hash = T::Hashing::hash(&default_bytes.encode().as_slice()); // default hash BlakeTwo256
-
-                // set default lock and reason code and type default values
-                let mut initial_submit_reason = ReasonCodeStruct(0, 0);
-                let mut initial_reason_for_lock = ReasonCodeStruct(0, 0);
-
+                
+                // set default lock and reason code and type default values (TODO should come from extrinsic in future)
+                let initial_submit_reason = ReasonCodeStruct(0, 0);
+                let initial_reason_for_lock = ReasonCodeStruct(0, 0);
+                
                 // check that the submission is using either the default hash or some other hash.
-                if let default_hash = input_time_hash {
+                // match input_time_hash {
+                //     default_hash => {
+                if input_time_hash == default_hash {        
 
-                    // This is the default hash therefore it is a new submission.
-                    // Create a new random hash
-                    let time_hash: T::Hash = <system::Module<T>>::random_seed().using_encoded(<T as system::Trait>::Hashing::hash);
+                        // This is the default hash therefore it is a new submission.
+                        // Create a new random hash
+                        let time_hash: T::Hash = <system::Module<T>>::random_seed().using_encoded(<T as system::Trait>::Hashing::hash);
 
-                    // prepare new time key
-                    // let time_key = (who.clone(), project_hash.clone(), time_hash.clone());
-                    let time_key = time_hash.clone();
+                        // prepare new time key
+                        // let time_key = (who.clone(), project_hash.clone(), time_hash.clone());
+                        let time_key = time_hash.clone();
 
-                    // prepare time record
-                    let time_data: Timekeeper<
-                                        T::AccountId,
-                                        ProjectHashRef,
-                                        NumberOfBlocks,
-                                        LockStatus,
-                                        StatusOfTimeRecord,
-                                        ReasonCodeStruct,
-                                        PostingPeriod,
-                                        StartOrEndBlockNumber,
-                                        NumberOfBreaks> = Timekeeper {
-                                            worker: who.clone(),
-                                            project_hash: project_hash.clone(),
-                                            total_blocks: number_of_blocks.into(),
-                                            locked_status: false,
-                                            locked_reason: initial_reason_for_lock,
-                                            submit_status: 1,
-                                            reason_code: initial_submit_reason,
-                                            posting_period: 0, // temporary for this version.
-                                            start_block: start_block_number.into(),
-                                            end_block: end_block_number.into(),
-                                            nr_of_breaks: break_counter.into(),
-                                        };
+                        // prepare time record
+                        let time_data: Timekeeper<
+                                            T::AccountId,
+                                            ProjectHashRef,
+                                            NumberOfBlocks,
+                                            LockStatus,
+                                            StatusOfTimeRecord,
+                                            ReasonCodeStruct,
+                                            PostingPeriod,
+                                            StartOrEndBlockNumber,
+                                            NumberOfBreaks> = Timekeeper {
+                                                worker: who.clone(),
+                                                project_hash: project_hash.clone(),
+                                                total_blocks: number_of_blocks.into(),
+                                                locked_status: false,
+                                                locked_reason: initial_reason_for_lock,
+                                                submit_status: 1,
+                                                reason_code: initial_submit_reason,
+                                                posting_period: 0, // temporary for this version.
+                                                start_block: start_block_number.into(),
+                                                end_block: end_block_number.into(),
+                                                nr_of_breaks: break_counter.into(),
+                                            };
 
-                    // Now update all time relevant records
+                        // Now update all time relevant records
 
-                    //WorkerTimeRecordsHashList
-                    <WorkerTimeRecordsHashList<T>>::mutate(&who, |worker_time_records_hash_list| worker_time_records_hash_list.push(time_hash.clone()));
+                        //WorkerTimeRecordsHashList
+                        <WorkerTimeRecordsHashList<T>>::mutate(&who, |worker_time_records_hash_list| worker_time_records_hash_list.push(time_hash.clone()));
 
-                    // Add time hash to project list
-                    <ProjectTimeRecordsHashList<T>>::mutate(&project_hash, |project_time_hash_list| {
-                        project_time_hash_list.push(time_hash.clone())
-                    });
+                        // Add time hash to project list
+                        <ProjectTimeRecordsHashList<T>>::mutate(&project_hash, |project_time_hash_list| {
+                            project_time_hash_list.push(time_hash.clone())
+                        });
 
-                    //TimeHashOwner
-                    <TimeHashOwner<T>>::insert(time_hash.clone(), who.clone());
+                        //TimeHashOwner
+                        <TimeHashOwner<T>>::insert(time_hash.clone(), who.clone());
 
-                    // Insert record
-                    <TimeRecord<T>>::insert(time_key, &time_data);
-                    Self::deposit_event(RawEvent::SubmitedTimeRecord(time_hash));
+                        // Insert record
+                        <TimeRecord<T>>::insert(time_key, &time_data);
+                        Self::deposit_event(RawEvent::SubmitedTimeRecord(time_hash));
+                        
 
-                } else { // This is not the default hash, therefore it is a resubmission, and should have a new status code.
+                    // _ => {
+                    } else {
+                    
+                        // prepare new time key
+                        let original_time_key = input_time_hash.clone();
 
-                    // prepare new time key
-                    let original_time_key = input_time_hash.clone();
+                        // Check this is an existing time record
+                        // and get the details using the resubmitted hash
+                        let old_time_record = Self::time_record(&original_time_key).ok_or("Time record does not exist, or this is not from the worker.")?;
+                        ensure!(!old_time_record.locked_status, "You cannot change a locked time record!");
 
-                    // Check this is an existing time record
-                    // and get the details using the resubmitted hash
-                    let old_time_record = Self::time_record(&original_time_key).ok_or("Time record does not exist, or this is not from the worker.")?;
-                    ensure!(!old_time_record.locked_status, "You cannot change a locked time record!");
+                        let proposed_new_status = submit_status.clone();
 
-                    let proposed_new_status = submit_status.clone();
+                        // prepare new time record.
+                        let mut new_time_data: Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber,NumberOfBreaks> = Timekeeper {
+                            worker: who.clone(),
+                            project_hash: project_hash.clone(),
+                            total_blocks: number_of_blocks.into(),
+                            locked_status: false,
+                            locked_reason: initial_reason_for_lock,
+                            submit_status: 0,
+                            reason_code: initial_submit_reason,
+                            posting_period: 0,
+                            start_block: start_block_number.into(),
+                            end_block: end_block_number.into(),
+                            nr_of_breaks: break_counter.into()
+                        };
 
-                    // prepare new time record.
-                    let mut new_time_data: Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber,NumberOfBreaks> = Timekeeper {
-                        worker: who.clone(),
-                        project_hash: project_hash.clone(),
-                        total_blocks: number_of_blocks.into(),
-                        locked_status: false,
-                        locked_reason: initial_reason_for_lock,
-                        submit_status: 0,
-                        reason_code: initial_submit_reason,
-                        posting_period: 0,
-                        start_block: start_block_number.into(),
-                        end_block: end_block_number.into(),
-                        nr_of_breaks: break_counter.into()
-                    };
+                        // Possible states are
+                        // draft(0),
+                        // submitted(1),
+                        // disputed(100), can be resubmitted, if the current status is < 100 return this state
+                        // rejected(200), can be resubmitted, if the current status is < 100 return this state
+                        // accepted(300), can no longer be rejected or disputed, > 200 < 400
+                        // invoiced(400), can no longer be rejected or disputed, > 300 < 500
+                        // blocked(999),
 
-                    // Possible states are
-                    // draft(0),
-                    // submitted(1),
-                    // disputed(100), can be resubmitted, if the current status is < 100 return this state
-                    // rejected(200), can be resubmitted, if the current status is < 100 return this state
-                    // accepted(300), can no longer be rejected or disputed, > 200 < 400
-                    // invoiced(400), can no longer be rejected or disputed, > 300 < 500
-                    // blocked(999),
+                        // Submit
+                        // project owner disputes, setting the state to 100... 100 can only be set if the current status is 0
+                        // project owner rejects, setting the state to 200... 200 can only be set if the current status is 0
+                        // Worker can resubmit time setting it back to 0... 0 can only be set if the current status < 300
 
-                    // Submit
-                    // project owner disputes, setting the state to 100... 100 can only be set if the current status is 0
-                    // project owner rejects, setting the state to 200... 200 can only be set if the current status is 0
-                    // Worker can resubmit time setting it back to 0... 0 can only be set if the current status < 300
+                        // project owner accepts time setting status to 300... 300 can only be set if the current status is 0 or 400 - a worker can invoice before acceptance
+                        // Project worker makes invoice. Worker can only create invoice if the current status is 0 or 300.
 
-                    // project owner accepts time setting status to 300... 300 can only be set if the current status is 0 or 400 - a worker can invoice before acceptance
-                    // Project worker makes invoice. Worker can only create invoice if the current status is 0 or 300.
+                        // project owner response window expires
 
-                    // project owner response window expires
+                        match old_time_record.submit_status {
+                            0 => {
+                                match proposed_new_status {
+                                    0 => (), // changing an already sumitted record. OK, do nothing.
+                                    1 => {new_time_data.submit_status = proposed_new_status}, // Draft to submitted.
+                                    // not appropriate to set these codes here. Other specific functions exist.
+                                    _ => return Err("This status has not been implemented or is not to be set this way."),
+                                }
+                            },
+                            100 | 200 => {
+                                // The existing record is rejected or disputed. The sender is therefore attempting to change the
+                                // record. Only the worker can change the record.
+                                // Ensure that the sender is the owner of the time record
+                                ensure!({old_time_record.worker == new_time_data.worker}, "You cannot change a time record you do not own!");
+                                ensure!({
+                                    old_time_record.total_blocks != new_time_data.total_blocks &&
+                                    old_time_record.start_block != new_time_data.start_block &&
+                                    old_time_record.end_block != new_time_data.end_block
+                                }, "Nothing has changed! Record will not be updated.");
 
-                    match old_time_record.submit_status {
-                        0 => {
-                            match proposed_new_status {
-                                0 => (), // changing an already sumitted record. OK, do nothing.
-                                1 => {new_time_data.submit_status = proposed_new_status}, // Draft to submitted.
-                                // not appropriate to set these codes here. Other specific functions exist.
-                                _ => return Err("This status has not been implemented or is not to be set this way."),
-                            }
-                        },
-                        100 | 200 => {
-                            // The existing record is rejected or disputed. The sender is therefore attempting to change the
-                            // record. Only the worker can change the record.
-                            // Ensure that the sender is the owner of the time record
-                            ensure!({old_time_record.worker == new_time_data.worker}, "You cannot change a time record you do not own!");
-                            ensure!({
-                                old_time_record.total_blocks != new_time_data.total_blocks &&
-                                old_time_record.start_block != new_time_data.start_block &&
-                                old_time_record.end_block != new_time_data.end_block
-                            }, "Nothing has changed! Record will not be updated.");
+                                // TODO remove any submitted reason codes.
+                                // 0, 0 initial reason code is the default
 
-                            // TODO remove any submitted reason codes.
-                            // 0, 0 initial reason code is the default
+                                // No matter what the submlitted value as long as the owner is making the change
+                                // the submit_status is already set to 0. No further processing necessary.
 
-                            // No matter what the submlitted value as long as the owner is making the change
-                            // the submit_status is already set to 0. No further processing necessary.
+                            },
+                            300 => {
+                                // The project owner has already accepted, but a correction is agreed with worker.
+                                // therefore reset the record to "draft"
+                                let hash_has_correct_owner = <projects::Module<T>>::check_owner_valid_project(who.clone(), project_hash.clone());
+                                ensure!(hash_has_correct_owner, "Invalid project or project owner is not correct");
 
-                        },
-                        300 => {
-                            // The project owner has already accepted, but a correction is agreed with worker.
-                            // therefore reset the record to "draft"
-                            let hash_has_correct_owner = <projects::Module<T>>::check_owner_valid_project(who.clone(), project_hash.clone());
-                            ensure!(hash_has_correct_owner, "Invalid project or project owner is not correct");
+                                // ensure that a correct reason is given by project owner
+                                // TODO inspect reason code values, change if necessary
 
-                            // ensure that a correct reason is given by project owner
-                            // TODO inspect reason code values, change if necessary
+                                // force change pending above
+                                // [1, 1] = [time record can be re-edited by the team member, set in time module]
+                                new_time_data.reason_code = ReasonCodeStruct(1, 1);
 
-                            // force change pending above
-                            // [1, 1] = [time record can be re-edited by the team member, set in time module]
-                            new_time_data.reason_code = ReasonCodeStruct(1, 1);
-
-                            // No matter what the submlitted value as long as the owner is making the change
-                            // the submit_status is already set to 0. No further processing necessary.
-                        },
-                        400 => return Err("Time record already invoiced. It cannot be changed."),
-                        999 => return Err("Time has been blocked by Project Owner. Check the reason code."),
-                        _ => return Err("This should not occur. Your time record has an invalid Status Code"),
-                    };
-
-                    Self::update_time_record(original_time_key, new_time_data);
-
-                };
-            } // no explicit else needed.
-
+                                // No matter what the submlitted value as long as the owner is making the change
+                                // the submit_status is already set to 0. No further processing necessary.
+                            },
+                            400 => return Err("Time record already invoiced. It cannot be changed."),
+                            999 => return Err("Time has been blocked by Project Owner. Check the reason code."),
+                            _ => return Err("This should not occur. Your time record has an invalid Status Code"),
+                        };
+                        match Self::update_time_record(original_time_key, new_time_data) {
+                            Err(_e) => return Err("Time record update did not complete"),
+                            _ => (),
+                        }
+                    } 
             Ok(())
         }
 
@@ -517,19 +523,26 @@ decl_module! {
 
             // perform update on total amounts of time
             let total_time: NumberOfBlocks =  changing_time_record.end_block.clone() - changing_time_record.start_block.clone();
-            Self::update_totals(changing_time_record.worker.clone(), changing_time_record.project_hash.clone(), total_time);
-
-            Self::update_time_record(original_time_key, changing_time_record);
+            match Self::update_totals(changing_time_record.worker.clone(), changing_time_record.project_hash.clone(), total_time) {
+                Err(_e) => return Err("Totals update to storage did not complete"),
+                _ => (),
+            }
+            match Self::update_time_record(original_time_key, changing_time_record) {
+                Err(_e) => return Err("Time record update did not complete"),
+                _ => (),
+            }
+            
             Self::deposit_event(RawEvent::SetAuthoriseStatus(who));
 
             Ok(())
         }
 
+        // TODO : The following functions are placeholders for future functionality
         //Worker invoices the time record
         fn invoice_time(
             origin,
-            project_hash: ProjectHashRef,
-            input_time_hash: T::Hash) -> Result {
+            _project_hash: ProjectHashRef,
+            _input_time_hash: T::Hash) -> Result {
             let who = ensure_signed(origin)?;
             // TODO This is normally set by the invoice module not by the time module
             // This needs to be reviewed once the invoice module is being developed.
@@ -545,8 +558,8 @@ decl_module! {
         // Project owner pays invoice
         fn pay_time(
             origin,
-            project_hash: ProjectHashRef,
-            input_time_hash: T::Hash) -> Result {
+            _project_hash: ProjectHashRef,
+            _input_time_hash: T::Hash) -> Result {
             let who = ensure_signed(origin)?;
 
             Self::deposit_event(RawEvent::PayTime(who.clone()));
@@ -557,9 +570,9 @@ decl_module! {
 
         // Full payment triggers locked record
         fn lock_time_record(
-            origin,
-            project_hash: ProjectHashRef,
-            input_time_hash: T::Hash) -> Result {
+            _origin,
+            _project_hash: ProjectHashRef,
+            _input_time_hash: T::Hash) -> Result {
 
             Self::deposit_event(RawEvent::LockTimeRecord());
             Ok(())
@@ -567,9 +580,9 @@ decl_module! {
         
         // In case of error unlock record
         fn unlock_time_record(
-            origin,
-            project_hash: ProjectHashRef,
-            input_time_hash: T::Hash) -> Result {
+            _origin,
+            _project_hash: ProjectHashRef,
+            _input_time_hash: T::Hash) -> Result {
 
             Self::deposit_event(RawEvent::UnLockTimeRecord());
             Ok(())
@@ -577,9 +590,9 @@ decl_module! {
         
         // Worker or team member is banned from submitting time against this project
         fn ban_worker(
-            origin,
-            project_hash: ProjectHashRef,
-            worker: T::AccountId) -> Result {
+            _origin,
+            _project_hash: ProjectHashRef,
+            _worker: T::AccountId) -> Result {
 
             // check that you are not banning is not yourself!
             Self::deposit_event(RawEvent::Banned());
@@ -588,9 +601,9 @@ decl_module! {
 
         // Worker or team member is released from ban from submitting time against this project
         fn unban_worker(
-            origin,
-            project_hash: ProjectHashRef,
-            worker: T::AccountId) -> Result {
+            _origin,
+            _project_hash: ProjectHashRef,
+            _worker: T::AccountId) -> Result {
 
             Self::deposit_event(RawEvent::UnBanned());
             Ok(())
@@ -603,8 +616,8 @@ impl<T: Trait> Module<T> {
     fn store_worker_acceptance(
         project_hash: ProjectHashRef,
         who: T::AccountId,
-        accepted_status: AcceptAssignedStatus) {
-        let mut stored_ok: bool = false;
+        accepted_status: AcceptAssignedStatus) -> Result {
+        
         let status_tuple_key = (project_hash.clone(), who.clone());
         // add worker to project team
         <ProjectWorkersList<T>>::mutate(&project_hash, |project_workers_list| {
@@ -625,6 +638,7 @@ impl<T: Trait> Module<T> {
             project_hash,
             accepted_status,
         ));
+        Ok(())
     }
 
     // Time record is remove (if it exists) and reinserted
@@ -640,7 +654,7 @@ impl<T: Trait> Module<T> {
             ReasonCodeStruct,
             PostingPeriod,
             StartOrEndBlockNumber,
-            NumberOfBreaks>) {
+            NumberOfBreaks>) -> Result {
         let time_record_key = k.clone();
 
         // remove existing record (if one exists)
@@ -651,6 +665,8 @@ impl<T: Trait> Module<T> {
 
         // issue event
         Self::deposit_event(RawEvent::SubmitedTimeRecord(k));
+        
+        Ok(())
     }
 
     // Updates the total number of blocks overall
@@ -660,7 +676,7 @@ impl<T: Trait> Module<T> {
     // * Increments Total Time worked on a project for all workers
     // * Increments Total Time worked by the worker for everything.
     // * Increments Total Time booked for a specific worker on a specific project
-    fn update_totals(a: T::AccountId, r: ProjectHashRef, n: NumberOfBlocks) {
+    fn update_totals(a: T::AccountId, r: ProjectHashRef, n: NumberOfBlocks) -> Result {
         if <TotalBlocksPerProject<T>>::exists(&r) {
             <TotalBlocksPerProject<T>>::mutate(r, |v| *v += &n);
         } else {
@@ -680,6 +696,8 @@ impl<T: Trait> Module<T> {
         } else {
             <TotalBlocksPerProjectPerAddress<T>>::insert(key, n);
         };
+
+        Ok(())
     }
     
     fn set_project_time_archive(time_hash: T::Hash, project_hash: ProjectHashRef, archive: bool)  -> bool {
@@ -687,8 +705,8 @@ impl<T: Trait> Module<T> {
         match archive {
             true => {
                 // Push to archive
-                <ProjectTimeRecordsHashArchiveList<T>>::mutate(project_hash, |project_time_records_hash_archive_list| {
-                    project_time_records_hash_archive_list.push(time_hash.clone())
+                <ProjectTimeRecordsHashListArchive<T>>::mutate(project_hash, |project_time_records_hash_list_archive| {
+                    project_time_records_hash_list_archive.push(time_hash.clone())
                 });
                 
                 // Retain all others except
@@ -703,8 +721,8 @@ impl<T: Trait> Module<T> {
                 });
                 
                 // remove from archive
-                <ProjectTimeRecordsHashArchiveList<T>>::mutate(project_hash, |project_time_records_hash_archive_list| {
-                    project_time_records_hash_archive_list.retain(|h| h != &time_hash)
+                <ProjectTimeRecordsHashListArchive<T>>::mutate(project_hash, |project_time_records_hash_list_archive| {
+                    project_time_records_hash_list_archive.retain(|h| h != &time_hash)
                 });
             },
         }
@@ -718,8 +736,8 @@ impl<T: Trait> Module<T> {
         match archive {
             true => {
                 // Push to archive
-                <WorkerTimeRecordsHashArchiveList<T>>::mutate(&owner, |worker_time_records_hash_archive_list| {
-                    worker_time_records_hash_archive_list.push(time_hash.clone())
+                <WorkerTimeRecordsHashListArchive<T>>::mutate(&owner, |worker_time_records_hash_list_archive| {
+                    worker_time_records_hash_list_archive.push(time_hash.clone())
                 });
                 
                 // Retain all others except
@@ -734,8 +752,8 @@ impl<T: Trait> Module<T> {
                 });
                 
                 // Retain all others except
-                <WorkerTimeRecordsHashArchiveList<T>>::mutate(&owner, |worker_time_records_hash_archive_list| {
-                    worker_time_records_hash_archive_list.retain(|h| h != &time_hash)
+                <WorkerTimeRecordsHashListArchive<T>>::mutate(&owner, |worker_time_records_hash_list_archive| {
+                    worker_time_records_hash_list_archive.retain(|h| h != &time_hash)
                 });
                 
             },
@@ -752,9 +770,6 @@ impl<T: Trait> Module<T> {
     pub fn validate_and_archive(origin: T::AccountId, time_hash: T::Hash, archive: bool) -> Result {
         let who = origin.clone();
         // let who = owner.clone();
-    
-        // set default return value
-        let mut valid_completed: bool = false;
     
         // get the time record 
         let time_record_key = time_hash.clone();

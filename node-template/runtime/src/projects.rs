@@ -84,8 +84,8 @@ decl_module! {
             // Otherwise onlu the owner can change the data
             ensure!(project_owner == changer, "You cannot delete a project you do not own");
 
-            let mut changed_by: T::AccountId = changer.clone();
-            let project_status: ProjectStatus = 99;
+            let changed_by: T::AccountId = changer.clone();
+            let project_status: ProjectStatus = 999;
             let deleted_project_struct = DeletedProject {
                 owned_by: project_owner.clone(),
                 deleted_by: changed_by.clone(),
@@ -116,7 +116,7 @@ decl_module! {
             let project_owner: T::AccountId = Self::project_hash_owner(&project_hash).ok_or("Error fetching project owner")?;
 
             let changer: T::AccountId = ensure_signed(origin)?;
-            let mut changed_by: T::AccountId = changer.clone();
+            let changed_by: T::AccountId = changer.clone();
 
             // TODO Implement a sudo for cleaning data in cases where owner is lost
             // Otherwise only the owner can change the data
@@ -179,7 +179,7 @@ decl_module! {
             Ok(())
         }
 
-        fn end_or_unend_project(origin, project_hash: ProjectHash, project_status: ProjectStatus) -> Result {
+        fn set_status_project(origin, project_hash: ProjectHash, project_status: ProjectStatus) -> Result {
             ensure!(<ProjectHashStatus<T>>::exists(&project_hash), "The project does not exist!");
 
             let changer = ensure_signed(origin)?;
@@ -260,12 +260,11 @@ impl<T: Trait> Module<T> {
     pub fn check_owner_valid_project(owner: T::AccountId, project_hash: ProjectHash) -> bool {
         // set default return value
         let mut valid: bool = false;
-        let project_owner = owner;
 
         // check validity of project
         if let true = Self::check_valid_project(project_hash.clone()) {
             match Self::project_hash_owner(project_hash) {
-                Some(project_owner) => valid = true,
+                Some(owner) => valid = true,
                 None => return valid,
             }
         }

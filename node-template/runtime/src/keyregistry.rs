@@ -15,6 +15,22 @@
 // You should have received a copy of the GNU General Public License
 // along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
+
+// create full message with information that is required to 
+// prove that the claimant is the holder of the encryption public key. 
+// This is encrypted to the claimed public encryption key and the cipher stored for later comparison. 
+// An ephemeral secret key used in the process will not be stored on chain in plaintext.
+// In order for the genuine holder to prove both keys are known to them, they must be able to decrypt
+// and sign the information they have decrypted with the correct signature key.
+// Once decrypted the ephemeral secret key is revealed to the holder of the claimed encryption key.
+// The ephemeral secret key is then signed by the holder of the claimed signature keys and 
+// returned to the runtime in plain text.
+// The runtime can verify the signature on the ephemeral key as being from the claimed signature key.
+// The runtime can then use re-encrypt the initial data using the same ephemeral secret and claimed public encryption key.
+// If the resulting cipher is identical to the stored cipher, then the runtime is certain that the ephemeral key 
+// was decrypted by the holder of the encryption keys.
+// Both keys can now be considered validated. 
+
 use parity_codec::{Decode, Encode};
 use primitives::{ed25519, H256};
 use rstd::prelude::*;
@@ -31,15 +47,9 @@ pub trait Trait: system::Trait + timestamp::Trait {
 }
 
 pub type EncryptNonce = BoxNonce;
-
-// pub type RawNonce = u64;
-
-
 pub type EncryptPublicKey = H256; //32 bytes Hex
-pub type EphemeralSecretSeed = H256; //32 bytes Hex
 
 pub type UserNameHash = H256;
-pub type RandomHashedData = H256;
 
 pub type Ed25519signature = ed25519::Signature; //AuthoritySignature
 pub type SignedBy = <Ed25519signature as Verify>::Signer; //AuthorityId
@@ -70,7 +80,6 @@ decl_storage! {
         PublicKeySign get(public_key_sign): map UserNameHash => Option<SignedBy>;
         TempPublicKeySign get(temp_public_key_sign): map UserNameHash => Option<SignedBy>;
         VerificationData get(verification_data): map UserNameHash => Option<EncryptedVerificationData>;
-        // OldNonce get(old_nonce): Option<RawNonce>;
     }
 }
 
@@ -88,8 +97,9 @@ decl_module! {
             nonce: EncryptNonce,
             signature: Ed25519signature // detached signature
         ) -> Result {
+            
             // check that the transaction is signed
-            let user = ensure_signed(origin)?;
+            let _user = ensure_signed(origin)?;
             // if the usernamehash exists, compare keys
             let transaction_data = SignedData {
                 user_hash: user_hash.clone(),
@@ -98,7 +108,7 @@ decl_module! {
                 nonce: nonce.into(),
             };
             
-            // check if this user has submitted keys before
+            // check if this user has submitted keys verified keys before.
             match Self::user_keys_verified(user_hash.clone()) {
                 Some(true) => {
                     // The existing key is verified, but this time it may be a replacement of the key(s).
@@ -114,7 +124,8 @@ decl_module! {
                         // Check that the NEW data is signed by the OLD signature key
                         ensure!(signature.verify(&encoded_data[..], &old_sign_key), "Invalid signature for this key");
                         
-                        // Store keys in temp space pending verification
+                        // Store keys in temp space pending verification. It is necessary to do this now.
+                        // If a later process fails this will be replaced anyway.
                         if old_enc_key != transaction_data.pub_enc_key {
                             <TempPublicKeyEnc<T>>::take(&user_hash);
                             <TempPublicKeyEnc<T>>::insert(&user_hash, &transaction_data.pub_enc_key);
@@ -126,62 +137,10 @@ decl_module! {
                             
                         };
                         
-                        // generate 128bit verification data
-                        let message = Self::pseudo_random_value(&transaction_data);
-                        
-                        // Generate ephemeral keys for symmetric encryption
-                        let mut ephemeral_public_key: EphemeralPublicKey = Default::default();
-                        let mut ephemeral_secret_key: EphemeralSecretKey = Default::default();
-                        
-                        let ephemeral_secret_seed = <system::Module<T>>::random_seed().using_encoded(blake2_256);
-                        
-                        box_keypair_seed(&mut ephemeral_public_key, &mut ephemeral_secret_key, &ephemeral_secret_seed);                        
-                        
-                        // let mut last_nonce: RawNonce = 0;    
-                        
-                        // // get next nonce
-                        // if <OldNonce<T>>::exists() {
-                        //     last_nonce = Self::old_nonce().ok_or("Storage Read Error: cannot get nonce").unwrap();
-                        // };
-                        
-                        // this is a dummy placeholder until we work out how to increment nonce
-                        let mut last_nonce_24: EncryptNonce = [0u8; 24];
-                        
-                        // create full message with information that is required to 
-                        // prove that the decrypter is the owner. 
-                        // the ephemeral secret key  will not be stored
-                        // therefore in order for the genuine owner to prove ownership they must decrypt
-                        // and sign what they have decrypted with the signature key provided.
-                        // The ephemeral secret key is then revealed and is used a second time to 
-                        // prove the contents of the validation data directly.
-                        // upon success the runtime can be sure that the encryption key owner was able to
-                        // discover the ephemeral secret key.
-                         
-                        let data_to_encrypt = (message, &ephemeral_secret_key).encode();
-                        
-                        // Convert from H256 to [u8; 32]. Might need dereferencing in other contexts
-                        let external_pub_key: &BoxPublicKey  = transaction_data.pub_enc_key.as_fixed_bytes();
-
-                        // initialise ciphertext with a default value 
-                        let mut cipher_text = [0u8];
-
-                        // Encrypt data returning cipher_text
-                        box_(&mut cipher_text, &data_to_encrypt, &last_nonce_24, external_pub_key, &ephemeral_secret_key);
-                        // should handle error on encryption here.
-                        
-                        // parse cipher to Vec<u8> string for storage and reading in UI
-                        let cipher: Vec<u8> = cipher_text.to_vec();
-
-                        // convert from raw public key to UI readable public key
-                        let pubkey = ed25519::Public::from_raw(ephemeral_public_key).0.into();
-
-                        let verify_this = EncryptedVerificationData(cipher, pubkey);
-                        
-                        // Store cipher against user id hash 
-                        // remove any existing data
-                        <VerificationData<T>>::take(&user_hash);
-                        // insert (or replace)
-                        <VerificationData<T>>::insert(&user_hash, verify_this);
+                        match Self::generate_store_verification_data(transaction_data) {
+                            Err(_e) => return Err("Failed to store verification data."),
+                            _ => ()
+                        }
                         
                     }; // if the keys are the same, do nothing    
                     
@@ -193,24 +152,21 @@ decl_module! {
                     // Store keys in temp space pending verification
                     <TempPublicKeyEnc<T>>::insert(&user_hash, &transaction_data.pub_enc_key);
                     <TempPublicKeySign<T>>::insert(&user_hash, &transaction_data.pub_sign_key);
-                    
-                    // generate 128bit verification data
-                    let random_validation_key = Self::pseudo_random_value(&transaction_data);
-                    // encrypt verification data
-        
-        
-                    // store verification data
+
+                    match Self::generate_store_verification_data(transaction_data) {
+                        Err(_e) => return Err("Failed to store verification data."),
+                        _ => ()
+                    }
 
                 }  
             } //match
             
             Ok(())
         } 
-            
-    }
-        
-}
 
+    }
+    
+}
 
 decl_event!(
     pub enum Event<T>
@@ -233,54 +189,62 @@ impl<T: Trait> Module<T> {
         );
         return input.using_encoded(blake2_128);
     }
-
-    // fn encrypt_pseudo_random_value(data: [u8; 16], external_public_key: EncryptPublicKey) -> Vec<u8> {
-        // let mut last_nonce: EncryptNonce = 0;
-        // if <OldNonce<T>>::exists() {
-        //     last_nonce = Self::old_nonce().ok_or("Storage Read Error: cannot get nonce").unwrap();
-        // };
-
-        // let cipher  = EncryptedVerificationData(data.to_vec(), last_nonce.clone()).encode(); 
-
-        // // generate ephemeral secret key
-        // let mut ephemeral_secret_seed = [0u8; 32];
+    
+    fn generate_store_verification_data(transaction_data: SignedData<UserNameHash, EncryptPublicKey, SignedBy, EncryptNonce>) -> Result {
+        // generate 128bit verification data
+        let random_validation_key = Self::pseudo_random_value(&transaction_data);
         
-        // let seed_bytes = <system::Module<T>>::random_seed();
+        // encrypt verification data
+    
+        // Generate ephemeral keys for symmetric encryption
+        let mut ephemeral_public_key: EphemeralPublicKey = Default::default();
+        let mut ephemeral_secret_key: EphemeralSecretKey = Default::default();
         
-        // // seed_bytes.fill_bytes(&mut ephemeral_secret_seed[..]);
+        let ephemeral_secret_seed = <system::Module<T>>::random_seed().using_encoded(blake2_256);
         
-        // let ephemeral_secret_key = calc_dhshared_key(&external_public_key, &ephemeral_secret_seed);
+        box_keypair_seed(&mut ephemeral_public_key, &mut ephemeral_secret_key, &ephemeral_secret_seed);                        
+                                
+        // this is a dummy placeholder until we work out how to increment nonce
+        let last_nonce_24: EncryptNonce = [0u8; 24];
         
+        let data_to_encrypt = (random_validation_key, &ephemeral_secret_key).encode();
+                    
+        // Convert from H256 to [u8; 32]. Might need dereferencing in other contexts
+        let external_pub_key: &BoxPublicKey  = transaction_data.pub_enc_key.as_fixed_bytes();
+    
+        // initialise ciphertext with a default value 
+        let mut cipher_text = [0u8];
+    
+        // Encrypt data returning cipher_text
+        match box_(&mut cipher_text, &data_to_encrypt, &last_nonce_24, external_pub_key, &ephemeral_secret_key) {
+            Err(_e) => return Err("Encryption failed."),
+            _ => ()
+        }
         
-        // take ephemeral secret key and external public key, and generate Diffie-Hellman shared key
-
-
-        // add the ephemeral secret key to the data and a nonce & encrypt;
-
-        // store the encrypted cipher against the user name hash 
-
-        // when the user decrypts, they sign the data, nonce and secret key back to runtime
-
-        // runtime checks signature, re-encrypts using the supplied ephemeral secret key and if the values matches, it permanently stores the original keys, removes the temp, cleans up validation 
-
-
-
-
-
-
+        // parse cipher to Vec<u8> string for storage and reading in UI
+        let cipher: Vec<u8> = cipher_text.to_vec();
+    
+        // convert from raw public key to UI readable public key
+        let pubkey = ed25519::Public::from_raw(ephemeral_public_key).0.into();
+    
+        match Self::store_validation(transaction_data, EncryptedVerificationData(cipher, pubkey)) {
+            true => return Ok(()),
+            false => return Err("Error storing validation data"),
+        }
         
-        // <OldNonce<T>>::put(&last_nonce + 1);
+    }
 
-    //     return true;
-    // }
-
-    fn store_validation() -> bool {
+    fn store_validation(transaction_data: SignedData<UserNameHash, EncryptPublicKey, SignedBy, EncryptNonce>, 
+        verify_this: EncryptedVerificationData) -> bool {
+        
         // EncryptedVerificationData(Data, EncryptNonce);
-        
+        <VerificationData<T>>::take(&transaction_data.user_hash);
+        // insert (or in the case of new keys, replace)
+        <VerificationData<T>>::insert(transaction_data.user_hash, verify_this);
+    
         return true;
     }
 }
-
 
 // In the front end we send the data(all elements) attached to the signature as a string Vec<u8>: Easy
 // using sr_io::ed25519_verify(signature, message, publicsignigkey) we can return TRUE (vaerified signature) or FALSE (not verified signature)
