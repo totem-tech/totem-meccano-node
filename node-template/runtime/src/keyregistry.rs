@@ -48,12 +48,12 @@
 ///    The ephemeral key is prepended to the data to be encrypted and then everything is encrypted and stored on chain. 
 /// 
 /// 4. Although the hash of the identifying userid is public (and therefore can be used to monitor blockchain storage), only the valid holder of the 
-///    decryption keys can decrypt the cipher stored on chain. Once decrypted, technically the ephemeral secret key is revealed to the holder of the sencryption key pair.
+///    decryption keys can decrypt the cipher stored on chain. Once decrypted, technically the ephemeral secret key is revealed to the holder of the encryption key pair.
 /// 
 /// 5. The holder of the decrypted data is then required to sign the decrypted data with the signature keys that they are also claiming, and send the resulting 
 ///    signature along with the decrypted data as a transaction back to the blockchain runtime.
 /// 
-/// 6. As the runtime did not store the unencrypted ephemeral secret key, receiving this information should permit the runtime to regenrate the cipher.  
+/// 6. As the runtime did not store the unencrypted ephemeral secret key, receiving this information should permit the runtime to regenerate the original cipher.  
 ///    This however by itself does not prove that the sender of the transaction is in possession of the secret encryption key associated with the claimed public encryption key.
 ///    They must also sign the revealed ephemeral secret key with the claimed public signature key. Only if both these are fulfilled can the keys be considered
 ///    authenticated.
@@ -178,35 +178,30 @@ decl_module! {
             };
 
             // compare newly processes cipher to stored cipher, if they agree we have a match!
-            let cipher_to_compare = data_to_compare.data;
-            match cipher_text.to_vec() {
-                cipher_to_compare => {
-                    //if we get this far then the data was decrypted by the owner of the encryption key, 
-                    // and it was signed by the owner of the signature key
-                    
-                    // mark the keys as veriffed
-                    match Self::set_verification_state(user_hash, true) {
-                        Err(_e) => return Err("Failed to store the verification state"),
-                        _ => (),
-                    }
-                    // move the keys to the verified storage
-                    
-                    
-                    
-                    
-                    
-                    
-                    // remove the keys fro the temp storage
-                    match Self::delete_temp_keys(user_hash) {
-                        Err(_e) => return Err("Error removing temp keys"),
-                        _ => return Ok(()),
-                    };
-                },
-                _ => return Err("There was an error authenticating the supplied data"),
+            if data_to_compare.data != cipher_text.to_vec() {
+                return Err("There was an error authenticating the supplied data");
             };
 
-            Ok(())
-
+            //if we get this far then the data was decrypted by the owner of the encryption key, 
+            // and it was signed by the owner of the signature key
+                
+            // mark the keys as veriffed
+            match Self::set_verification_state(user_hash, true) {
+                Err(_e) => return Err("Failed to store the verification state"),
+                _ => (),
+            };
+            // move the keys to the verified storage
+            match Self::move_temp_keys(user_hash) {
+                Err(_e) => return Err("Failed to store the temp keys"),
+                _ => (),
+            };                    
+            
+            // remove the keys fro the temp storage
+            match Self::delete_temp_keys(user_hash) {
+                Err(_e) => return Err("Error removing temp keys"),
+                _ => return Ok(()),
+            };
+                
         }
         
         // Chat User registers (untrusted/unvalidated) encryption and signing keys
@@ -323,11 +318,6 @@ impl<T: Trait> Module<T> {
         return input.using_encoded(blake2_128);
     }
 
-    fn set_verification_state(user_hash: UserNameHash, state: bool) -> Result {
-        <UserKeysVerified<T>>::insert(&user_hash, state);
-
-        Ok(())
-    }
     
     fn delete_state_and_temp_keys(user_hash: UserNameHash) -> Result {        
         <UserKeysVerified<T>>::take(&user_hash);
@@ -340,6 +330,26 @@ impl<T: Trait> Module<T> {
     fn delete_temp_keys(user_hash: UserNameHash) -> Result {
         <TempPublicKeyEnc<T>>::take(&user_hash);
         <TempPublicKeySign<T>>::take(&user_hash);
+        
+        Ok(())
+    }
+
+    fn move_temp_keys(user_hash: UserNameHash) -> Result {
+        let enc_key = Self::temp_public_key_enc(&user_hash).ok_or("Storage Read Error: cannot get encryption key, or key is not verified")?; 
+        let sign_key = Self::temp_public_key_sign(&user_hash).ok_or("Storage Read Error: cannot get signature key, or key is not verified")?; 
+        
+        <PublicKeySign<T>>::take(&user_hash);
+        <PublicKeyEnc<T>>::take(&user_hash);
+        // insert keys
+        <PublicKeySign<T>>::insert(&user_hash, sign_key);
+        <PublicKeyEnc<T>>::insert(&user_hash, enc_key);
+        
+        Ok(())
+    }
+    
+    fn set_verification_state(user_hash: UserNameHash, state: bool) -> Result {
+        <UserKeysVerified<T>>::insert(&user_hash, state);
+
         Ok(())
     }
 
@@ -403,29 +413,3 @@ impl<T: Trait> Module<T> {
         return true;
     }
 }
-
-// In the front end we send the data(all elements) attached to the signature as a string Vec<u8>: Easy
-// using sr_io::ed25519_verify(signature, message, publicsignigkey) we can return TRUE (vaerified signature) or FALSE (not verified signature)
-// What we are missing is the validation of the encryption key... something like
-// Client sends
-// random data_,
-// encrypted_data_1,
-// enc_pub_key
-// The runtime validates this by ->
-// encrypting data_ (to encrypted_data_2),
-// comparing encrypted_data_2 to encrypted_data_1 returniong TRUE or FALSE.
-
-// However, for expediency (Yikes!) we can assert that the signer is claiming this public encryption key. THIS IS NOT IDEAL.
-
-// On this basis we can encodesend the
-
-// // check a message signature. returns true if signed by that authority.
-// fn check_message_sig<B: Codec, H: Codec>(
-    // 	message: Message<B, H>,
-    // 	signature: &Signature,
-    // 	from: &AuthorityId
-    // ) -> bool {
-        // 	let msg: Vec<u8> = message.encode();
-        // 	sr_io::ed25519_verify(&signature.0, &msg, from)
-        //}
-        
