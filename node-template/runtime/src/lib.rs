@@ -76,7 +76,7 @@ pub type BlockNumber = u64;
 /// Index of an account's extrinsic in the chain.
 pub type Nonce = u64;
 
-mod keyregistry;
+mod boxkeys;
 mod projects;
 mod timekeeping;
 mod archive;
@@ -232,7 +232,7 @@ impl timekeeping::Trait for Runtime {
     type Event = Event;
 }
 
-impl keyregistry::Trait for Runtime {
+impl boxkeys::Trait for Runtime {
     type Event = Event;
 }
 
@@ -255,7 +255,7 @@ construct_runtime!(
 		Sudo: sudo,
 		ProjectModule: projects::{Module, Call, Storage, Event<T>},
 		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
-		KeyRegistryModule: keyregistry::{Module, Call, Storage, Event<T>},
+		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
 		ArchiveModule: archive::{Module, Call, Event<T>},
 	}
 );

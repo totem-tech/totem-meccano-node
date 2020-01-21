@@ -16,28 +16,29 @@
 // along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 
-/// This is the BoXKeyS Protocol for a public key server on a substrate based blockchain
-/// Blockchainisation of X25519 Key Server 
+/// This is the BoxKeyS Protocol - an authenticated public key server runtime for Substrate based blockchains 
 /// Authored by Chris D'Costa.
 
-/// The use case is that a key holder is publicly claiming ownership of X25519 public encryption and signing keys
-/// However to do so the claimant must also prove that they hold the associated private keys.
+/// A key holder is publicly claiming ownership of X25519 public encryption and signing keys.
+/// To do so the claimant must also prove that they hold the associated private keys.
 
-/// By having a protocol that independently determines the validity, without requiring a trusted third-party
-/// to authenticate the keys is useful because there is currently no common globally available service for this
-/// that doesn't rely on third parties. 
+/// The BoxKeyS runtime independently verifies the claims to a set of puclic keys without requiring a trusted third-party
+/// such as a certification authority (CA). 
+/// Current solutions either require a trusted third-party or public profile on a centralised register. 
+/// BoxKeyS can authonticate the keys without requiring the owner to directly reveal their identity or anything about them. 
+/// However once their identity is shared, perhaps with somebody who needs to communicate with them, or validate some signed data,
+/// a look-up can be made to obtain the public keys associated with that identity.
 
-/// A simple lookup against a unique ID provides the authenticated public keys for 
-/// anyone who wants to encrypt a message to, or validate the signature of another party.  
-
-/// The service can be used out of the box [pun intended] on Totem and any other Substrate chain.
+/// The runtime can be used out of the box [pun intended] on Totem and any other Substrate v1.0 chain.
 
 /// The blockchain runtime provides the mechanism for self-verifying ownership using the following procedure: 
 
-/// 1. The claimant submits a hash of unique identifying information, the public signature and encryption keys for which they claim to hold the 
-///    the associated secret keys and a message signature which has signed an array of aforementioned data.
+/// 1. The claimant submits: 
+///    i. a hash of unique identifying information, 
+///    ii. the public signature and encryption keys for which they claim to hold the the associated secret keys 
+///    iii. and a message signature. The signed unsigned message is an array of aforementioned data.
 ///    NOTE: the signature is not necessarily generated from the same key that signs the transaction, meaning any valid identity on Substrate 
-///    can submit a claim to keys paying the relevant fees. 
+///    can submit a claim to keys paying the relevant fees.
 ///    Because any identity can sign the transaction, we still need to validate the additional signature provided against the 
 ///    public signature key that was also provided.
 ///
@@ -45,20 +46,23 @@
 ///    a random set of data to be encrypted against the provided public encryption key.
 ///
 /// 3. The runtime generates an ephemeral (one-time use) secret key, used to encrypt the data to the provided public encryption key. 
-///    The ephemeral key is prepended to the data to be encrypted and then everything is encrypted and stored on chain. 
+///    The ephemeral key is prepended to the "data to be encrypted" and then everything is encrypted and stored on chain. 
 /// 
-/// 4. Although the hash of the identifying userid is public (and therefore can be used to monitor blockchain storage), only the valid holder of the 
-///    decryption keys can decrypt the cipher stored on chain. Once decrypted, technically the ephemeral secret key is revealed to the holder of the encryption key pair.
+/// 4. Although the hash of the identifying userid is potentially public (and therefore can be used to monitor blockchain storage), 
+///    only the valid holder of the decryption keys can decipher the data on chain. Once decrypted, technically the ephemeral secret 
+///    key is revealed to the holder of the encryption key pair.
 /// 
-/// 5. The holder of the decrypted data is then required to sign the decrypted data with the signature keys that they are also claiming, and send the resulting 
-///    signature along with the decrypted data as a transaction back to the blockchain runtime.
+/// 5. The holder of the decrypted data is then required to sign the decrypted data with the signature keys that they are also claiming, 
+///    before sending the resulting signature along with the decrypted data as a transaction back to the blockchain runtime. 
 /// 
-/// 6. As the runtime did not store the unencrypted ephemeral secret key, receiving this information should permit the runtime to regenerate the original cipher.  
-///    This however by itself does not prove that the sender of the transaction is in possession of the secret encryption key associated with the claimed public encryption key.
-///    They must also sign the revealed ephemeral secret key with the claimed public signature key. Only if both these are fulfilled can the keys be considered
-///    authenticated.
+/// 6. As the runtime did not store the unencrypted ephemeral secret key, receiving this information should permit the runtime to 
+///    regenerate the original cipher from the provided data. However !!! this by itself does not prove that the sender of the transaction 
+///    is in possession of the secret encryption key associated with the claimed public encryption key !!!
+///    The sender must also sign the revealed ephemeral secret key with the claimed signature key. Only if both these are fulfilled 
+///    can the keys be considered "authenticated".
 ///
-/// 7. This process is identical for replacing the keys, with the added exception that the keys must be signed by the previous signature key.  
+/// 7. The process for replacing keys is identical with the added exception that the keys must be signed by the previous signature key.
+///
 
 use parity_codec::{Decode, Encode};
 use primitives::{ed25519, H256};
@@ -111,7 +115,7 @@ struct SignedData<UserNameHash, EncryptPublicKey, SignedBy, EncryptNonce> {
 }
 
 decl_storage! {
-    trait Store for Module<T: Trait> as KeyRegistryModule {
+    trait Store for Module<T: Trait> as BoxKeyS {
         UserKeysVerified get(user_keys_verified): map UserNameHash => Option<bool>;
         PublicKeyEnc get(public_key_enc): map UserNameHash => Option<EncryptPublicKey>;
         TempPublicKeyEnc get(temp_public_key_enc): map UserNameHash => Option<EncryptPublicKey>;
@@ -124,16 +128,32 @@ decl_storage! {
 decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
-
+        
+        /// deletes all keys. requires a valid signature (from the public signing key) 
         fn destroy_keys(
             origin,
+            user_hash: UserNameHash, // this is what is signed 
             signature: Ed25519signature
         ) -> Result {
+
             // provided you are the owner of the keys you can remove them entirely from storage.
+            let sign_key = Self::public_key_sign(&user_hash).ok_or("Storage Read Error: cannot get signature key")?; 
+            ensure!(signature.verify(&user_hash[..], &sign_key), "Invalid signature for this key");
+
+            // no matter what, remove everything
+            <UserKeysVerified<T>>::take(&user_hash);
+            <PublicKeyEnc<T>>::take(&user_hash);
+            <TempPublicKeyEnc<T>>::take(&user_hash);
+            <PublicKeySign<T>>::take(&user_hash);
+            <TempPublicKeySign<T>>::take(&user_hash);
+            <VerificationData<T>>::take(&user_hash);
+    
             Ok(())
 
         }
         
+        /// this should only be called when there is data to verify.
+        /// TODO implement a significant fee
         fn auto_verification(
             origin,
             user_hash: UserNameHash, // hash of unique userid
@@ -204,7 +224,8 @@ decl_module! {
                 
         }
         
-        // Chat User registers (untrusted/unvalidated) encryption and signing keys
+        // a unique User registers (untrusted/unvalidated) encryption and signing keys
+        /// TODO implement a significant fee
         fn register_keys(
             origin,
             user_hash: UserNameHash, // hash of unique userid
@@ -289,6 +310,7 @@ decl_module! {
                 }  
             } //match
             
+            // todo add event
             Ok(())
         } 
 
