@@ -53,9 +53,13 @@ pub use runtime_primitives::{Permill, Perbill};
 pub use support::StorageValue;
 pub use staking::StakerStatus;
 
+extern crate sodalite;
+
 // Totem Runtime Modules
+mod boxkeys;
 mod projects;
 mod timekeeping;
+mod archive;
 
 // /// Runtime version.
 // pub const VERSION: RuntimeVersion = RuntimeVersion {
@@ -78,7 +82,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 1,
     // incremental changes
-	impl_version: 1,
+	impl_version: 2,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -235,6 +239,14 @@ impl timekeeping::Trait for Runtime {
 	type Event = Event;
 }
 
+impl boxkeys::Trait for Runtime {
+    type Event = Event;
+}
+
+impl archive::Trait for Runtime {
+    type Event = Event;
+}
+
 construct_runtime!(
 	pub enum Runtime with Log(InternalLog: DigestItem<Hash, AuthorityId, AuthoritySignature>) where
 		Block = Block,
@@ -261,6 +273,8 @@ construct_runtime!(
 		Sudo: sudo,
 		ProjectModule: projects::{Module, Call, Storage, Event<T>},
 		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
+		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
+		ArchiveModule: archive::{Module, Call, Event<T>},
 	}
 );
 
