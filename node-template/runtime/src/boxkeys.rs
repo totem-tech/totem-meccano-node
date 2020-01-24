@@ -101,7 +101,7 @@ struct PreEncryptionData<EphemeralSecretKey, Data> {
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Default)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct EncryptedVerificationData<EncryptPublicKey, Data> {
+pub struct EncryptedVerificationData<EncryptPublicKey,Data> {
     key: EncryptPublicKey,
     data : Data
 }
