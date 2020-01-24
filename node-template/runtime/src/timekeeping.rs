@@ -327,9 +327,9 @@ decl_module! {
                                                 total_blocks: number_of_blocks.into(),
                                                 locked_status: false,
                                                 locked_reason: initial_reason_for_lock,
-                                                submit_status: 1,
+                                                submit_status: 1, // new record always gets status 1
                                                 reason_code: initial_submit_reason,
-                                                posting_period: 0, // temporary for this version.
+                                                posting_period: 0, // temporary for this version of totem (meccano).
                                                 start_block: start_block_number.into(),
                                                 end_block: end_block_number.into(),
                                                 nr_of_breaks: break_counter.into(),
@@ -360,9 +360,15 @@ decl_module! {
                         let original_time_key = input_time_hash.clone();
 
                         // Check this is an existing time record
+                        let mut old_time_record: Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber,NumberOfBreaks>; 
+                        
                         // and get the details using the resubmitted hash
-                        let mut old_time_record = Self::time_record(&original_time_key).ok_or("Time record does not exist, or this is not from the worker.")?;
-                        ensure!(!old_time_record.locked_status, "You cannot change a locked time record!");
+                        if <TimeRecord<T>>::exists(&original_time_key){
+                            old_time_record = Self::time_record(&original_time_key).ok_or("This is not from the worker.")?;
+                            ensure!(!old_time_record.locked_status, "You cannot change a locked time record!");
+                        } else {
+                            return Err("Time record does not exist")
+                        };
 
                         let proposed_new_status = submit_status.clone();
 
@@ -373,9 +379,9 @@ decl_module! {
                             total_blocks: number_of_blocks.into(),
                             locked_status: false,
                             locked_reason: initial_reason_for_lock,
-                            submit_status: 0,
+                            submit_status: submit_status.into(),
                             reason_code: initial_submit_reason,
-                            posting_period: 0,
+                            posting_period: 0, // not implemented in totem meccano
                             start_block: start_block_number.into(),
                             end_block: end_block_number.into(),
                             nr_of_breaks: break_counter.into()
@@ -417,13 +423,14 @@ decl_module! {
                                 ensure!({
                                     old_time_record.total_blocks != new_time_data.total_blocks &&
                                     old_time_record.start_block != new_time_data.start_block &&
-                                    old_time_record.end_block != new_time_data.end_block
+                                    old_time_record.end_block != new_time_data.end_block &&
+                                    old_time_record.posting_period != new_time_data.posting_period &&
+                                    old_time_record.nr_of_breaks != new_time_data.nr_of_breaks
                                 }, "Nothing has changed! Record will not be updated.");
 
                                 // TODO remove any submitted reason codes.
                                 // 0, 0 initial reason code is the default
                                 old_time_record.reason_code = ReasonCodeStruct(0, 0);
-                                
                                 
                             },
                             300 => {
@@ -446,13 +453,14 @@ decl_module! {
                         };
                         
                         // update all relevant fields from the incoming data
+                        // setting status to submitted (1)
                         old_time_record.locked_status = false;
-                        old_time_record.total_blocks = number_of_blocks.into();
-                        old_time_record.start_block = start_block_number.into();
-                        old_time_record.end_block = end_block_number.into();
-                        old_time_record.submit_status = 1;
-                        old_time_record.posting_period = posting_period.into();
-                        old_time_record.nr_of_breaks = break_counter.into();
+                        old_time_record.total_blocks = new_time_data.total_blocks;
+                        old_time_record.start_block = new_time_data.start_block;
+                        old_time_record.end_block = new_time_data.end_block;
+                        old_time_record.submit_status = new_time_data.submit_status;
+                        old_time_record.posting_period = new_time_data.posting_period;
+                        old_time_record.nr_of_breaks = new_time_data.nr_of_breaks;
 
                         match Self::update_time_record(original_time_key, old_time_record) {
                             Err(_e) => return Err("Time record update did not complete"),
