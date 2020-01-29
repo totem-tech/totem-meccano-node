@@ -140,6 +140,8 @@ decl_storage! {
         // Time Record Hashes created by submitter
         // Unbounded! TODO
         WorkerTimeRecordsHashList get(worker_time_records_hash_list): map T::AccountId => Vec<T::Hash>;
+
+        // TODO Review removing this as it is not used, and can be replaced by a lookup on TimeRecord
         TimeHashOwner get(time_hash_owner): map T::Hash => Option<T::AccountId>;
 
         // All the time records for a given project
@@ -218,9 +220,9 @@ decl_module! {
                         match Self::worker_projects_backlog_status(&status_tuple_key) {
                             // Worker confirms acceptance of project assignment. This effectively is an agreement that
                             // the project owner will accept time bookings from the worker as long as the project is still active.
-                            // Some(false) => Self::store_worker_acceptance(project_hash, who, accepted_status),
+                            // Some(false) => Self::store_worker_acceptance(project_hash, who),
                             Some(false) => {
-                                match Self::store_worker_acceptance(project_hash, who, accepted) {
+                                match Self::store_worker_acceptance(project_hash, who) {
                                     Err(_e) => return Err("Store worker acceptance failed"),
                                     _ => (),
                                 }
@@ -409,29 +411,41 @@ decl_module! {
                         match old_time_record.submit_status {
                             0 => {
                                 match proposed_new_status {
-                                    0 => (), // changing an already sumitted record. OK, do nothing.
-                                    1 => {old_time_record.submit_status = proposed_new_status}, // Draft to submitted.
+                                    0 | 1 => {
+                                        ensure!({old_time_record.worker == new_time_data.worker}, "You cannot change a time record you do not own!");
+                                        old_time_record.submit_status = proposed_new_status;
+                                    }, // Draft to submitted.
                                     // not appropriate to set these codes here. Other specific functions exist.
                                     _ => return Err("This status has not been implemented or is not to be set this way."),
                                 }
                             },
+                            1 => return Err("Cannot resubmit a record with a submitted status"), 
                             100 | 200 => {
                                 // The existing record is rejected or disputed. The sender is therefore attempting to change the
                                 // record. Only the worker can change the record.
                                 // Ensure that the sender is the owner of the time record
                                 ensure!({old_time_record.worker == new_time_data.worker}, "You cannot change a time record you do not own!");
-                                ensure!({
-                                    old_time_record.total_blocks != new_time_data.total_blocks &&
-                                    old_time_record.start_block != new_time_data.start_block &&
-                                    old_time_record.end_block != new_time_data.end_block &&
-                                    old_time_record.posting_period != new_time_data.posting_period &&
-                                    old_time_record.nr_of_breaks != new_time_data.nr_of_breaks
-                                }, "Nothing has changed! Record will not be updated.");
+                                
+                                match proposed_new_status {
+                                    0 => {old_time_record.submit_status = proposed_new_status},
+                                    1 => {
+                                        ensure!({
+                                            old_time_record.total_blocks != new_time_data.total_blocks ||
+                                            old_time_record.start_block != new_time_data.start_block ||
+                                            old_time_record.end_block != new_time_data.end_block ||
+                                            old_time_record.posting_period != new_time_data.posting_period ||
+                                            old_time_record.nr_of_breaks != new_time_data.nr_of_breaks
+                                        }, "Nothing has changed! Record will not be updated.");
+                                        
+                                        old_time_record.submit_status = proposed_new_status
+                                    }, // Resubmitted.
+                                    // not appropriate to set these codes here. Other specific functions exist.
+                                    _ => return Err("This status cannot be set here."),
+                                }
 
                                 // TODO remove any submitted reason codes.
                                 // 0, 0 initial reason code is the default
                                 old_time_record.reason_code = ReasonCodeStruct(0, 0);
-                                
                             },
                             300 => {
                                 // The project owner has already accepted, but a correction is agreed with worker.
@@ -446,6 +460,11 @@ decl_module! {
                                 // [1, 1] = [time record can be re-edited by the team member, set in time module]
                                 old_time_record.reason_code = ReasonCodeStruct(1, 1);
                                 
+                                match proposed_new_status {
+                                    0 => {old_time_record.submit_status = proposed_new_status}, // Draft to submitted.
+                                    // not appropriate to set these codes here. Other specific functions exist.
+                                    _ => return Err("This status cannot be set here."),
+                                }
                             },
                             400 => return Err("Time record already invoiced. It cannot be changed."),
                             999 => return Err("Time has been blocked by Project Owner. Check the reason code."),
@@ -458,7 +477,6 @@ decl_module! {
                         old_time_record.total_blocks = new_time_data.total_blocks;
                         old_time_record.start_block = new_time_data.start_block;
                         old_time_record.end_block = new_time_data.end_block;
-                        old_time_record.submit_status = new_time_data.submit_status;
                         old_time_record.posting_period = new_time_data.posting_period;
                         old_time_record.nr_of_breaks = new_time_data.nr_of_breaks;
 
@@ -624,12 +642,15 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
+
+    // TODO Move lock/unlock to private function
+
     // When the worker accepts to work on the project, they are added to the team
     fn store_worker_acceptance(
         project_hash: ProjectHashRef,
-        who: T::AccountId,
-        accepted_status: AcceptAssignedStatus) -> Result {
+        who: T::AccountId) -> Result {
         
+        let accepted_status: AcceptAssignedStatus = true;     
         let status_tuple_key = (project_hash.clone(), who.clone());
         // add worker to project team
         <ProjectWorkersList<T>>::mutate(&project_hash, |project_workers_list| {
@@ -710,41 +731,68 @@ impl<T: Trait> Module<T> {
         Ok(())
     }
     
-    fn set_project_time_archive(time_hash: T::Hash, project_hash: ProjectHashRef, archive: bool)  -> bool {
+    fn set_project_time_archive(time_hash: T::Hash, project_hash: ProjectHashRef, archive: bool)  -> Result {
         // check if it's a retrieval or an archival process
         match archive {
             true => {
+
+                // Check that the time record does exist in the main record, otherwise don't update
+                Self::project_time_records_hash_list(&project_hash)
+                .into_iter()
+                .find(| &x| x == time_hash.clone())
+                .ok_or("This record has either been archived already or does not exist!")?;
+
+                // TODO Implement lock on record, then in other sections check the lock status.
+                
                 // Push to archive
-                <ProjectTimeRecordsHashListArchive<T>>::mutate(project_hash, |project_time_records_hash_list_archive| {
+                <ProjectTimeRecordsHashListArchive<T>>::mutate(&project_hash, |project_time_records_hash_list_archive| {
                     project_time_records_hash_list_archive.push(time_hash.clone())
                 });
                 
                 // Retain all others except
-                <ProjectTimeRecordsHashList<T>>::mutate(project_hash, |project_time_records_hash_list| {
+                <ProjectTimeRecordsHashList<T>>::mutate(&project_hash, |project_time_records_hash_list| {
                     project_time_records_hash_list.retain(|h| h != &time_hash)
                 });
             },
             false => {
+
+                // Check that the time record does exist in the main record, otherwise don't update
+                Self::project_time_records_hash_list_archive(&project_hash)
+                .into_iter()
+                .find(| &x| x == time_hash.clone())
+                .ok_or("This record has either been archived already or does not exist!")?;
+                
+                // TODO Implement unlock on record.
+                
                 // retrieve from archive
-                <ProjectTimeRecordsHashList<T>>::mutate(project_hash, |project_time_records_hash_list| {
+                <ProjectTimeRecordsHashList<T>>::mutate(&project_hash, |project_time_records_hash_list| {
                     project_time_records_hash_list.push(time_hash.clone())
                 });
                 
                 // remove from archive
-                <ProjectTimeRecordsHashListArchive<T>>::mutate(project_hash, |project_time_records_hash_list_archive| {
+                <ProjectTimeRecordsHashListArchive<T>>::mutate(&project_hash, |project_time_records_hash_list_archive| {
                     project_time_records_hash_list_archive.retain(|h| h != &time_hash)
                 });
             },
         }
         
-        return true;
+        Ok(())
         
     }
     
-    fn set_worker_time_archive(owner: T::AccountId, time_hash: T::Hash, archive: bool) -> bool {
+    fn set_worker_time_archive(owner: T::AccountId, time_hash: T::Hash, archive: bool) -> Result {
         // check if it's a retrieval or an archival process
         match archive {
             true => {
+
+                // Check that the time record does exist in the main record, otherwise don't update
+                Self::worker_time_records_hash_list(&owner)
+                .into_iter()
+                .find(| &x| x == time_hash.clone())
+                .ok_or("This record has either been archived already or does not exist!")?;
+                
+                // TODO Implement lock on record, then in other sections check the lock status.
+                
                 // Push to archive
                 <WorkerTimeRecordsHashListArchive<T>>::mutate(&owner, |worker_time_records_hash_list_archive| {
                     worker_time_records_hash_list_archive.push(time_hash.clone())
@@ -756,6 +804,15 @@ impl<T: Trait> Module<T> {
                 });
             },
             false => {
+                
+                // Check that the time record exists in the archive record, otherwise don't update
+                Self::worker_time_records_hash_list_archive(&owner)
+                .into_iter()
+                .find(| &x| x == time_hash.clone())
+                .ok_or("This record has either been restored already or does not exist!")?;
+
+                // TODO Implement unlock on record.
+
                 // Retrieve from archive
                 <WorkerTimeRecordsHashList<T>>::mutate(&owner, |worker_time_records_hash_list| {
                     worker_time_records_hash_list.push(time_hash.clone())
@@ -769,7 +826,7 @@ impl<T: Trait> Module<T> {
             },
         }
         
-        return true;
+        Ok(())
         
     }
 
@@ -779,7 +836,6 @@ impl<T: Trait> Module<T> {
     // This checks the time hash owner can archive this record
     pub fn validate_and_archive(origin: T::AccountId, time_hash: T::Hash, archive: bool) -> Result {
         let who = origin.clone();
-        // let who = owner.clone();
     
         // get the time record 
         let time_record_key = time_hash.clone();
@@ -787,30 +843,28 @@ impl<T: Trait> Module<T> {
         // get existing time record
         let old_time_record = Self::time_record(&time_record_key).ok_or("Time record does not exist, or this is not from the worker.")?;
         // ensure!(!old_time_record.locked_status, "You cannot change a locked time record!");
-        let worker = old_time_record.worker; 
-        // use project hash to determine if the changer is project owner or worker
-        if who.clone() == worker {
-            // Confirmed Worker owns this time hash. Move to worker's time record to archive
-            if let false = Self::set_worker_time_archive(who.clone(), time_record_key, archive) {
-                return Err("There was an error archiving the record");     
-            }
-            
-        } else {
-            // Does not match the worker. Attempt match on project owner as another authority archiving this time record
-            match <projects::Module<T>>::check_owner_valid_project(who.clone(), old_time_record.project_hash) {
-                true => {
-                    // Confirmed project owner is archiving this time record
-                    if let false = Self::set_project_time_archive(time_record_key, old_time_record.project_hash, archive) {
-                        return Err("There was an error archiving the record");     
-                    }
-                },
-                false => {
-                        // invalid origin, therefore return error
-                        return Err("This is an invalid origin for this archival");
-                },
-            }
-                
-        }
+    
+        // chekc the owner of the time record.
+        ensure!(who.clone() == old_time_record.worker, "You cannot archive a record you do not own!");
+
+        // archive time record
+        match Self::set_worker_time_archive(who.clone(), time_record_key, archive) {
+            Err(_e) => return Err("There was an error archiving the record"),
+            _ => (),
+        };
+        
+        // Attempt match on project owner to archive their own record.
+        match <projects::Module<T>>::check_project_owner(who.clone(), old_time_record.project_hash) {
+            true => {
+                match Self::set_project_time_archive(time_record_key, old_time_record.project_hash, archive) {
+                    Err(_e) => return Err("There was an error archiving the record"),
+                    _ => (),
+                }
+            },
+            false => {
+                    return Err("This is an invalid project owner");
+            },
+        };
 
         Ok(())
     

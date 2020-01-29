@@ -74,7 +74,7 @@ mod archive;
 /// This is the Totem runtime version.
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// node runtime name // fork risk, on change
-	spec_name: create_runtime_str!("totem-meccano-node"),
+	spec_name: create_runtime_str!("totem-meccano"),
 	// team/implementation name
 	impl_name: create_runtime_str!("totem-meccano-team"),
 	// for block authoring // fork risk, on change
@@ -82,7 +82,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 1,
     // incremental changes
-	impl_version: 2,
+	impl_version: 3,
 	apis: RUNTIME_API_VERSIONS,
 };
 

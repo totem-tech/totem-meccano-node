@@ -47,13 +47,13 @@ error_chain::quick_main!(run);
 
 fn run() -> cli::error::Result<()> {
 	let version = VersionInfo {
-		name: "Substrate Node",
+		name: "Totem Meccano Node",
 		commit: env!("VERGEN_SHA_SHORT"),
 		version: env!("CARGO_PKG_VERSION"),
-		executable_name: "substrate",
-		author: "Parity Technologies <admin@parity.io>",
-		description: "Generic substrate node",
-		support_url: "https://github.com/paritytech/substrate/issues/new",
+		executable_name: "totem-meccano",
+		author: "Totem Live Accounting <support@totemaccounting.com>",
+		description: "Totem Meccano TestNet",
+		support_url: "https://gitlab.com/totem-tech/totem-substrate/issues/new",
 	};
 	cli::run(::std::env::args(), Exit, version)
 }

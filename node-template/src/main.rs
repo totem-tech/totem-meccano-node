@@ -11,13 +11,13 @@ pub use substrate_cli::{VersionInfo, IntoExit, error};
 
 fn run() -> cli::error::Result<()> {
 	let version = VersionInfo {
-		name: "Substrate Node",
+		name: "Totem Meccano Template Node",
 		commit: env!("VERGEN_SHA_SHORT"),
 		version: env!("CARGO_PKG_VERSION"),
-		executable_name: "node-template",
-		author: "Anonymous",
-		description: "Template Node",
-		support_url: "support.anonymous.an",
+		executable_name: "totem-meccano-template-node",
+		author: "Totem Live Accounting <support@totemaccounting.com>",
+		description: "Totem Meccano DevNet",
+		support_url: "https://gitlab.com/totem-tech/totem-substrate/issues/new",
 	};
 	cli::run(::std::env::args(), cli::Exit, version)
 }

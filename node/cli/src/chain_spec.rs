@@ -36,6 +36,11 @@ pub fn emberic_elm_config() -> Result<ChainSpec, String> {
 	ChainSpec::from_embedded(include_bytes!("../res/emberic-elm.json"))
 }
 
+/// Emberic Elm testnet generator
+pub fn totem_meccano_config() -> Result<ChainSpec, String> {
+	ChainSpec::from_embedded(include_bytes!("../res/totem-meccano.json"))
+}
+
 fn staging_testnet_config_genesis() -> GenesisConfig {
 	// stash, controller, session-key
 	// generated with secret:
@@ -79,7 +84,7 @@ fn staging_testnet_config_genesis() -> GenesisConfig {
 
 	GenesisConfig {
 		consensus: Some(ConsensusConfig {
-			code: include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/node_runtime.compact.wasm").to_vec(),    // FIXME change once we have #1252
+			code: include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/totem-meccano.compact.wasm").to_vec(),    // FIXME change once we have #1252
 			authorities: initial_authorities.iter().map(|x| x.2.clone()).collect(),
 		}),
 		system: None,
@@ -256,7 +261,7 @@ pub fn testnet_genesis(
 
 	GenesisConfig {
 		consensus: Some(ConsensusConfig {
-			code: include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/node_runtime.compact.wasm").to_vec(),
+			code: include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/totem-meccano.compact.wasm").to_vec(),
 			authorities: initial_authorities.iter().map(|x| x.2.clone()).collect(),
 		}),
 		system: None,
