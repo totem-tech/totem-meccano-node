@@ -66,13 +66,13 @@ There are several key components to the Totem Architecture which are as follows:
 * the p2p encrypted communication channel, 
 * the 'transactions' faucet,
 
-Whilst much of this is established in an early form, not all of it is completed yet.
-
 This architecture is designed in this way to allow businesses to participate in the global live network, but they can also run their own private networks should they wish to do this.
+
+Whilst much of this is established in an early form, not all of it is completed yet.
 
 === Privacy
 
-The Totem Network will have privacy as a default for all created identities. The BOXKEYS is a key building-block in that process. As the development progresses we will be introducing fully encrypted storage and end-to-end communication (hence the reason for developing BOXKEYS and BONSAI) to maintain data security and privacy for everyone using any Totem network. In the longer term we will be using Full Homomorphic Encryption for obvious reasons.
+The Totem Network will have privacy as a default for all self-managed identities. The BOXKEYS is a key building-block in that process. As the development progresses we will be introducing fully encrypted storage and end-to-end communication (hence the reason for developing BOXKEYS and BONSAI) to maintain data security and privacy for everyone using any Totem network. In the longer term we will be using Full Homomorphic Encryption for obvious reasons.
 
 == Meccano TestNet
 
@@ -96,42 +96,30 @@ When using Totem Meccano via the links we recommend you experiment with friends,
 
 If you come across any issues, or wish to make suggestions for develoment or user experience please take the time to post them https://gitlab.com/totem-tech/issues/new[here].
 
+
+== Trying out Totem Meccano
+
 === Running a node on the Meccano network
 
 The code in this repository will enable you to join and support Meccano as a simple node.
 
 If you wish to become a validator or authority on the network, please contact us at mailto:info@totemaccounting.com?subject=Inquiry:%20Becoming%20a%20Validator%20or%20Authority%20on%20Totem[info@totemaccounting.com]
 
-In most cases we expect that you can use one of our binaries to run the software or you can compile it using the instructions below.
+In most cases we expect that you can use one of our binaries to run the software on your operating system or you can compile it using the instructions below.
 
 We recommend you use on of the current binaries which can be found here.
-
-== Trying out Totem Meccano
-
 If you are running the binaries, skip to the  <<#binary>> section.
 
 Otherwise if you would like to compile and run the code from source follow the instructions below.
 
 === Dependencies
 
-Totem is built using the Rust languange, so you will need to install these dependencies.  
-
-[source, shell]
-----
-curl https://sh.rustup.rs -sSf | sh
-# on Windows download and run rustup-init.exe
-# from https://rustup.rs instead
-
-rustup update nightly
-rustup target add wasm32-unknown-unknown --toolchain nightly
-rustup update stable
-cargo install --git https://github.com/alexcrichton/wasm-gc
-----
-
-You will also need to install the following packages:
+Totem is built using the Rust languange, but you will need to prepare your environment first. 
 
  - Linux:
 [source, shell]
+sudo apt-get update
+sudo apt install build-essential
 sudo apt install cmake pkg-config libssl-dev git clang libclang-dev
 
  - Mac:
@@ -160,6 +148,20 @@ $env:OPENSSL_STATIC = 'Yes'
 [System.Environment]::SetEnvironmentVariable('OPENSSL_STATIC', $env:OPENSSL_STATIC, [System.EnvironmentVariableTarget]::User)
 ----
 
+Now you can install `Rustup` which installs `Rust` and its package manager `Cargo`. These commands also switch to the `nightly` rust toolchain and a special `C` compiler for `wasm` (WebAssembly).
+
+[source, shell]
+----
+curl https://sh.rustup.rs -sSf | sh
+# on Windows download and run rustup-init.exe
+# from https://rustup.rs instead
+
+rustup update nightly
+rustup target add wasm32-unknown-unknown --toolchain nightly
+rustup update stable
+cargo install --git https://github.com/alexcrichton/wasm-gc
+----
+
 Then, clone this repo to get the Totem source code:
 
 [source, shell]
@@ -173,7 +175,7 @@ Then build the code:
 [source, shell]
 ----
 ./scripts/build.sh  		# Builds the WebAssembly binaries
-cargo build 				# Builds all native code
+cargo build --release 				# Builds all native code
 ----
 
 Detailed logs may be shown by running the node with the following environment variables set: `RUST_LOG=debug RUST_BACKTRACE=1 cargo run`.
@@ -219,56 +221,6 @@ If you are running in a desktop you can also simply open the binary to begin exe
 
 If you are successful, you will see your node syncing at https://telemetry.polkadot.io/#/Totem%20Meccano
 
-== High Level Roadmap
-
-The development is split into these key areas and :
-
-* CORE MODULES/UI
-
-The main internal development of the runtime modules supported by the front-end uers interface.
-
-* OFF-CHAIN DATA
-
-Storing everything on-chain is just not good practice, but building apps requires some relevant information to be stored not only in a persistant state, but it should also be _queryable_ and updatable. IPFS fails in this respect.
-
-The normal course of action would be to create a centralised server for this data but then we get into all kinds of trouble in distributed systems. 
-
-* NO SQL DATABASE
-
-Totem is building a queryable database whose content-hashes are pre-authenticated in the BONSAI module meaning that the will only contain authenticated data.
-
-In fact it does not even require any reference to the owner of the data as this is also pre-authenticated. 
-
-We foresee a future where the Totem blockchain (acting as the authority for content and access) will co-exist with a distributed NoSQL database on a seperate P2P network.
-
-* CRYPTOGRAPHY
-
-
-* P2P (INTERNAL) COMMS
-* FAUCET
-* NETWORK
-* SUBSTRATE STANDARD
-* ARCHIVE PROCESS
-* MIGRATION
-
-=== So far
-
-- 0.1 "PoC-1": PBFT consensus, Wasm runtime engine, basic runtime modules.
-- 0.2 "PoC-2": Libp2p
-
-=== In progress
-
-- AfG consensus
-- Improved PoS
-- Smart contract runtime module
-
-=== The future
-
-- Splitting out runtime modules into separate repo
-- Introduce substrate executable (the skeleton-key runtime)
-- Introduce basic but extensible transaction queue and block-builder and place them in the executable.
-- DAO runtime module
-- Audit
 
 == License
 

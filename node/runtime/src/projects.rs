@@ -271,6 +271,19 @@ impl<T: Trait> Module<T> {
         return valid;
     }
 
+    pub fn check_project_owner(owner: T::AccountId, project_hash: ProjectHash) -> bool {
+        // set default return value
+        let mut valid: bool = false;
+
+        // check ownership of project
+            match Self::project_hash_owner(project_hash) {
+                Some(owner) => valid = true,
+                None => return valid,
+            }
+
+        return valid;
+    }
+
     pub fn check_valid_project(project_hash: ProjectHash) -> bool {
         // set default return value
         let mut valid: bool = false;
