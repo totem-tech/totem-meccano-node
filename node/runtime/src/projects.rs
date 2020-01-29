@@ -145,7 +145,7 @@ decl_module! {
             // TODO Implement a sudo for cleaning data in cases where owner is lost
             // Otherwise onlu the owner can change the data
             ensure!(project_owner == changer, "You cannot close a project you do not own");
-            let project_status: ProjectStatus = 50;
+            let project_status: ProjectStatus = 500;
             <ProjectHashStatus<T>>::insert(&project_hash, &project_status);
 
             Self::deposit_event(RawEvent::ProjectChanged(project_hash, changer, project_status));
@@ -156,7 +156,7 @@ decl_module! {
         fn reopen_project(origin, project_hash: ProjectHash) -> Result {
             // Can only reopen a project that is in status "closed"
             let project_status: ProjectStatus = match Self::project_hash_status(&project_hash) {
-                Some(50) => 1,
+                Some(500) => 100,
                 _ => return Err("Project has the wrong status to be changed"),
                 // None => return Err("Project has no status"),
             };

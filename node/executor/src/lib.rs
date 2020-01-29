@@ -23,7 +23,7 @@
 
 pub use substrate_executor::NativeExecutor;
 use substrate_executor::native_executor_instance;
-native_executor_instance!(pub Executor, node_runtime::api::dispatch, node_runtime::native_version, include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/node_runtime.compact.wasm"));
+native_executor_instance!(pub Executor, node_runtime::api::dispatch, node_runtime::native_version, include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/totem-meccano.compact.wasm"));
 
 #[cfg(test)]
 mod tests {
@@ -49,7 +49,7 @@ mod tests {
 	use primitives::map;
 
 	const BLOATY_CODE: &[u8] = include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/node_runtime.wasm");
-	const COMPACT_CODE: &[u8] = include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/node_runtime.compact.wasm");
+	const COMPACT_CODE: &[u8] = include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/totem-meccano.compact.wasm");
 	const GENESIS_HASH: [u8; 32] = [69u8; 32];
 
 	fn alice() -> AccountId {
@@ -816,7 +816,7 @@ mod tests {
 
 	#[test]
 	fn successful_execution_gives_ok() {
-		let foreign_code = include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/node_runtime.compact.wasm");
+		let foreign_code = include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/totem-meccano.compact.wasm");
 		let mut t = TestExternalities::<Blake2Hasher>::new_with_code(foreign_code, map![
 			blake2_256(&<balances::FreeBalance<Runtime>>::key_for(alice())).to_vec() => vec![111u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 			twox_128(<balances::TotalIssuance<Runtime>>::key()).to_vec() => vec![111u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],

@@ -218,9 +218,9 @@ decl_module! {
                         match Self::worker_projects_backlog_status(&status_tuple_key) {
                             // Worker confirms acceptance of project assignment. This effectively is an agreement that
                             // the project owner will accept time bookings from the worker as long as the project is still active.
-                            // Some(false) => Self::store_worker_acceptance(project_hash, who, accepted_status),
+                            // Some(false) => Self::store_worker_acceptance(project_hash, who),
                             Some(false) => {
-                                match Self::store_worker_acceptance(project_hash, who, accepted) {
+                                match Self::store_worker_acceptance(project_hash, who) {
                                     Err(_e) => return Err("Store worker acceptance failed"),
                                     _ => (),
                                 }
@@ -409,29 +409,38 @@ decl_module! {
                         match old_time_record.submit_status {
                             0 => {
                                 match proposed_new_status {
-                                    0 => (), // changing an already sumitted record. OK, do nothing.
-                                    1 => {old_time_record.submit_status = proposed_new_status}, // Draft to submitted.
+                                    0 | 1 => {old_time_record.submit_status = proposed_new_status}, // Draft to submitted.
                                     // not appropriate to set these codes here. Other specific functions exist.
                                     _ => return Err("This status has not been implemented or is not to be set this way."),
                                 }
                             },
+                            1 => return Err("Cannot resubmit a record with a submitted status"), 
                             100 | 200 => {
                                 // The existing record is rejected or disputed. The sender is therefore attempting to change the
                                 // record. Only the worker can change the record.
                                 // Ensure that the sender is the owner of the time record
                                 ensure!({old_time_record.worker == new_time_data.worker}, "You cannot change a time record you do not own!");
-                                ensure!({
-                                    old_time_record.total_blocks != new_time_data.total_blocks &&
-                                    old_time_record.start_block != new_time_data.start_block &&
-                                    old_time_record.end_block != new_time_data.end_block &&
-                                    old_time_record.posting_period != new_time_data.posting_period &&
-                                    old_time_record.nr_of_breaks != new_time_data.nr_of_breaks
-                                }, "Nothing has changed! Record will not be updated.");
+                                
+                                match proposed_new_status {
+                                    0 => {old_time_record.submit_status = proposed_new_status},
+                                    1 => {
+                                        ensure!({
+                                            old_time_record.total_blocks != new_time_data.total_blocks ||
+                                            old_time_record.start_block != new_time_data.start_block ||
+                                            old_time_record.end_block != new_time_data.end_block ||
+                                            old_time_record.posting_period != new_time_data.posting_period ||
+                                            old_time_record.nr_of_breaks != new_time_data.nr_of_breaks
+                                        }, "Nothing has changed! Record will not be updated.");
+                                        
+                                        old_time_record.submit_status = proposed_new_status
+                                    }, // Resubmitted.
+                                    // not appropriate to set these codes here. Other specific functions exist.
+                                    _ => return Err("This status cannot be set here."),
+                                }
 
                                 // TODO remove any submitted reason codes.
                                 // 0, 0 initial reason code is the default
                                 old_time_record.reason_code = ReasonCodeStruct(0, 0);
-                                
                             },
                             300 => {
                                 // The project owner has already accepted, but a correction is agreed with worker.
@@ -446,6 +455,11 @@ decl_module! {
                                 // [1, 1] = [time record can be re-edited by the team member, set in time module]
                                 old_time_record.reason_code = ReasonCodeStruct(1, 1);
                                 
+                                match proposed_new_status {
+                                    0 => {old_time_record.submit_status = proposed_new_status}, // Draft to submitted.
+                                    // not appropriate to set these codes here. Other specific functions exist.
+                                    _ => return Err("This status cannot be set here."),
+                                }
                             },
                             400 => return Err("Time record already invoiced. It cannot be changed."),
                             999 => return Err("Time has been blocked by Project Owner. Check the reason code."),
@@ -458,7 +472,6 @@ decl_module! {
                         old_time_record.total_blocks = new_time_data.total_blocks;
                         old_time_record.start_block = new_time_data.start_block;
                         old_time_record.end_block = new_time_data.end_block;
-                        old_time_record.submit_status = new_time_data.submit_status;
                         old_time_record.posting_period = new_time_data.posting_period;
                         old_time_record.nr_of_breaks = new_time_data.nr_of_breaks;
 
@@ -627,9 +640,9 @@ impl<T: Trait> Module<T> {
     // When the worker accepts to work on the project, they are added to the team
     fn store_worker_acceptance(
         project_hash: ProjectHashRef,
-        who: T::AccountId,
-        accepted_status: AcceptAssignedStatus) -> Result {
+        who: T::AccountId) -> Result {
         
+        let accepted_status: AcceptAssignedStatus = true;     
         let status_tuple_key = (project_hash.clone(), who.clone());
         // add worker to project team
         <ProjectWorkersList<T>>::mutate(&project_hash, |project_workers_list| {
@@ -779,7 +792,6 @@ impl<T: Trait> Module<T> {
     // This checks the time hash owner can archive this record
     pub fn validate_and_archive(origin: T::AccountId, time_hash: T::Hash, archive: bool) -> Result {
         let who = origin.clone();
-        // let who = owner.clone();
     
         // get the time record 
         let time_record_key = time_hash.clone();

@@ -39,6 +39,8 @@ pub enum ChainSpec {
 	LocalTestnet,
 	/// The Emberic Elm testnet.
 	EmbericElm,
+	/// The Totem Meccano testnet.
+	TotemMeccano,
 	/// Whatever the current runtime is with the "global testnet" defaults.
 	StagingTestnet,
 }
@@ -47,6 +49,7 @@ pub enum ChainSpec {
 impl ChainSpec {
 	pub(crate) fn load(self) -> Result<chain_spec::ChainSpec, String> {
 		Ok(match self {
+			ChainSpec::TotemMeccano => chain_spec::totem_meccano_config()?,
 			ChainSpec::EmbericElm => chain_spec::emberic_elm_config()?,
 			ChainSpec::Development => chain_spec::development_config(),
 			ChainSpec::LocalTestnet => chain_spec::local_testnet_config(),
@@ -58,7 +61,8 @@ impl ChainSpec {
 		match s {
 			"dev" => Some(ChainSpec::Development),
 			"local" => Some(ChainSpec::LocalTestnet),
-			"" | "elm" | "emberic-elm" => Some(ChainSpec::EmbericElm),
+			"elm" | "emberic-elm" => Some(ChainSpec::EmbericElm),
+			"" | "totem" | "totem-meccano" => Some(ChainSpec::TotemMeccano),
 			"staging" => Some(ChainSpec::StagingTestnet),
 			_ => None,
 		}
@@ -79,15 +83,15 @@ pub fn run<I, T, E>(args: I, exit: E, version: cli::VersionInfo) -> error::Resul
 	E: IntoExit,
 {
 	cli::parse_and_execute::<service::Factory, NoCustom, NoCustom, _, _, _, _, _>(
-		load_spec, &version, "substrate-node", args, exit,
+		load_spec, &version, "totem-meccano-node", args, exit,
 		|exit, _custom_args, config| {
 			info!("{}", version.name);
 			info!("  version {}", config.full_version());
-			info!("  by Parity Technologies, 2017-2019");
+			info!("  by Totem Live Accounting, 2018-2020");
 			info!("Chain specification: {}", config.chain_spec.name());
 			info!("Node name: {}", config.name);
 			info!("Roles: {:?}", config.roles);
-			let runtime = RuntimeBuilder::new().name_prefix("main-tokio-").build()
+			let runtime = RuntimeBuilder::new().name_prefix("totem-meccano-").build()
 				.map_err(|e| format!("{:?}", e))?;
 			let executor = runtime.executor();
 			match config.roles {

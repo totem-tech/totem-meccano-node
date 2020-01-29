@@ -1,177 +1,120 @@
-= Substrate
-:Author: Substrate developers
-:Revision: 0.2.0
+= Totem Blockchain Runtime(s)
+:Author: Totem developers
+:Revision: 0.0.1
 :toc:
 :sectnums:
 
-== Intro in one sentence
+== Intro to Totem in one-ish sentence
 
-Substrate is a next-generation framework for blockchain innovation.
+> Totem is a dedicated, peer-to-peer protocol for making instant and accurate accounting entries to any one or more independant accounting ledgers anywhere in the world.
+
+You can think of it like TCP/IP for accounting data with a modern, user-friendly  app front-end.
 
 == Description
 
-At its heart, Substrate is a combination of three technologies: https://webassembly.org/[WebAssembly], https://libp2p.io/[Libp2p] and GRANDPA Consensus. About GRANDPA, see this https://hackmd.io/Jd0byWX0RiqFiXUVC78Bdw?view#GRANDPA[definition], https://medium.com/polkadot-network/grandpa-block-finality-in-polkadot-an-introduction-part-1-d08a24a021b5[introduction] and https://github.com/w3f/consensus/blob/master/pdf/grandpa.pdf[formal specification]. It is both a library for building new blockchains and a "skeleton key" of a blockchain client, able to synchronize to any Substrate-based chain.
+Totem is built on the idea that accounting ledgers should be able to communicate directly with each other on a peer-to-peer network, and to achieve this we use a custom built blockchain runtime coupled with a full set of account posting recipes to create - what we believe to be  - one of the first fully decentralised products for business and consumers. 
 
-Substrate chains have three distinct features that make them "next-generation": a dynamic, self-defining state-transition function; light-client functionality from day one; and a progressive consensus algorithm with fast block production and adaptive, definite finality. The STF, encoded in WebAssembly, is known as the "runtime". This defines the `execute_block` function, and can specify everything from the staking algorithm, transaction semantics, logging mechanisms and procedures for replacing any aspect of itself or of the blockchain's state ("governance"). Because the runtime is entirely dynamic all of these can be switched out or upgraded at any time. A Substrate chain is very much a "living organizm".
+In essence Totem is delivering a fully functional accounting ledger attached to a blockchain identity. But that is a gross under-representation of the greater project goals which are outlined elsewhere on the interwebs.
 
-See also https://www.parity.io/what-is-substrate/.
+=== Why is this important?
 
-== Usage
+The communication flow in accounting and book-keeping is completely broken. Your email inbox is spammed full of accounting information like, invoices, Uber receipts, flight expenses, online orders, and there is no direct connection between those accounting documents to either the payment, the reasons for the transaction or, crucially, your accounting system. 
 
-Substrate is still an early stage project, and while it has already been used as the basis of major projects like Polkadot, using it is still a significant undertaking. In particular, you should have a good knowledge of blockchain concepts and basic cryptography. Terminology like header, block, client, hash, transaction and signature should be familiar. At present you will need a working knowledge of Rust to be able to do anything interesting (though eventually, we aim for this not to be the case).
+Whichever way you try to manage this, it boils down to manual effort to  gather and send the information to your accountant, who re-encodes it _again_ and carries out much manual effort to reconcile it to business activities, payments, bank statements. 
 
-Substrate is designed to be used in one of three ways:
+Businesses large and small suffer equally with this same problem, *_because there is no common accounting protocol_* on which to reconnect the pieces. 
 
-1. Trivial: By running the Substrate binary `substrate` and configuring it with a genesis block that includes the current demonstration runtime. In this case, you just build Substrate, configure a JSON file and launch your own blockchain. This affords you the least amount of customisability, primarily allowing you to change the genesis parameters of the various included runtime modules such as balances, staking, block-period, fees and governance.
+Enter Totem; stage left.
 
-2. Modular: By hacking together modules from the Substrate Runtime Module Library into a new runtime and possibly altering or reconfiguring the Substrate client's block authoring logic. This affords you a very large amount of freedom over your own blockchain's logic, letting you change datatypes, add or remove modules and, crucially, add your own modules. Much can be changed without touching the block-authoring logic (since it is generic). If this is the case, then the existing Substrate binary can be used for block authoring and syncing. If the block authoring logic needs to be tweaked, then a new altered block-authoring binary must be built as a separate project and used by validators. This is how the Polkadot relay chain is built and should suffice for almost all circumstances in the near to mid-term.
+=== What we are working towards...
 
-3. Generic: The entire Substrate Runtime Module Library can be ignored and the entire runtime designed and implemented from scratch. If desired, this can be done in a language other than Rust, providing it can target WebAssembly. If the runtime can be made to be compatible with the existing client's block authoring logic, then you can simply construct a new genesis block from your Wasm blob and launch your chain with the existing Rust-based Substrate client. If not, then you'll need to alter the client's block authoring logic accordingly. This is probably a useless option for most projects right now, but provides complete flexibility allowing for a long-term far-reaching upgrade path for the Substrate paradigm.
+In our view, when an invoice is created at (for example) Uber, it should _automatically_ appear in your accounts. But we go one step further... this mechanism should not be dependent on a centrally controlled accounting software company, who will inevitably sell you licences just to have this facility. This mechanism should be completely independent of the accounting software vendor, and continue to operate, peer-to-peer, at all times, forever. 
 
-=== The Basics of Substrate
+This is the problem that Totem is solving. Once you see this ability in action, *_"much newness thing possible"_*.
 
-Substrate is a blockchain platform with a completely generic state transition function. That said, it does come with both standards and conventions (particularly regarding the Runtime Module Library) regarding underlying datastructures. Roughly speaking, these core datatypes correspond to +trait+s in terms of the actual non-negotiable standard and generic +struct+s in terms of the convention.
+=== Story so far
 
-```
-Header := Parent + ExtrinsicsRoot + StorageRoot + Digest
-Block := Header + Extrinsics + Justifications
-```
+Totem is still an early stage product, as we started developing in earnest in December 2018 building on years of discovery and research, that evolved out of experimental projects in the blockchain and cryptocurrency space going back to 2013. 
 
-=== Extrinsics
+The idea behind Totem is simple however and makes sense in a connected world. 
 
-Extrinsics in Substrate are pieces of information from "the outside world" that are contained in the blocks of the chain. You might think "ahh, that means *transactions*": in fact, no. Extrinsics fall into two broad categories of which only one is *transactions*. The other is known as *inherents*. The difference between these two is that transactions are signed and gossipped on the network and can be deemed useful *per se*. This fits the mold of what you would call transactions in Bitcoin or Ethereum.
+Even if you are not running a business, "the business of accounting records" touches everything you do, like it or not. From the receipt for a new smartphone, to your regular groceries you are bombarded with accounting data you cannot easily make use of. 
 
-Inherents, meanwhile, are not passed on the network and are not signed. They represent data which describes the environment but which cannot call upon anything to prove it such as a signature. Rather they are assumed to be "true" simply because a sufficiently large number of validators have agreed on them being reasonable.
+Imagine a world where you could, for example, see how much you paid for tomatoes last year? Or five years ago? Or shoes, or speeding fines... without you having to do anything special. Imagine that the information just existsed privately, for you to access any time you wanted. How could that change your life? Honestly we don't know, but it will be a bonus side effect of what Totem are building. Our main target is the ever- expanding decentralised economy - as businesses employ less and contract freelancers more, we are all moviong towards a future where our accounting is at the level of our identity. 
 
-To give an example, there is the timestamp inherent, which sets the current timestamp of the block. This is not a fixed part of Substrate, but does come as part of the Substrate Runtime Module Library to be used as desired. No signature could fundamentally prove that a block were authored at a given time in quite the same way that a signature can "prove" the desire to spend some particular funds. Rather, it is the business of each validator to ensure that they believe the timestamp is set to something reasonable before they agree that the block candidate is valid.
+=== The alternatives
 
-Other examples include the parachain-heads extrinsic in Polkadot and the "note-missed-proposal" extrinsic used in the Substrate Runtime Module Library to determine and punish or deactivate offline validators.
+* Q: Can banks do this? A: No. The detail is lost in the transaction, and it's not _their_ business model to collect it. 
 
+* Q: Can accounting software companies do this? A: Yes and no. There are too many competing players, the coverage would not be universal. Additionally it would destroy their licence-fee paying business model, and what would happen to your data if they went bust?
 
-=== Runtime and API
-
-Substrate chains all have a runtime. The runtime is a WebAssembly "blob" that includes a number of entry-points. Some entry-points are required as part of the underlying Substrate specification. Others are merely convention and required for the default implementation of the Substrate client to be able to author blocks.
-
-If you want to develop a chain with Substrate, you will need to implement the `Core` trait. This `Core` trait generates an API with the minimum necessary functionality to interact with your runtime. A special macro is provided called `impl_runtime_apis!` that help you implement runtime API traits. All runtime API trait implementations need to be done in one call of the `impl_runtime_apis!` macro. All parameters and return values need to implement https://crates.io/crates/parity-codec[`parity-codec`] to be encodable and decodable.
-
-Here's a snippet of the Polkadot API implementation as of PoC-3:
-
-```rust
-impl_runtime_apis! {
-	impl client_api::Core<Block> for Runtime {
-		fn version() -> RuntimeVersion {
-			VERSION
-		}
-
-		fn execute_block(block: Block) {
-			Executive::execute_block(block)
-		}
-
-		fn initialize_block(header: <Block as BlockT>::Header) {
-			Executive::initialize_block(&header)
-		}
-	}
-	// ---snip---
-}
-```
+* Q: Can Totem do this? A: Yes. Definitely. The Totem team demoed this capability in February 2019, connecting five random parties and three tax jurisdictions, posting accounting entries in all relevant accounts on a blockchain. This means the activity of accounting will not be dependant on Totem and can be universal. 
 
 
-=== Inherent Extrinsics
+We have been building out the full scale version ever since and Totem can already do many of the underlying communication tasks required to make this happen. We are still actively pushing new code every day.
 
-The Substrate Runtime Module Library includes functionality for timestamps and slashing. If used, these rely on "trusted" external information being passed in via inherent extrinsics. The Substrate reference block authoring client software will expect to be able to call into the runtime API with collated data (in the case of the reference Substrate authoring client, this is merely the current timestamp and which nodes were offline) in order to return the appropriate extrinsics ready for inclusion. If new inherent extrinsic types and data are to be used in a modified runtime, then it is this function (and its argument type) that would change.
+== Application Architecture
 
-=== Block-authoring Logic
+There are several key components to the Totem Architecture which are as follows:
 
-In Substrate, there is a major distinction between blockchain *syncing* and block *authoring* ("authoring" is a more general term for what is called "mining" in Bitcoin). The first case might be referred to as a "full node" (or "light node" - Substrate supports both): authoring necessarily requires a synced node and, therefore, all authoring clients must necessarily be able to synchronize. However, the reverse is not true. The primary functionality that authoring nodes have which is not in "sync nodes" is threefold: transaction queue logic, inherent transaction knowledge and BFT consensus logic. BFT consensus logic is provided as a core element of Substrate and can be ignored since it is only exposed in the SDK under the `authorities()` API entry.
+* the blockchain runtimes and on-chain storage, 
+* the Totem BOXKEYS on-chain public key registry 
+* the Totem BONSAI on-chain pre-authentication for off-chain distributed NoSQL databases
+* the off-chain distributed NoSQL storage (using the Totem BONSAI protocol) 
+* the off-chain global shared datasets (companies, products, places) 
+* the front-end UI service, 
+* the p2p encrypted communication channel, 
+* the 'transactions' faucet,
 
-Transaction queue logic in Substrate is designed to be as generic as possible, allowing a runtime to express which transactions are fit for inclusion in a block through the `initialize_block` and `apply_extrinsic` calls. However, more subtle aspects like prioritization and replacement policy must currently be expressed "hard coded" as part of the blockchain's authoring code. That said, Substrate's reference implementation for a transaction queue should be sufficient for an initial chain implementation.
+Whilst much of this is established in an early form, not all of it is completed yet.
 
-Inherent extrinsic knowledge is again somewhat generic, and the actual construction of the extrinsics is, by convention, delegated to the "soft code" in the runtime. If ever there needs to be additional extrinsic information in the chain, then both the block authoring logic will need to be altered to provide it into the runtime and the runtime's `inherent_extrinsics` call will need to use this extra information in order to construct any additional extrinsic transactions for inclusion in the block.
+This architecture is designed in this way to allow businesses to participate in the global live network, but they can also run their own private networks should they wish to do this.
 
-== Roadmap
+=== Privacy
 
-=== So far
+The Totem Network will have privacy as a default for all created identities. The BOXKEYS is a key building-block in that process. As the development progresses we will be introducing fully encrypted storage and end-to-end communication (hence the reason for developing BOXKEYS and BONSAI) to maintain data security and privacy for everyone using any Totem network. In the longer term we will be using Full Homomorphic Encryption for obvious reasons.
 
-- 0.1 "PoC-1": PBFT consensus, Wasm runtime engine, basic runtime modules.
-- 0.2 "PoC-2": Libp2p
+== Meccano TestNet
 
-=== In progress
+The current version of the "Totem Live" network is the  *Meccano TestNet*. We do not plan a MainNet until we have a fully functional end-to-end product. This will likely be in later this year (2020 as of writing).
 
-- AfG consensus
-- Improved PoS
-- Smart contract runtime module
+Nevertheless, you can already test and use much of the core communication and storage technology as well as the first modules which have already been built, including: 
 
-=== The future
+* Identities, 
+* Partners, 
+* Activities, 
+* Teams, 
+* Timekeeping 
+* Transfers, 
+* BOXKEY Server,
 
-- Splitting out runtime modules into separate repo
-- Introduce substrate executable (the skeleton-key runtime)
-- Introduce basic but extensible transaction queue and block-builder and place them in the executable.
-- DAO runtime module
-- Audit
+...in our Totem Live webapp https://totem.live[here]. 
 
-== Trying out Substrate Node
+There is also a bleeding edge (read "sometimes broken") live development network https://dev.totem.live[here]. If you are a developer, you can see our entire group of developments at various build stages https://gitlab.com/totem-tech[here].
 
-Substate Node is Substrate's pre-baked blockchain client. You can run a development node locally or configure a new chain and launch your own global testnet.
+When using Totem Meccano via the links we recommend you experiment with friends, partners and other businesses (this is a peer-to-peer service after all) to get the general idea about how we are connecting and posting between parties. 
 
-=== On Mac and Ubuntu
+If you come across any issues, or wish to make suggestions for develoment or user experience please take the time to post them https://gitlab.com/totem-tech/issues/new[here].
 
-To get going as fast as possible, there is a simple script that installs all required dependencies and installs Substrate into your path. Just open a terminal and run:
+=== Running a node on the Meccano network
 
-[source, shell]
-----
-curl https://getsubstrate.io -sSf | bash
-----
+The code in this repository will enable you to join and support Meccano as a simple node.
 
-You can start a local Substrate development chain with running `substrate --dev`.
+If you wish to become a validator or authority on the network, please contact us at mailto:info@totemaccounting.com?subject=Inquiry:%20Becoming%20a%20Validator%20or%20Authority%20on%20Totem[info@totemaccounting.com]
 
-To create your own global network/cryptocurrency, you'll need to make a new Substrate Node chain specification file ("chainspec").
+In most cases we expect that you can use one of our binaries to run the software or you can compile it using the instructions below.
 
-First let's get a template chainspec that you can edit. We'll use the "staging" chain, a sort of default chain that the node comes pre-configured with:
+We recommend you use on of the current binaries which can be found here.
 
-[source, shell]
-----
-substrate build-spec --chain=staging > ~/chainspec.json
-----
+== Trying out Totem Meccano
 
-Now, edit `~/chainspec.json` in your editor. There are a lot of individual fields for each module, and one very large one which contains the Webassembly code blob for this chain. The easiest field to edit is the block `period`. Change it to 10 (seconds):
+If you are running the binaries, skip to the  <<#binary>> section.
 
-[source, json]
-----
-     "timestamp": {
-        "period": 10
-      },
-----
+Otherwise if you would like to compile and run the code from source follow the instructions below.
 
-Now with this new chainspec file, you can build a "raw" chain definition for your new chain:
+=== Dependencies
 
-[source, shell]
-----
-substrate build-spec --chain ~/chainspec.json --raw > ~/mychain.json
-----
-
-This can be fed into Substrate:
-
-[source, shell]
-----
-substrate --chain ~/mychain.json
-----
-
-It won't do much until you start producing blocks though, so to do that you'll need to use the `--validator` option together with passing the seed for the account(s) that is configured to be the initial authorities:
-
-[source, shell]
-----
-substrate --chain ~/mychain.json --validator --key ...
-----
-
-You can distribute `mychain.json` so that everyone can synchronize and (depending on your authorities list) validate on your chain.
-
-
-== Building
-
-=== Hacking on Substrate
-
-If you'd actually like to hack on Substrate, you can just grab the source code and
-build it. Ensure you have Rust and the support software installed:
+Totem is built using the Rust languange, so you will need to install these dependencies.  
 
 [source, shell]
 ----
@@ -217,12 +160,12 @@ $env:OPENSSL_STATIC = 'Yes'
 [System.Environment]::SetEnvironmentVariable('OPENSSL_STATIC', $env:OPENSSL_STATIC, [System.EnvironmentVariableTarget]::User)
 ----
 
-Then, grab the Substrate source code:
+Then, clone this repo to get the Totem source code:
 
 [source, shell]
 ----
-git clone https://github.com/paritytech/substrate.git
-cd substrate
+git clone https://gitlab.com/totem-tech/totem-substrate.git
+cd totem-substrate
 ----
 
 Then build the code:
@@ -233,188 +176,108 @@ Then build the code:
 cargo build 				# Builds all native code
 ----
 
-You can run all the tests if you like:
+Detailed logs may be shown by running the node with the following environment variables set: `RUST_LOG=debug RUST_BACKTRACE=1 cargo run`.
+
+Because Totem is built on Parity's Substrate framework, you can also execute all the functions that you would expect with Substrate. However this will not neceesarily run the Totem runtime modules particularly if you do not include the Totem chain specification.
+
+=== Joining the Totem Meccano network
+
+Starting the runtime for the Totem network maybe slightly different depending on if you compiled the code or if you are executing the binary that you downloaded.
+
+[#compiled]
+==== Executing the compiled code
+Below we describe how to execute the code if you compiled the code from the repo.
+
+Below is an example of some parameters you can use to start your node. These are not mandatory as the node will start without these if you execute either `cargo run --release` or `./target/release/totem-meccano` you can also navigate directly to the node binary that you have compiled and execute 
 
 [source, shell]
-cargo test --all
+  cd /target/release/
+  ./totem-meccano
 
-Or just run the tests of a specific package (i.e. `cargo test -p srml-assets`)
+Any of these will execute the binary.
 
-You can start a development chain with:
+Additional Totem CLI usage options (which are identical to that of Substrate v1.0) are available and may be shown by running any of the above commands appending `--help`. 
 
-[source, shell]
-cargo run \-- --dev
-
-Detailed logs may be shown by running the node with the following environment variables set: `RUST_LOG=debug RUST_BACKTRACE=1 cargo run \-- --dev`.
-
-If you want to see the multi-node consensus algorithm in action locally, then you can create a local testnet with two validator nodes for Alice and Bob, who are the initial authorities of the genesis chain specification that have been endowed with a testnet DOTs. We'll give each node a name and expose them so they are listed on link:https://telemetry.polkadot.io/#/Local%20Testnet[Telemetry] . You'll need two terminals windows open.
-
-We'll start Alice's substrate node first on default TCP port 30333 with her chain database stored locally at `/tmp/alice`. The Bootnode ID of her node is `QmQZ8TjTqeDj3ciwr93EJ95hxfDsb9pEYDizUAbWpigtQN`, which is generated from the `--node-key` value that we specify below:
+In the following example we are running a Totem node called Alice on TCP port of 30334 with her chain database stored locally at `/tmp/alice`. 
 
 [source, shell]
 cargo run --release \-- \
   --base-path /tmp/alice \
-  --chain=local \
   --alice \
-  --node-key 0000000000000000000000000000000000000000000000000000000000000001 \
-  --telemetry-url ws://telemetry.polkadot.io:1024 \
-  --validator
-
-In the second terminal, we'll run the following to start Bob's substrate node on a different TCP port of 30334, and with his chain database stored locally at `/tmp/bob`. We'll specify a value for the `--bootnodes` option that will connect his node to Alice's Bootnode ID on TCP port 30333:
-
-[source, shell]
-cargo run --release \-- \
-  --base-path /tmp/bob \
-  --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/QmQZ8TjTqeDj3ciwr93EJ95hxfDsb9pEYDizUAbWpigtQN \
-  --chain=local \
-  --bob \
   --port 30334 \
-  --telemetry-url ws://telemetry.polkadot.io:1024 \
-  --validator
 
-Additional Substrate CLI usage options are available and may be shown by running `cargo run \-- --help`.
+[#binary]
+==== Executing the binary
 
-=== Joining the Emberic Elm Testnet
-
-Emberic Elm is the new testnet for Substrate 1.0. Please note that 1.0 is not compatible with the BBQ-Birch, Charred-Cherry, or Dried-Danta testnets. Ensure you have the dependencies listed above before compiling.
+Once you have downloaded the binary all you have to do is navigate to the directory and execute the code:
 
 [source, shell]
-----
-git clone https://github.com/paritytech/substrate.git
-cd substrate
-----
+  cd /target/release/
+  ./totem-meccano
 
-You can run the tests if you like:
+If you are running in a desktop you can also simply open the binary to begin execution. The options mentioned in <<#compiled>> only apply if you are running on the command line.
 
-[source, shell]
-cargo test --all
+If you are successful, you will see your node syncing at https://telemetry.polkadot.io/#/Totem%20Meccano
 
-Start your node:
+== High Level Roadmap
 
-[source, shell]
-cargo run --release \--
+The development is split into these key areas and :
 
-To see a list of command line options, enter:
+* CORE MODULES/UI
 
-[source, shell]
-cargo run --release \-- --help
+The main internal development of the runtime modules supported by the front-end uers interface.
 
-For example, you can choose a custom node name:
+* OFF-CHAIN DATA
 
-[source, shell]
-cargo run --release \-- --name my_custom_name
+Storing everything on-chain is just not good practice, but building apps requires some relevant information to be stored not only in a persistant state, but it should also be _queryable_ and updatable. IPFS fails in this respect.
 
-If you are successful, you will see your node syncing at https://telemetry.polkadot.io/#/Emberic%20Elm
+The normal course of action would be to create a centralised server for this data but then we get into all kinds of trouble in distributed systems. 
+
+* NO SQL DATABASE
+
+Totem is building a queryable database whose content-hashes are pre-authenticated in the BONSAI module meaning that the will only contain authenticated data.
+
+In fact it does not even require any reference to the owner of the data as this is also pre-authenticated. 
+
+We foresee a future where the Totem blockchain (acting as the authority for content and access) will co-exist with a distributed NoSQL database on a seperate P2P network.
+
+* CRYPTOGRAPHY
 
 
-== Documentation
+* P2P (INTERNAL) COMMS
+* FAUCET
+* NETWORK
+* SUBSTRATE STANDARD
+* ARCHIVE PROCESS
+* MIGRATION
 
-=== Viewing documentation for Substrate packages
+=== So far
 
-You can generate documentation for a Substrate Rust package and have it automatically open in your web browser using https://doc.rust-lang.org/rustdoc/what-is-rustdoc.html#using-rustdoc-with-cargo[rustdoc with Cargo],
-(of the The Rustdoc Book), by running the the following command:
+- 0.1 "PoC-1": PBFT consensus, Wasm runtime engine, basic runtime modules.
+- 0.2 "PoC-2": Libp2p
 
-```
-cargo doc --package <spec> --open
-```
+=== In progress
 
-Replacing `<spec>` with one of the following (i.e. `cargo doc --package substrate --open`):
+- AfG consensus
+- Improved PoS
+- Smart contract runtime module
 
-* All Substrate Packages
-[source, shell]
-substrate
-* Substrate Core
-[source, shell]
-substrate, substrate-cli, substrate-client, substrate-client-db,
-substrate-consensus-common, substrate-consensus-rhd,
-substrate-executor, substrate-finality-grandpa, substrate-keyring, substrate-keystore, substrate-network,
-substrate-network-libp2p, substrate-primitives, substrate-rpc, substrate-rpc-servers,
-substrate-serializer, substrate-service, substrate-service-test, substrate-state-db,
-substrate-state-machine, substrate-telemetry, substrate-test-client,
-substrate-test-runtime, substrate-transaction-graph, substrate-transaction-pool,
-substrate-trie
-* Substrate Runtime
-[source, shell]
-sr-api, sr-io, sr-primitives, sr-sandbox, sr-std, sr-version
-* Substrate Runtime Module Library (SRML)
-[source, shell]
-srml-assets, srml-balances, srml-consensus, srml-contract, srml-council, srml-democracy, srml-example,
-srml-executive, srml-metadata, srml-session, srml-staking, srml-support, srml-system, srml-timestamp,
-srml-treasury
-* Node
-[source, shell]
-node-cli, node-consensus, node-executor, node-network, node-primitives, node-runtime
-* Subkey
-[source, shell]
-subkey
+=== The future
 
-=== Contributing to documentation for Substrate packages
+- Splitting out runtime modules into separate repo
+- Introduce substrate executable (the skeleton-key runtime)
+- Introduce basic but extensible transaction queue and block-builder and place them in the executable.
+- DAO runtime module
+- Audit
 
-https://doc.rust-lang.org/1.9.0/book/documentation.html[Document source code] for Substrate packages by annotating the source code with documentation comments.
+== License
 
-Example (generic):
-```markdown
-/// Summary
-///
-/// Description
-///
-/// # Panics
-///
-/// # Errors
-///
-/// # Safety
-///
-/// # Examples
-///
-/// Summary of Example 1
-///
-/// ```rust
-/// // insert example 1 code here
-/// ```
-///
-```
+Totem is building under the same https://github.com/paritytech/substrate/blob/master/LICENSE[license] as the Substrate framework.
 
-* Important notes:
-** Documentation comments must use annotations with a triple slash `///`
-** Modules are documented using `//!`
-```
-//! Summary (of module)
-//!
-//! Description (of module)
-```
-* Special section header is indicated with a hash `#`.
-** `Panics` section requires an explanation if the function triggers a panic
-** `Errors` section is for describing conditions under which a function of method returns `Err(E)` if it returns a `Result<T, E>`
-** `Safety` section requires an explanation if the function is `unsafe`
-** `Examples` section includes examples of using the function or method
-* Code block annotations for examples are included between triple graves, as shown above.
-Instead of including the programming language to use for syntax highlighting as the annotation
-after the triple graves, alternative annotations include the `ignore`, `text`, `should_panic`, or `no_run`.
-* Summary sentence is a short high level single sentence of its functionality
-* Description paragraph is for details additional to the summary sentence
-* Missing documentation annotations may be used to identify where to generate warnings with `#![warn(missing_docs)]`
-or errors `#![deny(missing_docs)]`
-* Hide documentation for items with `#[doc(hidden)]`
-
-=== Contributing to documentation (tests, extended examples, macros) for Substrate packages
-
-The code block annotations in the `# Example` section may be used as https://doc.rust-lang.org/1.9.0/book/documentation.html#documentation-as-tests[documentation as tests and for extended examples].
-
-* Important notes:
-** Rustdoc will automatically add a `main()` wrapper around the code block to test it
-** https://doc.rust-lang.org/1.9.0/book/documentation.html#documenting-macros[Documenting macros].
-** Documentation as tests examples are included when running `cargo test`
-
-== Contributing
-
-=== Contributing Guidelines
+== Contributing Guidelines
 
 include::CONTRIBUTING.adoc[]
 
 === Contributor Code of Conduct
 
 include::CODE_OF_CONDUCT.adoc[]
-
-== License
-
-https://github.com/paritytech/substrate/blob/master/LICENSE[LICENSE]
