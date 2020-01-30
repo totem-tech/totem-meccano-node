@@ -861,9 +861,7 @@ impl<T: Trait> Module<T> {
                     _ => (),
                 }
             },
-            false => {
-                    return Err("This is an invalid project owner");
-            },
+            false => (), // this is not the project owner - you do not need to archive the record or throw an error.
         };
 
         Ok(())
