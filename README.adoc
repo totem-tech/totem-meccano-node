@@ -4,17 +4,31 @@
 :toc:
 :sectnums:
 
-== Intro to Totem in one-ish sentence
+= Contacts
 
-> Totem is a dedicated, peer-to-peer protocol for making instant and accurate accounting entries to any one or more independant accounting ledgers anywhere in the world.
+*Founder, Development Lead :* Chris D'Costa 
 
-You can think of it like TCP/IP for accounting data with a modern, user-friendly  app front-end.
+*Co-Founder :* Toufiqur Chowdhury 
+
+*Co-Founder :* Miro Svetlic 
+
+*email :* mailto:info@totemaccounting.com?subject=Inquiry:%20Tell%20me%20more%20about%20Totem[info@totemaccounting.com]
+
+*Website :* https://totemaccounting.com[Totem Live Accounting]
+
+= An intro to Totem
+
+> Totem is a dedicated, peer-to-peer protocol for posting instant and accurate accounting entries into one or many independant accounting ledgers anywhere in the world.
+
+You can think of it like TCP/IP for accounting data with a modern, intuitive, app front-end.
 
 == Description
 
 Totem is built on the idea that accounting ledgers should be able to communicate directly with each other on a peer-to-peer network, and to achieve this we use a custom built blockchain runtime coupled with a full set of account posting recipes to create - what we believe to be  - one of the first fully decentralised products for business and consumers. 
 
-In essence Totem is delivering a fully functional accounting ledger attached to a blockchain identity. But that is a gross under-representation of the greater project goals which are outlined elsewhere on the interwebs.
+In essence Totem is delivering a fully functional accounting ledger attached to a blockchain identity. 
+
+having said that - this is a *_gross under-representation_* of the greater project goals which are outlined elsewhere on the interwebs.
 
 === Why is this important?
 
@@ -24,13 +38,13 @@ Whichever way you try to manage this, it boils down to manual effort to  gather 
 
 Businesses large and small suffer equally with this same problem, *_because there is no common accounting protocol_* on which to reconnect the pieces. 
 
-Enter Totem; stage left.
+Enter Totem; stage left. We think it's 2020 and we should fix this.
 
 === What we are working towards...
 
 In our view, when an invoice is created at (for example) Uber, it should _automatically_ appear in your accounts. But we go one step further... this mechanism should not be dependent on a centrally controlled accounting software company, who will inevitably sell you licences just to have this facility. This mechanism should be completely independent of the accounting software vendor, and continue to operate, peer-to-peer, at all times, forever. 
 
-This is the problem that Totem is solving. Once you see this ability in action, *_"much newness thing possible"_*.
+This is the problem that Totem is solving. Once you see this ability in action, _"much new thing possible"_.
 
 === Story so far
 
@@ -38,9 +52,15 @@ Totem is still an early stage product, as we started developing in earnest in De
 
 The idea behind Totem is simple however and makes sense in a connected world. 
 
-Even if you are not running a business, "the business of accounting records" touches everything you do, like it or not. From the receipt for a new smartphone, to your regular groceries you are bombarded with accounting data you cannot easily make use of. 
+> Even if you are not running a business, the business of "accounting records" touches everything you do, like it or not. 
 
-Imagine a world where you could, for example, see how much you paid for tomatoes last year? Or five years ago? Or shoes, or speeding fines... without you having to do anything special. Imagine that the information just existsed privately, for you to access any time you wanted. How could that change your life? Honestly we don't know, but it will be a bonus side effect of what Totem are building. Our main target is the ever- expanding decentralised economy - as businesses employ less and contract freelancers more, we are all moviong towards a future where our accounting is at the level of our identity. 
+From the receipt for a new smartphone, to your regular groceries you are bombarded with accounting data you cannot easily make use of. 
+
+Imagine a world where you could, for example, see how much you paid for tomatoes last year? Or five years ago? Or shoes, or speeding fines... without you having to do anything special. Imagine that the information just existsed privately, for you to access any time you wanted. How could that change your life? 
+
+Honestly, we don't know, but it will be a bonus side effect of what Totem are building. 
+
+Our main target market is the ever-expanding decentralised economy - as businesses employ less, and contract freelancers more, we are all moviong towards a future where our accounting will be at the granular level of our identity. 
 
 === The alternatives
 
@@ -57,28 +77,34 @@ We have been building out the full scale version ever since and Totem can alread
 
 There are several key components to the Totem Architecture which are as follows:
 
-* the blockchain runtimes and on-chain storage, 
-* the Totem BOXKEYS on-chain public key registry 
-* the Totem BONSAI on-chain pre-authentication for off-chain distributed NoSQL databases
-* the off-chain distributed NoSQL storage (using the Totem BONSAI protocol) 
-* the off-chain global shared datasets (companies, products, places) 
+* the blockchain runtimes, accounting recipes, and on-chain storage, 
+* the Totem BOXKEYS on-chain public key registry, 
+* the Totem BONSAI on-chain pre-authentication for off-chain distributed NoSQL databases,
+* the off-chain distributed NoSQL storage (using the Totem BONSAI protocol of course), 
+* the off-chain global shared datasets (companies, products, places), 
 * the front-end UI service, 
 * the p2p encrypted communication channel, 
 * the 'transactions' faucet,
 
 This architecture is designed in this way to allow businesses to participate in the global live network, but they can also run their own private networks should they wish to do this.
 
-Whilst much of this is established in an early form, not all of it is completed yet.
+Whilst much of this is established in an early form, we are on course to complete it in the next year.
 
 === Privacy
 
-The Totem Network will have privacy as a default for all self-managed identities. The BOXKEYS is a key building-block in that process. As the development progresses we will be introducing fully encrypted storage and end-to-end communication (hence the reason for developing BOXKEYS and BONSAI) to maintain data security and privacy for everyone using any Totem network. In the longer term we will be using Full Homomorphic Encryption for obvious reasons.
+The Totem Network will have privacy as a default for all self-managed identities. The BOXKEYS is a key building-block in that process. 
 
-== Meccano TestNet
+As the development progresses we will be introducing fully encrypted storage and end-to-end communication (hence the reason for developing BOXKEYS and BONSAI) to maintain data security and privacy for everyone using self-managed identities on any Totem network. 
 
-The current version of the "Totem Live" network is the  *Meccano TestNet*. We do not plan a MainNet until we have a fully functional end-to-end product. This will likely be in later this year (2020 as of writing).
+In the longer term we will be using Full Homomorphic Encryption (FHE) for obvious reasons.
 
-Nevertheless, you can already test and use much of the core communication and storage technology as well as the first modules which have already been built, including: 
+== Totem Meccano
+
+The current version of the Totem network is the  *Meccano TestNet*. We do not plan a MainNet until we have a fully functional end-to-end product. This will likely be in later this year (2020 as of writing).
+
+The purpose of this network is to begin wider engagement with the blockchain community, monitor performance and interactions in all parts of the architecture, adapt the economic model, and obviously upgrade, fix and battle-test the code. Please send us an mailto:info@totemaccounting.com?subject=Inquiry:%20I%20want%20to%20participate%20in%20Totem%20development[email] if you want to be part of the team.
+
+You can already test and use much of the core communication and storage technology as well as the first modules which have already been built, including: 
 
 * Identities, 
 * Partners, 
@@ -104,8 +130,6 @@ If you come across any issues, or wish to make suggestions for develoment or use
 The code in this repository will enable you to join and support Meccano as a simple node.
 
 If you wish to become a validator or authority on the network, please contact us at mailto:info@totemaccounting.com?subject=Inquiry:%20Becoming%20a%20Validator%20or%20Authority%20on%20Totem[info@totemaccounting.com]
-
-In most cases we expect that you can use one of our binaries to run the software on your operating system or you can compile it using the instructions below.
 
 We recommend you use on of the current binaries which can be found here.
 If you are running the binaries, skip to the  <<#binary>> section.
@@ -180,15 +204,14 @@ cargo build --release 				# Builds all native code
 
 Detailed logs may be shown by running the node with the following environment variables set: `RUST_LOG=debug RUST_BACKTRACE=1 cargo run`.
 
-Because Totem is built on Parity's Substrate framework, you can also execute all the functions that you would expect with Substrate. However this will not neceesarily run the Totem runtime modules particularly if you do not include the Totem chain specification.
 
 === Joining the Totem Meccano network
 
 Starting the runtime for the Totem network maybe slightly different depending on if you compiled the code or if you are executing the binary that you downloaded.
 
 [#compiled]
-==== Executing the compiled code
-Below we describe how to execute the code if you compiled the code from the repo.
+==== Executing the self-compiled code
+Below we describe how to execute the code if you compiled the code from this repo.
 
 Below is an example of some parameters you can use to start your node. These are not mandatory as the node will start without these if you execute either `cargo run --release` or `./target/release/totem-meccano` you can also navigate directly to the node binary that you have compiled and execute 
 
@@ -198,7 +221,9 @@ Below is an example of some parameters you can use to start your node. These are
 
 Any of these will execute the binary.
 
-Additional Totem CLI usage options (which are identical to that of Substrate v1.0) are available and may be shown by running any of the above commands appending `--help`. 
+==== Execution options
+
+Because Totem is built on Parity's Substrate framework, you can execute all the flags and options that you would expect with a Substrate blockchain. See the possibilities by appending `--help`. (For clarity Meccano is based on Substrate v1.0).
 
 In the following example we are running a Totem node called Alice on TCP port of 30334 with her chain database stored locally at `/tmp/alice`. 
 
