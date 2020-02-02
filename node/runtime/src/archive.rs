@@ -55,10 +55,7 @@ decl_module! {
             match record_type {
                 4000 => {
                     // module specific archive handling
-                    match <timekeeping::Module<T>>::validate_and_archive(who.clone(), record_hash, archive) {
-                        Ok(()) => (),
-                        Err(e) => return Err(e),
-                    }
+                    <timekeeping::Module<T>>::validate_and_archive(who.clone(), record_hash, archive)?;
 
                     // issue event
                     Self::deposit_event(RawEvent::RecordArchived(4000, who, record_hash, archive));

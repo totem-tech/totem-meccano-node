@@ -202,25 +202,19 @@ decl_module! {
                 return Err("There was an error authenticating the supplied data");
             };
 
-            //if we get this far then the data was decrypted by the owner of the encryption key, 
+            // if we get this far then the data was decrypted by the owner of the encryption key, 
             // and it was signed by the owner of the signature key
                 
             // mark the keys as veriffed
-            match Self::set_verification_state(user_hash, true) {
-                Err(_e) => return Err("Failed to store the verification state"),
-                _ => (),
-            };
+            Self::set_verification_state(user_hash, true)?;
+            
             // move the keys to the verified storage
-            match Self::move_temp_keys(user_hash) {
-                Err(_e) => return Err("Failed to store the temp keys"),
-                _ => (),
-            };                    
+            Self::move_temp_keys(user_hash)?;
             
             // remove the keys fro the temp storage
-            match Self::delete_temp_keys(user_hash) {
-                Err(_e) => return Err("Error removing temp keys"),
-                _ => return Ok(()),
-            };
+            Self::delete_temp_keys(user_hash)?;
+            
+            Ok(())
                 
         }
         
@@ -264,11 +258,7 @@ decl_module! {
                         ensure!(signature.verify(&encoded_data[..], &old_sign_key), "Invalid signature for this key");
                         
                         // remove and replace keys                        
-                        match Self::delete_state_and_temp_keys(user_hash) {
-                            Err(_e) => return Err("Failed to remove all keys"),
-                            _ => (),
-                        };
-
+                        Self::delete_state_and_temp_keys(user_hash)?;
                         
                         // Store keys in temp space pending verification. It is necessary to do this now.
                         // If a later process fails this will be replaced anyway.
@@ -280,16 +270,11 @@ decl_module! {
                             <TempPublicKeySign<T>>::insert(&user_hash, &transaction_data.pub_sign_key);
                         };
                         
-                        match Self::set_generated_verification_data(transaction_data) {
-                            Err(_e) => return Err("Failed to store verification data."),
-                            _ => ()
-                        };
+                        // set the verification data.
+                        Self::set_generated_verification_data(transaction_data)?;
                         
                         // set the verification status to false.
-                        match Self::set_verification_state(user_hash, false) {
-                            Err(_e) => return Err("Failed to store the verification state"),
-                            _ => (),
-                        };
+                        Self::set_verification_state(user_hash, false)?;
 
                     }; // if the keys are the same, do nothing    
                     
@@ -302,10 +287,8 @@ decl_module! {
                     <TempPublicKeyEnc<T>>::insert(&user_hash, &transaction_data.pub_enc_key);
                     <TempPublicKeySign<T>>::insert(&user_hash, &transaction_data.pub_sign_key);
 
-                    match Self::set_generated_verification_data(transaction_data) {
-                        Err(_e) => return Err("Failed to store verification data."),
-                        _ => ()
-                    }
+                    // set the verification data
+                    Self::set_generated_verification_data(transaction_data)?;
 
                 }  
             } //match
@@ -343,10 +326,10 @@ impl<T: Trait> Module<T> {
     
     fn delete_state_and_temp_keys(user_hash: UserNameHash) -> Result {        
         <UserKeysVerified<T>>::take(&user_hash);
-        match Self::delete_temp_keys(user_hash) {
-            Err(_e) => return Err("Error removing temp keys"),
-            _ => return Ok(()),
-        };
+
+        Self::delete_temp_keys(user_hash)?;
+        
+        Ok(())
     }
     
     fn delete_temp_keys(user_hash: UserNameHash) -> Result {
@@ -409,7 +392,7 @@ impl<T: Trait> Module<T> {
         // Encrypt data returning cipher_text
         match box_(&mut cipher_text, &data_to_encrypt, &last_nonce_24, external_pub_key, &ephemeral_secret_key) {
             Err(_e) => return Err("Encryption failed."),
-            _ => ()
+            Ok(_s) => ()
         };
 
         let encrypted_verification_data = EncryptedVerificationData {

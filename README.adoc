@@ -16,19 +16,18 @@
 
 *Website :* https://totemaccounting.com[Totem Live Accounting]
 
-= An intro to Totem
-
-> Totem is a dedicated, peer-to-peer protocol for posting instant and accurate accounting entries into one or many independant accounting ledgers anywhere in the world.
-
-You can think of it like TCP/IP for accounting data with a modern, intuitive, app front-end.
-
 == Description
 
-Totem is built on the idea that accounting ledgers should be able to communicate directly with each other on a peer-to-peer network, and to achieve this we use a custom built blockchain runtime coupled with a full set of account posting recipes to create - what we believe to be  - one of the first fully decentralised products for business and consumers. 
+Totem Live Accounting  is built on the idea that accounting ledgers should be able to communicate directly with each other, anywhere in the world, in real-time.
 
-In essence Totem is delivering a fully functional accounting ledger attached to a blockchain identity. 
+To achieve we are in the process of developing a custom built blockchain runtime on a peer-to-peer network, coupled with a full set of account posting recipes to create - what we believe to be  - one of the first fully decentralised products for business and consumers anywhere.
 
-having said that - this is a *_gross under-representation_* of the greater project goals which are outlined elsewhere on the interwebs.
+
+You can think of it like a globally available, dedicated public network for accounting data with a modern, intuitive, usable app front-end.
+
+Technically speaking, Totem is delivering a fully functional accounting ledger attached to a blockchain identity. 
+
+Having said this, it is a *_gross under-representation_* of the greater project goals which are outlined elsewhere on the interwebs.
 
 === Why is this important?
 
@@ -38,11 +37,11 @@ Whichever way you try to manage this, it boils down to manual effort to  gather 
 
 Businesses large and small suffer equally with this same problem, *_because there is no common accounting protocol_* on which to reconnect the pieces. 
 
-Enter Totem; stage left. We think it's 2020 and we should fix this.
+Enter Totem; stage left. We think as it is 2020, we should fix this.
 
 === What we are working towards...
 
-In our view, when an invoice is created at (for example) Uber, it should _automatically_ appear in your accounts. But we go one step further... this mechanism should not be dependent on a centrally controlled accounting software company, who will inevitably sell you licences just to have this facility. This mechanism should be completely independent of the accounting software vendor, and continue to operate, peer-to-peer, at all times, forever. 
+In our view, when an invoice is created at (for example) Uber, it should _automatically_ appear in your accounts. But we go one step further... this mechanism should not be dependent on a centrally controlled accounting software company, who will inevitably sell you licences (and your data) just to provide this facility. This mechanism should be open to all, completely independent of  accounting software vendors, and continue to operate, peer-to-peer, at all times, forever. 
 
 This is the problem that Totem is solving. Once you see this ability in action, _"much new thing possible"_.
 
@@ -60,7 +59,7 @@ Imagine a world where you could, for example, see how much you paid for tomatoes
 
 Honestly, we don't know, but it will be a bonus side effect of what Totem are building. 
 
-Our main target market is the ever-expanding decentralised economy - as businesses employ less, and contract freelancers more, we are all moviong towards a future where our accounting will be at the granular level of our identity. 
+Our main target market is the ever-expanding decentralised economy - as businesses employ less, and contract freelancers more, we are all moving towards a future where our accounting will be at the granular level of our identity. 
 
 === The alternatives
 
@@ -68,7 +67,9 @@ Our main target market is the ever-expanding decentralised economy - as business
 
 * Q: Can accounting software companies do this? A: Yes and no. There are too many competing players, the coverage would not be universal. Additionally it would destroy their licence-fee paying business model, and what would happen to your data if they went bust?
 
-* Q: Can Totem do this? A: Yes. Definitely. The Totem team demoed this capability in February 2019, connecting five random parties and three tax jurisdictions, posting accounting entries in all relevant accounts on a blockchain. This means the activity of accounting will not be dependant on Totem and can be universal. 
+* Q: Can any other business do this? A: probably. They need the vision to grasp the whole concept though otherwise they default to centralised services.
+
+* Q: Can Totem do this? A: Yes. Definitely. The Totem team demonstrated this capability in February 2019, connecting five random parties and three tax jurisdictions, posting accounting entries in all relevant accounts on a blockchain. This was a "Marconi moment" means the activity of accounting will not be dependant on Totem and can be universal. 
 
 
 We have been building out the full scale version ever since and Totem can already do many of the underlying communication tasks required to make this happen. We are still actively pushing new code every day.
