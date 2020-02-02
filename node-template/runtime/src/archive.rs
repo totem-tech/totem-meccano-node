@@ -56,8 +56,8 @@ decl_module! {
                 4000 => {
                     // module specific archive handling
                     match <timekeeping::Module<T>>::validate_and_archive(who.clone(), record_hash, archive) {
-                        Ok(()) => (),
-                        Err(e) => return Err(e),
+                        Err(_e) => return Err("You cannot archive this record. Either you don't own it or some other error occured."),
+                        _ => (),
                     }
 
                     // issue event
