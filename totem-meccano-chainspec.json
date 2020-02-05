@@ -9,7 +9,7 @@
   "telemetryEndpoints": [
     ["wss://telemetry.polkadot.io/submit/",0]
   ],
-  "protocolId": null,
+  "protocolId": "meccano",
   "consensusEngine": null,
   "properties": {
     "tokenDecimals": 15,
