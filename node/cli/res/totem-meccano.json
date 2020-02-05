@@ -2,9 +2,9 @@
   "name": "Totem Meccano CanaryNet",
   "id": "totem-meccano",
   "bootNodes": [
-    "/ip4/138.68.63.106/tcp/30333/p2p/QmbtcjMd45nRJ9ew35aXaGnkN2USsgPUtAfTmDLmsZcvna",
-    "/ip4/104.248.40.185/tcp/30333/p2p/QmXMtDUQ79xn2N9WyBQuvdaG4YmGgWGo8JkxFtJy2NtcDj",
-    "/ip4/139.59.12.191/tcp/30333/p2p/QmaXse1BzU3CD3bVpmxmnpiJQnov19cpXwsd1wgaA6f2D2"
+    "/ip4/104.248.40.185/tcp/30333/p2p/QmR9wXik1i3tEV74KqmgRFi4erfMw1McrZs4gQaNm3dau8",
+    "/ip4/138.68.63.106/tcp/30333/p2p/QmccJ4Fgm48ttjUH7GCq14QPUiNHvgdYDJjXqTs4eXQ4Fk",
+    "/ip4/139.59.12.191/tcp/30333/p2p/Qma3PaYJH5rcHk57LoyxQghixBz7H5Ng5vmYXtV3oNrNTY"
   ],
   "telemetryEndpoints": [
     [
