@@ -32,7 +32,7 @@ foreach ($subdir in $SRC) {
     # build
     $test = invoke-expression -Command $cmd
     foreach ($i in $NODETEMPLATE) {
-        $subcmd = "wasm-gc target/wasm32-unknown-unknown/release/runtime_$i.wasm target/wasm32-unknown-unknown/release/runtime_$i.compact.wasm"
+        $subcmd = "wasm-gc target\wasm32-unknown-unknown\release\runtime_$i.wasm target\wasm32-unknown-unknown\release\runtime_$i.compact.wasm"
         echo $subcmd
         invoke-expression -Command $subcmd
     }
