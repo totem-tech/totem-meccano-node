@@ -221,12 +221,7 @@ decl_module! {
                             // Worker confirms acceptance of project assignment. This effectively is an agreement that
                             // the project owner will accept time bookings from the worker as long as the project is still active.
                             // Some(false) => Self::store_worker_acceptance(project_hash, who),
-                            Some(false) => {
-                                match Self::store_worker_acceptance(project_hash, who) {
-                                    Err(_e) => return Err("Store worker acceptance failed"),
-                                    _ => (),
-                                }
-                            },
+                            Some(false) => Self::store_worker_acceptance(project_hash, who)?,
                             Some(true) => return Err("Project worker has already accepted the project."),
                             None => return Err("Project worker has not been assigned to this project yet."),
                         };
@@ -480,10 +475,7 @@ decl_module! {
                         old_time_record.posting_period = new_time_data.posting_period;
                         old_time_record.nr_of_breaks = new_time_data.nr_of_breaks;
 
-                        match Self::update_time_record(original_time_key, old_time_record) {
-                            Err(_e) => return Err("Time record update did not complete"),
-                            _ => (),
-                        }
+                        Self::update_time_record(original_time_key, old_time_record)?;
                     } 
             Ok(())
         }
@@ -553,14 +545,10 @@ decl_module! {
 
             // perform update on total amounts of time
             let total_time: NumberOfBlocks =  changing_time_record.end_block.clone() - changing_time_record.start_block.clone();
-            match Self::update_totals(changing_time_record.worker.clone(), changing_time_record.project_hash.clone(), total_time) {
-                Err(_e) => return Err("Totals update to storage did not complete"),
-                _ => (),
-            }
-            match Self::update_time_record(original_time_key, changing_time_record) {
-                Err(_e) => return Err("Time record update did not complete"),
-                _ => (),
-            }
+            
+            Self::update_totals(changing_time_record.worker.clone(), changing_time_record.project_hash.clone(), total_time)?;
+            
+            Self::update_time_record(original_time_key, changing_time_record)?;
             
             Self::deposit_event(RawEvent::SetAuthoriseStatus(who));
 
@@ -844,25 +832,17 @@ impl<T: Trait> Module<T> {
         let old_time_record = Self::time_record(&time_record_key).ok_or("Time record does not exist, or this is not from the worker.")?;
         // ensure!(!old_time_record.locked_status, "You cannot change a locked time record!");
     
-        // chekc the owner of the time record.
-        ensure!(who.clone() == old_time_record.worker, "You cannot archive a record you do not own!");
+        // check the owner of the time record. If so process archive.
+        if who == old_time_record.worker {
+            Self::set_worker_time_archive(who.clone(), time_record_key, archive)?;
 
-        // archive time record
-        match Self::set_worker_time_archive(who.clone(), time_record_key, archive) {
-            Err(_e) => return Err("There was an error archiving the record"),
-            _ => (),
-        };
+        }; 
         
         // Attempt match on project owner to archive their own record.
         match <projects::Module<T>>::check_project_owner(who.clone(), old_time_record.project_hash) {
-            true => {
-                match Self::set_project_time_archive(time_record_key, old_time_record.project_hash, archive) {
-                    Err(_e) => return Err("There was an error archiving the record"),
-                    _ => (),
-                }
-            },
-            false => (), // this is not the project owner - you do not need to archive the record or throw an error.
-        };
+            true => Self::set_project_time_archive(time_record_key, old_time_record.project_hash, archive)?,
+            false => (), // this is not the project owner - you do not need to archive the record or throw an error as nothiing was updated.
+        }
 
         Ok(())
     
