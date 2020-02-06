@@ -31,6 +31,9 @@
       },
       "indices": {
         "ids": [
+          "5FHwzgpe2PzNp5E3VDL6zivYYpjXW6Mb6148CXADLFeNFJEM",
+          "5EbpEuA99D7fV1mmwa5KdD1Tw57YrUUA9D4ggAYRRSmqpWGy",
+          "5FhGWyEi8fHQTC2bcrouneyqnJW5gtaWNsPaqjGW5toT62f7",
           "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv",
           "5DeB7F51SULESFsidyyBF2YuvieZUQu2BV3aEuXhoGqY9r2d",
           "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h",
@@ -53,6 +56,18 @@
         "transactionBaseFee": 1,
         "transactionByteFee": 1,
         "balances": [
+          [
+            "5FHwzgpe2PzNp5E3VDL6zivYYpjXW6Mb6148CXADLFeNFJEM",
+            1000000
+          ],
+          [
+            "5EbpEuA99D7fV1mmwa5KdD1Tw57YrUUA9D4ggAYRRSmqpWGy",
+            1000000
+          ],
+          [
+            "5FhGWyEi8fHQTC2bcrouneyqnJW5gtaWNsPaqjGW5toT62f7",
+            1000000
+          ],
           [
             "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv",
             16180339887499
@@ -109,9 +124,24 @@
         "vesting": []
       },
       "session": {
-        "validators": [],
+        "validators": [
+          "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv",
+          "5DeB7F51SULESFsidyyBF2YuvieZUQu2BV3aEuXhoGqY9r2d",
+          "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h"
+        ],
         "sessionLength": 10,
-        "keys": []
+        "keys": [
+          [
+            "5GNwggYyUh4HzyKuB5KzAwJdyMyRNHuzZNmLE41sB7enRoxL",
+            "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv"
+          ],[
+            "5CVQorww7WpDPuSNSs9Pd4aLBvyCKd4dpXvwZRoa9aSak2EQ",
+            "5DeB7F51SULESFsidyyBF2YuvieZUQu2BV3aEuXhoGqY9r2d"
+          ],[
+            "5DMK6JrpKdjKyyne9ogZBJpAmnFPomXyyqqxywKb7yowS5bJ",
+            "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h"
+          ]
+        ]
       },
       "staking": {
         "validatorCount": 3,
@@ -121,10 +151,33 @@
         "offlineSlash": 100,
         "offlineSlashGrace": 50,
         "bondingDuration": 600,
-        "invulnerables": [],
+        "invulnerables": [
+          "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv",
+          "5DeB7F51SULESFsidyyBF2YuvieZUQu2BV3aEuXhoGqY9r2d",
+          "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h"
+        ],
         "currentEra": 0,
         "currentSessionReward": 100,
-        "stakers": []
+        "stakers": [
+          [
+            "5FHwzgpe2PzNp5E3VDL6zivYYpjXW6Mb6148CXADLFeNFJEM",
+            "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv",
+            1000,
+            "Validator"
+          ],
+          [
+            "5EbpEuA99D7fV1mmwa5KdD1Tw57YrUUA9D4ggAYRRSmqpWGy",
+            "5DeB7F51SULESFsidyyBF2YuvieZUQu2BV3aEuXhoGqY9r2d",
+            1000,
+            "Validator"
+          ],
+          [
+            "5FhGWyEi8fHQTC2bcrouneyqnJW5gtaWNsPaqjGW5toT62f7",
+            "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h",
+            1000,
+            "Validator"
+          ]
+        ]
       },
       "democracy": {
         "launchPeriod": 100,
