@@ -58,15 +58,15 @@
         "balances": [
           [
             "5FHwzgpe2PzNp5E3VDL6zivYYpjXW6Mb6148CXADLFeNFJEM",
-            1000000
+            10000000000000
           ],
           [
             "5EbpEuA99D7fV1mmwa5KdD1Tw57YrUUA9D4ggAYRRSmqpWGy",
-            1000000
+            10000000000000
           ],
           [
             "5FhGWyEi8fHQTC2bcrouneyqnJW5gtaWNsPaqjGW5toT62f7",
-            1000000
+            10000000000000
           ],
           [
             "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv",
@@ -162,19 +162,19 @@
           [
             "5FHwzgpe2PzNp5E3VDL6zivYYpjXW6Mb6148CXADLFeNFJEM",
             "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv",
-            1000,
+            10000000000000,
             "Validator"
           ],
           [
             "5EbpEuA99D7fV1mmwa5KdD1Tw57YrUUA9D4ggAYRRSmqpWGy",
             "5DeB7F51SULESFsidyyBF2YuvieZUQu2BV3aEuXhoGqY9r2d",
-            1000,
+            10000000000000,
             "Validator"
           ],
           [
             "5FhGWyEi8fHQTC2bcrouneyqnJW5gtaWNsPaqjGW5toT62f7",
             "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h",
-            1000,
+            10000000000000,
             "Validator"
           ]
         ]
