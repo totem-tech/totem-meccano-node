@@ -2,9 +2,9 @@
   "name": "Totem Meccano CanaryNet",
   "id": "totem-meccano",
   "bootNodes": [
-    "/ip4/104.248.40.185/tcp/30333/p2p/QmR9wXik1i3tEV74KqmgRFi4erfMw1McrZs4gQaNm3dau8",
-    "/ip4/138.68.63.106/tcp/30333/p2p/QmccJ4Fgm48ttjUH7GCq14QPUiNHvgdYDJjXqTs4eXQ4Fk",
-    "/ip4/139.59.12.191/tcp/30333/p2p/Qma3PaYJH5rcHk57LoyxQghixBz7H5Ng5vmYXtV3oNrNTY"
+    "/ip4/104.248.40.185/tcp/16181/p2p/QmR9wXik1i3tEV74KqmgRFi4erfMw1McrZs4gQaNm3dau8",
+    "/ip4/138.68.63.106/tcp/16181/p2p/QmccJ4Fgm48ttjUH7GCq14QPUiNHvgdYDJjXqTs4eXQ4Fk",
+    "/ip4/139.59.12.191/tcp/16181/p2p/Qma3PaYJH5rcHk57LoyxQghixBz7H5Ng5vmYXtV3oNrNTY"
   ],
   "telemetryEndpoints": [
     ["wss://telemetry.polkadot.io/submit/",0]
@@ -110,12 +110,12 @@
       },
       "session": {
         "validators": [],
-        "sessionLength": 50,
+        "sessionLength": 10,
         "keys": []
       },
       "staking": {
         "validatorCount": 3,
-        "minimumValidatorCount": 3,
+        "minimumValidatorCount": 1,
         "sessionsPerEra": 12,
         "sessionReward": 1618,
         "offlineSlash": 100,
