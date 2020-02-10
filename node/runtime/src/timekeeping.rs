@@ -177,25 +177,39 @@ decl_module! {
                 Some(false) => return Err("Worker already assigned the project, but hasn't formally accepted."),
                 None => (),  // OK this project has not been assigned yet.
             };
+            
+            if who == worker {
+                
+                // Adds project to list of projects assigned to worker address (in this case worker is project owner)
+                <WorkerProjectsBacklogList<T>>::mutate(&worker, |worker_projects_backlog_list| worker_projects_backlog_list.push(project_hash.clone()));
+                
+                // The worker is also the project owner, 
+                // directly store worker acceptance
+                Self::store_worker_acceptance(project_hash, who)?;
 
-            // The initial status of the acceptance to work on the project
-            let accepted_status: AcceptAssignedStatus = false;
+            } else {
+                // the worker is not the project owner
+                // The initial status of the acceptance to work on the project
+                let accepted_status: AcceptAssignedStatus = false;
 
-           // Adds project to list of projects assigned to worker address
-           // Worker does not therefore need to be notified of new project assigned to them, as it will appear in
-           // a list of projects
-           <WorkerProjectsBacklogList<T>>::mutate(&worker, |worker_projects_backlog_list| worker_projects_backlog_list.push(project_hash.clone()));
-
-           // set initial status
-           <WorkerProjectsBacklogStatus<T>>::insert(&status_tuple_key, accepted_status);
-
-            // add worker to project team invitations, pending acceptance.
-            <ProjectInvitesList<T>>::mutate(&project_hash, |project_invites_list| {
-                project_invites_list.push(worker.clone())
-            });
+                // Adds project to list of projects assigned to worker address
+                // Worker does not therefore need to be notified of new project assigned to them, as it will appear in
+                // a list of projects
+                <WorkerProjectsBacklogList<T>>::mutate(&worker, |worker_projects_backlog_list| worker_projects_backlog_list.push(project_hash.clone()));
+     
+                // set initial status
+                <WorkerProjectsBacklogStatus<T>>::insert(&status_tuple_key, accepted_status);
+     
+                 // add worker to project team invitations, pending acceptance.
+                 <ProjectInvitesList<T>>::mutate(&project_hash, |project_invites_list| {
+                     project_invites_list.push(worker.clone())
+                 });
+                 
+            }
 
             // issue event
             Self::deposit_event(RawEvent::NotifyProjectWorker(worker, project_hash));
+
             Ok(())
         }
         // worker accepts to join the project
