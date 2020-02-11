@@ -2,9 +2,12 @@
   "name": "Totem Meccano CanaryNet",
   "id": "totem-meccano",
   "bootNodes": [
-    "/ip4/104.248.40.185/tcp/16181/p2p/QmR9wXik1i3tEV74KqmgRFi4erfMw1McrZs4gQaNm3dau8",
-    "/ip4/138.68.63.106/tcp/16181/p2p/QmccJ4Fgm48ttjUH7GCq14QPUiNHvgdYDJjXqTs4eXQ4Fk",
-    "/ip4/139.59.12.191/tcp/16181/p2p/Qma3PaYJH5rcHk57LoyxQghixBz7H5Ng5vmYXtV3oNrNTY"
+    "/ip4/104.156.252.200/tcp/16181/p2p/QmTr7VNoYwzJCUEAyiBtd9EQ6xXFYGDuzFhhiBcMZBr9pd",
+    "/ip4/149.28.31.182/tcp/16181/p2p/QmbV5eHcyKknywTLnQXsHm4RtcJtL77FywxJCbSzQpepNp",
+    "/ip4/149.248.53.149/tcp/16181/p2p/QmWRAfgfztJL2GpngELUWheeEJdz5rxFkTivfKM1bwnz2B",
+    "/ip4/139.180.138.132/tcp/16181/p2p/QmZdcLaM2VbDRhaF1zK47F3vBGKvXPGe9uBJP5xhYDMPxr",
+    "/ip4/45.63.27.157/tcp/16181/p2p/QmTfWGR3sseczDkTBy4wsGHqYtb8c2tS48HMHn6sqyFxFj",
+    "/ip4/136.244.67.134/tcp/16181/p2p/QmRjb5Kd5gAGPa8942aKNLAMNf9nRZJADEXwSJeFEuKMuU"
   ],
   "telemetryEndpoints": [
     ["wss://telemetry.polkadot.io/submit/",0]
@@ -12,14 +15,14 @@
   "protocolId": "meccano",
   "consensusEngine": null,
   "properties": {
-    "tokenDecimals": 15,
+    "tokenDecimals": 0,
     "tokenSymbol": "XTX"
   },
   "genesis": {
     "runtime": {
       "system": null,
       "timestamp": {
-        "minimumPeriod": 3
+        "minimumPeriod": 7
       },
       "consensus": {
         "authorities": [
@@ -46,7 +49,9 @@
           "5Hg3GvHqNoAukiubakKyT3eAJyQb5GTvBwhc9QP85fJEZeJ2",
           "5DFvj8gGY39QuCUthNvkPCT6A8vJHbRkvHCYu7gr9rX8NnXn",
           "5EZdFuxibwoW3xivvYw94DAjj2kAfTfyHsNSmQJnFdrqajfz",
-          "5CVL4CsuWAGGF1GKktYcgGLaJmZpRRrSPjF7w1KMGJAEzQTv"
+          "5CVL4CsuWAGGF1GKktYcgGLaJmZpRRrSPjF7w1KMGJAEzQTv",
+          "5CDfuWBoHpwALWNpwStbnSEK378mhQSyzb5ARhH7ryPCh1wS"
+
         ]
       },
       "balances": {
@@ -66,6 +71,10 @@
           ],
           [
             "5FhGWyEi8fHQTC2bcrouneyqnJW5gtaWNsPaqjGW5toT62f7",
+            10000000000000
+          ],
+          [
+            "5CDfuWBoHpwALWNpwStbnSEK378mhQSyzb5ARhH7ryPCh1wS",
             10000000000000
           ],
           [
@@ -129,7 +138,7 @@
           "5DeB7F51SULESFsidyyBF2YuvieZUQu2BV3aEuXhoGqY9r2d",
           "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h"
         ],
-        "sessionLength": 10,
+        "sessionLength": 16180340,
         "keys": [
           [
             "5GNwggYyUh4HzyKuB5KzAwJdyMyRNHuzZNmLE41sB7enRoxL",
@@ -154,7 +163,10 @@
         "invulnerables": [
           "5FR1eRqPwcHz6rpYLWr3P1JyjXu5UnQgrbNMGB9iQKUwV6Yv",
           "5DeB7F51SULESFsidyyBF2YuvieZUQu2BV3aEuXhoGqY9r2d",
-          "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h"
+          "5FHufv5S9uAL8CrpkaiZLSCSRNYqZedCLXKAAyJurhkjfh5h",
+          "5FHwzgpe2PzNp5E3VDL6zivYYpjXW6Mb6148CXADLFeNFJEM",
+          "5EbpEuA99D7fV1mmwa5KdD1Tw57YrUUA9D4ggAYRRSmqpWGy",
+          "5FhGWyEi8fHQTC2bcrouneyqnJW5gtaWNsPaqjGW5toT62f7"
         ],
         "currentEra": 0,
         "currentSessionReward": 100,
