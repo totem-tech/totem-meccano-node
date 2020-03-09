@@ -80,30 +80,30 @@ decl_module! {
             let changer: T::AccountId = ensure_signed(origin)?;
 
             // TODO Implement a sudo for cleaning data in cases where owner is lost
-            // Otherwise onlu the owner can change the data
+            // Otherwise only the owner can change the data
             ensure!(project_owner == changer, "You cannot delete a project you do not own");
 
             let changed_by: T::AccountId = changer.clone();
-            let project_status: ProjectStatus = 999;
+
             let deleted_project_struct = DeletedProject {
                 owned_by: project_owner.clone(),
-                deleted_by: changed_by.clone(),
-                status: project_status
+                deleted_by: changed_by,
+                status: 999
             };
 
             // retain all other projects except the one we want to delete
             <OwnerProjectsList<T>>::mutate(&project_owner, |owner_projects_list| owner_projects_list.retain(|h| h != &project_hash));
 
             // remove project from owner
-            <ProjectHashOwner<T>>::remove(project_hash);
+            <ProjectHashOwner<T>>::remove(&project_hash);
 
             // remove status record
-            <ProjectHashStatus<T>>::remove(project_hash);
+            <ProjectHashStatus<T>>::remove(&project_hash);
 
             // record the fact of deletion by whom
             <DeletedProjects<T>>::mutate(&project_hash, |deleted_project| deleted_project.push(deleted_project_struct));
 
-            Self::deposit_event(RawEvent::ProjectDeleted(project_hash, project_owner, changed_by, project_status));
+            Self::deposit_event(RawEvent::ProjectDeleted(project_hash, project_owner, changer, 999));
 
             Ok(())
         }
