@@ -381,6 +381,9 @@ decl_module! {
                             return Err("Time record does not exist")
                         };
 
+                        // reverse out previously accepted time record
+                        Self::undo_update_totals(old_time_record.worker.clone(), old_time_record.project_hash, old_time_record.total_blocks)?;
+
                         let proposed_new_status = submit_status.clone();
 
                         // prepare incoming time record.
@@ -468,7 +471,7 @@ decl_module! {
                                 // force change pending above
                                 // [1, 1] = [time record can be re-edited by the team member, set in time module]
                                 old_time_record.reason_code = ReasonCodeStruct(1, 1);
-                                
+
                                 match proposed_new_status {
                                     0 => {old_time_record.submit_status = proposed_new_status}, // Draft to submitted.
                                     // not appropriate to set these codes here. Other specific functions exist.
@@ -550,7 +553,6 @@ decl_module! {
                 <ProjectFirstSeen<T>>::take(&changing_time_record.project_hash);
                 // insert new record
                 <ProjectFirstSeen<T>>::insert(&changing_time_record.project_hash, changing_time_record.start_block);
-                // Update the blocks added to the time record
 
             } else {
                 <ProjectFirstSeen<T>>::insert(&changing_time_record.project_hash, changing_time_record.start_block);
@@ -558,10 +560,8 @@ decl_module! {
             };
 
             // perform update on total amounts of time
-            let total_time: NumberOfBlocks =  changing_time_record.end_block.clone() - changing_time_record.start_block.clone();
-            
-            Self::update_totals(changing_time_record.worker.clone(), changing_time_record.project_hash.clone(), total_time)?;
-            
+            Self::update_totals(changing_time_record.worker.clone(), changing_time_record.project_hash.clone(), changing_time_record.total_blocks.clone())?;
+
             Self::update_time_record(original_time_key, changing_time_record)?;
             
             Self::deposit_event(RawEvent::SetAuthoriseStatus(who));
@@ -722,14 +722,39 @@ impl<T: Trait> Module<T> {
             <TotalBlocksPerAddress<T>>::insert(&a, &n);
         };
         
-        let key = (a, r);
-        
+        let key = (a.clone(), r.clone());
         if <TotalBlocksPerProjectPerAddress<T>>::exists(&key) {
             <TotalBlocksPerProjectPerAddress<T>>::mutate(key, |v| *v += n);
         } else {
             <TotalBlocksPerProjectPerAddress<T>>::insert(key, n);
         };
+        
+        Self::deposit_event(RawEvent::IncreaseTotalBlocksPerAddressPerProject(a, r, n));
+        Ok(())
+    }
 
+    // Performs reversal of total time booked against project and other storage
+    //
+    // * Reduction in Total Time worked on a project for all workers
+    // * Reduction in Total Time worked by the worker for everything.
+    // * Reduction in Total Time booked for a specific worker on a specific project
+    fn undo_update_totals(a: T::AccountId, r: ProjectHashRef, n: NumberOfBlocks) -> Result {
+
+        // Check that the existing values are greater that the new value to be subtracted else do nothing.
+        if <TotalBlocksPerProject<T>>::exists(&r) && Self::total_blocks_per_project(&r) >= n {
+            <TotalBlocksPerProject<T>>::mutate(r, |v| *v -= &n);
+        };
+        
+        if <TotalBlocksPerAddress<T>>::exists(&a) && Self::total_blocks_per_address(&a) >= n {
+            <TotalBlocksPerAddress<T>>::mutate(&a, |v| *v -= &n);
+        };
+        
+        let key = (a.clone(), r.clone());
+        if <TotalBlocksPerProjectPerAddress<T>>::exists(&key) && Self::total_blocks_per_project_per_address(&key) >= n {
+            <TotalBlocksPerProjectPerAddress<T>>::mutate(key, |v| *v -= &n);
+        };
+        
+        Self::deposit_event(RawEvent::DecreaseTotalBlocksPerAddressPerProject(a, r, n));
         Ok(())
     }
     
@@ -869,6 +894,7 @@ decl_event!(
     where
     AccountId = <T as system::Trait>::AccountId,
     Hash = <T as system::Trait>::Hash,
+    NumberOfBlocks = u64,
     {
         SubmitedTimeRecord(Hash),
         NotifyProjectWorker(AccountId, ProjectHashRef),
@@ -880,5 +906,7 @@ decl_event!(
         UnLockTimeRecord(),
         Banned(),
         UnBanned(),
+        IncreaseTotalBlocksPerAddressPerProject(AccountId, ProjectHashRef, NumberOfBlocks),
+        DecreaseTotalBlocksPerAddressPerProject(AccountId, ProjectHashRef, NumberOfBlocks),
     }
 );
