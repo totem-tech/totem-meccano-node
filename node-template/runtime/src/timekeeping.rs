@@ -729,7 +729,7 @@ impl<T: Trait> Module<T> {
             <TotalBlocksPerProjectPerAddress<T>>::insert(key, n);
         };
         
-        Self::deposit_event(RawEvent::IncreaseTotalBlocksPerAddressPerProject(a, r, n));
+        Self::deposit_event(RawEvent::IncreaseTotalBlocks(a, r, n));
         Ok(())
     }
 
@@ -754,7 +754,7 @@ impl<T: Trait> Module<T> {
             <TotalBlocksPerProjectPerAddress<T>>::mutate(key, |v| *v -= &n);
         };
         
-        Self::deposit_event(RawEvent::DecreaseTotalBlocksPerAddressPerProject(a, r, n));
+        Self::deposit_event(RawEvent::DecreaseTotalBlocks(a, r, n));
         Ok(())
     }
     
@@ -893,8 +893,7 @@ decl_event!(
     pub enum Event<T>
     where
     AccountId = <T as system::Trait>::AccountId,
-    Hash = <T as system::Trait>::Hash,
-    NumberOfBlocks = u64,
+    Hash = <T as system::Trait>::Hash
     {
         SubmitedTimeRecord(Hash),
         NotifyProjectWorker(AccountId, ProjectHashRef),
@@ -906,7 +905,7 @@ decl_event!(
         UnLockTimeRecord(),
         Banned(),
         UnBanned(),
-        IncreaseTotalBlocksPerAddressPerProject(AccountId, ProjectHashRef, NumberOfBlocks),
-        DecreaseTotalBlocksPerAddressPerProject(AccountId, ProjectHashRef, NumberOfBlocks),
+        IncreaseTotalBlocks(AccountId, ProjectHashRef, NumberOfBlocks),
+        DecreaseTotalBlocks(AccountId, ProjectHashRef, NumberOfBlocks),
     }
 );
