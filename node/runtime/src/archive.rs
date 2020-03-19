@@ -18,6 +18,7 @@
 use support::{decl_event, decl_module, dispatch::Result};
 use system::ensure_signed;
 use rstd::prelude::*;
+use node_primitives::Hash;
 
 // Totem crates
 use crate::timekeeping;
@@ -35,7 +36,7 @@ decl_module! {
         /// Archive types
         /// 1000
         /// 2000
-        /// 3000 Projects
+        /// 3000 Activities (previously Projects)
         /// 4000 Timekeeping
         /// 5000
         /// 6000
@@ -45,7 +46,7 @@ decl_module! {
         fn archive_record(
             origin,
             record_type: RecordType, 
-            record_hash: T::Hash, 
+            record_hash: Hash, 
             archive: bool
         ) -> Result {
             // check signed
@@ -72,8 +73,6 @@ decl_event!(
     pub enum Event<T>
     where
         AccountId = <T as system::Trait>::AccountId,
-        Hash = <T as system::Trait>::Hash,
-        RecordType = u16,
         Archival = bool,
     {
         RecordArchived(RecordType, AccountId, Hash, Archival),
