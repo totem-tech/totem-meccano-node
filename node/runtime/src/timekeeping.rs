@@ -26,6 +26,8 @@ use support::{
 use system::ensure_signed;
 use parity_codec::{Decode, Encode};
 use runtime_primitives::traits::Hash;
+use node_primitives::Hash as TimeReferenceHash;
+use substrate_primitives::{convert_hash};
 use rstd::prelude::*;
 
 // Totem crates
@@ -49,6 +51,7 @@ pub type ReasonCode = u16; // Reason for status change (TODO codes to be defined
 pub type ReasonCodeType = u16; // Category of reason code (TODO categories to be defined)
                                // pub type ReasonCodeText = Vec<u8>; // Reason for status change in text (not on chain!)
 pub type BanStatus = bool; // Ban status (default is false)
+pub type TimeHash = TimeReferenceHash; // 
 
 // Tuple for reason code changes
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Default)]
@@ -139,22 +142,22 @@ decl_storage! {
 
         // Time Record Hashes created by submitter
         // Unbounded! TODO
-        WorkerTimeRecordsHashList get(worker_time_records_hash_list): map T::AccountId => Vec<T::Hash>;
+        WorkerTimeRecordsHashList get(worker_time_records_hash_list): map T::AccountId => Vec<TimeHash>;
 
-        // TODO Review removing this as it is not used, and can be replaced by a lookup on TimeRecord
-        TimeHashOwner get(time_hash_owner): map T::Hash => Option<T::AccountId>;
+        // Simple getter to associate time record to owner
+        TimeHashOwner get(time_hash_owner): map TimeHash => Option<T::AccountId>;
 
         // All the time records for a given project
         // Unbounded! TODO
-        ProjectTimeRecordsHashList get(project_time_records_hash_list): map ProjectHashRef => Vec<T::Hash>;
+        ProjectTimeRecordsHashList get(project_time_records_hash_list): map ProjectHashRef => Vec<TimeHash>;
 
         // This records the amount of blocks per address, per project, per entry. // start block number can be calculated. Only accepted if an end block number is given in the transaction as this is the "service rendered" date for accounting purposes.
         //    .map(Address, Project Hash, End Block number => number of blocks, StatusOfTimeRecors (submitted, accepted, rejected, disputed, blocked, invoiced, locked, reason_code, reason text.), posting-period)
-        TimeRecord get(time_record): map T::Hash => Option<Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber,NumberOfBreaks>>;
+        TimeRecord get(time_record): map TimeHash => Option<Timekeeper<T::AccountId,ProjectHashRef,NumberOfBlocks,LockStatus,StatusOfTimeRecord,ReasonCodeStruct,PostingPeriod,StartOrEndBlockNumber,NumberOfBreaks>>;
         
         // ARCHIVE Experimental! May go somewhere else in future
-        WorkerTimeRecordsHashListArchive get(worker_time_records_hash_list_archive): map T::AccountId => Vec<T::Hash>;
-        ProjectTimeRecordsHashListArchive get(project_time_records_hash_list_archive): map ProjectHashRef => Vec<T::Hash>;
+        WorkerTimeRecordsHashListArchive get(worker_time_records_hash_list_archive): map T::AccountId => Vec<TimeHash>;
+        ProjectTimeRecordsHashListArchive get(project_time_records_hash_list_archive): map ProjectHashRef => Vec<TimeHash>;
     }
 }
 
@@ -274,7 +277,7 @@ decl_module! {
         fn submit_time(
             origin,
             project_hash: ProjectHashRef,
-            input_time_hash: T::Hash,
+            input_time_hash: TimeHash,
             submit_status: StatusOfTimeRecord,
             reason_for_change: ReasonCodeStruct,
             number_of_blocks:  NumberOfBlocks,
@@ -302,11 +305,13 @@ decl_module! {
 
                 // For testing
                 // let input_time_hash_2 = hex!("e4d673a76e8b32ca3989dbb9f444f71813c88d36120170b15151d58c7106cc83");
-                // let default_hash: T::Hash = hex!("e4d673a76e8b32ca3989dbb9f444f71813c88d36120170b15151d58c7106cc83");
+                // let default_hash: TimeHash = hex!("e4d673a76e8b32ca3989dbb9f444f71813c88d36120170b15151d58c7106cc83");
                 // 0x6c9596f9ca96adf2334c4761bc161442a32ef16896427b6d43fc5e9353bbab63
                 
                 let default_bytes = "Default hash";
-                let default_hash = T::Hashing::hash(&default_bytes.encode().as_slice()); // default hash BlakeTwo256
+                // let default_hash = T::Hashing::hash(&default_bytes.encode().as_slice()); // default hash BlakeTwo256
+                let intermediate_hash = T::Hashing::hash(&default_bytes.encode().as_slice()); // default hash BlakeTwo256
+                let default_hash: TimeHash = convert_hash(&intermediate_hash); // Conversion from T::Hash to Hash
 
                 // set default lock and reason code and type default values (TODO should come from extrinsic in future)
                 let initial_submit_reason = ReasonCodeStruct(0, 0);
@@ -317,10 +322,8 @@ decl_module! {
 
                         // This is the default hash therefore it is a new submission.
                         // Create a new random hash
-                        let time_hash: T::Hash = <system::Module<T>>::random_seed().using_encoded(<T as system::Trait>::Hashing::hash);
-
-                        // prepare new time key
-                        // let time_key = time_hash.clone();
+                        let intermediate_time_hash = <system::Module<T>>::random_seed().using_encoded(<T as system::Trait>::Hashing::hash);
+                        let time_hash: TimeHash = convert_hash(&intermediate_time_hash); // Conversion from T::Hash to Hash
 
                         // prepare new time record
                         let time_data: Timekeeper<
@@ -502,7 +505,7 @@ decl_module! {
             origin,
             worker: T::AccountId,
             project_hash: ProjectHashRef,
-            input_time_hash: T::Hash,
+            input_time_hash: TimeHash,
             status_of_record: StatusOfTimeRecord,
             reason: ReasonCodeStruct
             ) -> Result {
@@ -574,7 +577,7 @@ decl_module! {
         fn invoice_time(
             origin,
             _project_hash: ProjectHashRef,
-            _input_time_hash: T::Hash) -> Result {
+            _input_time_hash: TimeHash) -> Result {
             let who = ensure_signed(origin)?;
             // TODO This is normally set by the invoice module not by the time module
             // This needs to be reviewed once the invoice module is being developed.
@@ -591,7 +594,7 @@ decl_module! {
         fn pay_time(
             origin,
             _project_hash: ProjectHashRef,
-            _input_time_hash: T::Hash) -> Result {
+            _input_time_hash: TimeHash) -> Result {
             let who = ensure_signed(origin)?;
 
             Self::deposit_event(RawEvent::PayTime(who.clone()));
@@ -604,7 +607,7 @@ decl_module! {
         fn lock_time_record(
             _origin,
             _project_hash: ProjectHashRef,
-            _input_time_hash: T::Hash) -> Result {
+            _input_time_hash: TimeHash) -> Result {
 
             Self::deposit_event(RawEvent::LockTimeRecord());
             Ok(())
@@ -614,7 +617,7 @@ decl_module! {
         fn unlock_time_record(
             _origin,
             _project_hash: ProjectHashRef,
-            _input_time_hash: T::Hash) -> Result {
+            _input_time_hash: TimeHash) -> Result {
 
             Self::deposit_event(RawEvent::UnLockTimeRecord());
             Ok(())
@@ -678,7 +681,7 @@ impl<T: Trait> Module<T> {
 
     // Time record is remove (if it exists) and reinserted
     fn update_time_record(
-        k: T::Hash,
+        k: TimeHash,
         d: Timekeeper<
             T::AccountId,
             ProjectHashRef,
@@ -758,7 +761,7 @@ impl<T: Trait> Module<T> {
         Ok(())
     }
     
-    fn set_project_time_archive(time_hash: T::Hash, project_hash: ProjectHashRef, archive: bool)  -> Result {
+    fn set_project_time_archive(time_hash: TimeHash, project_hash: ProjectHashRef, archive: bool)  -> Result {
         // check if it's a retrieval or an archival process
         match archive {
             true => {
@@ -807,7 +810,7 @@ impl<T: Trait> Module<T> {
         
     }
     
-    fn set_worker_time_archive(owner: T::AccountId, time_hash: T::Hash, archive: bool) -> Result {
+    fn set_worker_time_archive(owner: T::AccountId, time_hash: TimeHash, archive: bool) -> Result {
         // check if it's a retrieval or an archival process
         match archive {
             true => {
@@ -861,7 +864,7 @@ impl<T: Trait> Module<T> {
     // Public functions
     //
     // This checks the time hash owner can archive this record
-    pub fn validate_and_archive(origin: T::AccountId, time_hash: T::Hash, archive: bool) -> Result {
+    pub fn validate_and_archive(origin: T::AccountId, time_hash: TimeHash, archive: bool) -> Result {
         let who = origin.clone();
     
         // get the time record 
@@ -886,6 +889,19 @@ impl<T: Trait> Module<T> {
         Ok(())
     
     }
+
+    pub fn check_time_record_owner(owner: T::AccountId, time_hash: TimeHash) -> bool {
+        // set default return value
+        let mut valid: bool = false;
+
+        // check ownership of project
+            match Self::time_hash_owner(time_hash) {
+                Some(owner) => valid = true,
+                None => return valid,
+            }
+
+        return valid;
+    }
     
 }
 
@@ -893,9 +909,9 @@ decl_event!(
     pub enum Event<T>
     where
     AccountId = <T as system::Trait>::AccountId,
-    Hash = <T as system::Trait>::Hash
+    // Hash = <T as system::Trait>::Hash
     {
-        SubmitedTimeRecord(Hash),
+        SubmitedTimeRecord(TimeHash),
         NotifyProjectWorker(AccountId, ProjectHashRef),
         WorkerAcceptanceStatus(AccountId, ProjectHashRef, AcceptAssignedStatus),
         SetAuthoriseStatus(AccountId),

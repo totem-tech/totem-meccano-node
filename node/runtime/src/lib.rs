@@ -57,6 +57,7 @@ extern crate sodalite;
 
 // Totem Runtime Modules
 mod boxkeys;
+mod bonsai;
 mod projects;
 mod timekeeping;
 mod archive;
@@ -82,7 +83,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 1,
     // incremental changes
-	impl_version: 8,
+	impl_version: 9,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -243,6 +244,10 @@ impl boxkeys::Trait for Runtime {
     type Event = Event;
 }
 
+impl bonsai::Trait for Runtime {
+    type Event = Event;
+}
+
 impl archive::Trait for Runtime {
     type Event = Event;
 }
@@ -274,6 +279,7 @@ construct_runtime!(
 		ProjectModule: projects::{Module, Call, Storage, Event<T>},
 		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
 		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
+		BonsaiModule: bonsai::{Module, Call, Storage, Event<T>},
 		ArchiveModule: archive::{Module, Call, Event<T>},
 	}
 );
