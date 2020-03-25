@@ -63,7 +63,7 @@ impl<TMessage, TSubstream> Behaviour<TMessage, TSubstream> {
 		enable_mdns: bool,
 	) -> Self {
 		let identify = {
-			let proto_version = "/substrate/1.0".to_string();
+			let proto_version = "/totem-meccano/1.0".to_string();
 			Identify::new(proto_version, user_agent, local_public_key.clone())
 		};
 
