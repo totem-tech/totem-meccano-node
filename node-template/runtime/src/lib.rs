@@ -76,6 +76,7 @@ pub type BlockNumber = u64;
 /// Index of an account's extrinsic in the chain.
 pub type Nonce = u64;
 
+mod totem;
 mod boxkeys;
 mod projects;
 mod timekeeping;
@@ -224,6 +225,7 @@ impl sudo::Trait for Runtime {
 // 	type Event = Event;
 // }
 
+
 impl projects::Trait for Runtime {
     type Event = Event;
 }
@@ -237,6 +239,10 @@ impl boxkeys::Trait for Runtime {
 }
 
 impl archive::Trait for Runtime {
+    type Event = Event;
+}
+
+impl totem::Trait for Runtime {
     type Event = Event;
 }
 
@@ -257,6 +263,7 @@ construct_runtime!(
 		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
 		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
 		ArchiveModule: archive::{Module, Call, Event<T>},
+		TotemModule: totem::{Module, Call, Storage, Event<T>},
 	}
 );
 
