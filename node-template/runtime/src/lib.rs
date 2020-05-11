@@ -35,7 +35,7 @@ use primitives::{ed25519, sr25519, OpaqueMetadata};
 use rstd::prelude::*;
 use runtime_primitives::{
     create_runtime_str, generic,
-    traits::{self, BlakeTwo256, Block as BlockT, NumberFor, StaticLookup, Verify},
+    traits::{self, BlakeTwo256, Block as BlockT, NumberFor, StaticLookup, Verify, Convert},
     transaction_validity::TransactionValidity,
     ApplyResult,
 };
@@ -142,6 +142,23 @@ pub fn native_version() -> NativeVersion {
     }
 }
 
+// Totem implemented for converting between Accounting Balances and Internal Balances
+pub struct AmountToBalanceHandler;
+
+// Basic type conversion
+impl AmountToBalanceHandler {
+	fn signed_to_unsigned(x: i128) -> u128 { x.abs() as u128 }
+}
+
+// Takes the AccountBalance and converts for use with BalanceOf<T>
+impl Convert<i128, u128> for AmountToBalanceHandler {
+	fn convert(x: i128) -> u128 { Self::signed_to_unsigned(x) as u128 }
+}
+// Takes BalanceOf<T> and converts for use with AccountBalance type
+impl Convert<u128, i128> for AmountToBalanceHandler {
+	fn convert(x: u128) -> i128 { x as i128 }
+}
+
 impl system::Trait for Runtime {
     /// The identifier used to distinguish between accounts.
     type AccountId = AccountId;
@@ -244,6 +261,8 @@ impl archive::Trait for Runtime {
 
 impl totem::Trait for Runtime {
     type Event = Event;
+    type Currency = balances::Module<Self>;
+    type AmountToBalance = AmountToBalanceHandler;
 }
 
 construct_runtime!(

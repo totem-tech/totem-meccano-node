@@ -52,14 +52,22 @@
 //********************************************************//
 use parity_codec::{Encode};
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap};
-use runtime_primitives::traits::Hash; // Use with node template only
-// use node_primitives::Hash; // Use with full node
+use runtime_primitives::traits::{Convert, Zero, Hash}; // Use with node template only
+// use node_primitives::{Zero, Hash}; // Use with full node
 use system::{self, ensure_signed};
 use rstd::prelude::*;
+use support::traits::{
+	Currency, OnFreeBalanceZero, OnDilution, LockIdentifier, LockableCurrency, ReservableCurrency, WithdrawReasons,
+	OnUnbalanced, Imbalance,
+};
 
-pub type AccountBalance = i64; // Balance on an account can be negative - needs to be larger than the 
+type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
+type PositiveImbalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::PositiveImbalance;
+type NegativeImbalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::NegativeImbalance;
+
+pub type AccountBalance = i128; // Balance on an account can be negative - needs to be larger than the 
 pub type Account = u64; // General ledger account number
-pub type Amount = u64; // Amount being transferred - check this should only be the amount 
+pub type Amount = u128; // Amount being transferred - check this should only be the amount 
 pub type Indicator = bool; // 0=Debit(false) 1=Credit(true) Note: Debit and Credit balances are account specific - see chart of accounts
 pub type UnLocked = bool; // 0=Unlocked(false) 1=Locked(true)
 pub type Symbol = Vec<u8>; // Currency Symbol 
@@ -69,6 +77,8 @@ pub type Deadline = u64; // Deadline as blocknumber
 
 pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+    type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
+    type AmountToBalance: Convert<AccountBalance, BalanceOf<Self>> + Convert<BalanceOf<Self>, AccountBalance>;
 }
 
 // Key : Account Identity and General Ledger Account Number 
@@ -198,7 +208,7 @@ impl<T: Trait> Module<T> {
         // manage the deposit
         let reference: T::Hash = Self::set_prefunding(who.clone(), recipient.clone(), amount, deadline); 
         
-        // TODO Set status
+
     
         // Process Balance Sheet and P&L updates
         // debit increase 110100050000000 Prefunding Account
@@ -208,7 +218,6 @@ impl<T: Trait> Module<T> {
             Ok(_) => (),
             Err(_) => return Err("Overflow error, amount too big!"),
         }
-        // Self::post(who.clone(), account, increase_amount, false, reference)?;
         
         // credit decrease 110100040000000 XTX Balance
         account = 110100040000000;
@@ -272,6 +281,38 @@ impl<T: Trait> Module<T> {
     
         // secure funds
         // <balances::Module<T>>::decrease_free_balance(&s, &abs);
+
+        // Reserve from the sender the amount they propose in the task
+        // Check that the current free balance minus the reserved amount does not destroy the account.
+        // If OK reserve the amount.
+        // Record the reserved amount in the Reserve Store
+        // Set the (withdrawal) status 10 11 01 00
+        // assert!(T::Currency::free_balance(&stash) >= balance);
+
+        // You cannot reserve prefund any amount unless you have at least at balance of 1618 units.
+
+        let minimum_balance: BalanceOf<T> = <T::AmountToBalance as Convert<AccountBalance, BalanceOf<T>>>::convert(1618) + <T::AmountToBalance as Convert<AccountBalance, BalanceOf<T>>>::convert(c);
+
+        let current_balance = T::Currency::free_balance(&s);
+        assert!(current_balance >= minimum_balance);
+
+        // T::Currency::set_lock(
+        //     STAKING_ID, // id
+        //     &ledger.stash, // who
+        //     ledger.total, // amount
+        //     T::BlockNumber::max_value(), // until 
+        //     WithdrawReasons::all()); //
+            
+        //     <Ledger<T>>::insert(controller, ledger);
+            // TODO Set status
+
+
+
+
+
+
+
+
         
         // store in runtime
         let prefunded = (Self::ensure_absolute(c), d);
