@@ -28,7 +28,7 @@ use client::{
     block_builder::api::{self as block_builder_api, CheckInherentsResult, InherentData},
     impl_runtime_apis, runtime_api,
 };
-use parity_codec::{Decode, Encode};
+use parity_codec:: {Encode, Decode};
 #[cfg(feature = "std")]
 use primitives::bytes;
 use primitives::{ed25519, sr25519, OpaqueMetadata};
@@ -143,20 +143,31 @@ pub fn native_version() -> NativeVersion {
 }
 
 // Totem implemented for converting between Accounting Balances and Internal Balances
-pub struct AmountToBalanceHandler;
+pub struct ConversionHandler;
 
 // Basic type conversion
-impl AmountToBalanceHandler {
+impl ConversionHandler {
 	fn signed_to_unsigned(x: i128) -> u128 { x.abs() as u128 }
 }
 
 // Takes the AccountBalance and converts for use with BalanceOf<T>
-impl Convert<i128, u128> for AmountToBalanceHandler {
+impl Convert<i128, u128> for ConversionHandler {
 	fn convert(x: i128) -> u128 { Self::signed_to_unsigned(x) as u128 }
 }
 // Takes BalanceOf<T> and converts for use with AccountBalance type
-impl Convert<u128, i128> for AmountToBalanceHandler {
+impl Convert<u128, i128> for ConversionHandler {
 	fn convert(x: u128) -> i128 { x as i128 }
+}
+
+// Takes Vec<u8> encoded hash and converts for as a LockIdentifier type
+impl Convert<Vec<u8>, [u8;8]> for ConversionHandler {
+    fn convert(x: Vec<u8>) -> [u8;8] { 
+        let mut y: [u8;8] = [0;8];
+        for z in 0..8 {
+            y[z] = x[z].into();
+        };
+        return y;
+    }
 }
 
 impl system::Trait for Runtime {
@@ -262,7 +273,7 @@ impl archive::Trait for Runtime {
 impl totem::Trait for Runtime {
     type Event = Event;
     type Currency = balances::Module<Self>;
-    type AmountToBalance = AmountToBalanceHandler;
+    type Conversions = ConversionHandler;
 }
 
 construct_runtime!(

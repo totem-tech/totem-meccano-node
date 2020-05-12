@@ -49,41 +49,46 @@
 // Bank of America Account (Identity) has properties > Bank Current > Current Assets > Assets > Balance Sheet > 110100010000000 
 // Here the Identity has a 1:1 relationship to its properties
 
+// It also contains a generic prefunding module.
+
 //********************************************************//
-use parity_codec::{Encode};
-use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap};
-use runtime_primitives::traits::{Convert, Zero, Hash}; // Use with node template only
+use parity_codec::{Decode, Encode};
+use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap, ensure};
+use runtime_primitives::traits::{Convert, Hash}; // Use with node template only
 // use node_primitives::{Zero, Hash}; // Use with full node
 use system::{self, ensure_signed};
 use rstd::prelude::*;
 use support::traits::{
-	Currency, OnFreeBalanceZero, OnDilution, LockIdentifier, LockableCurrency, ReservableCurrency, WithdrawReasons,
-	OnUnbalanced, Imbalance,
+    Currency, 
+    // OnFreeBalanceZero, 
+    // OnDilution, 
+    LockIdentifier, 
+    LockableCurrency, 
+    // ReservableCurrency, 
+    // WithdrawReasons, 
+    WithdrawReason,
+    // OnUnbalanced, 
+    // Imbalance,
 };
 
 type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
-type PositiveImbalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::PositiveImbalance;
-type NegativeImbalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::NegativeImbalance;
+// type PositiveImbalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::PositiveImbalance;
+// type NegativeImbalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::NegativeImbalance;
 
 pub type AccountBalance = i128; // Balance on an account can be negative - needs to be larger than the 
 pub type Account = u64; // General ledger account number
-pub type Amount = u128; // Amount being transferred - check this should only be the amount 
 pub type Indicator = bool; // 0=Debit(false) 1=Credit(true) Note: Debit and Credit balances are account specific - see chart of accounts
 pub type UnLocked = bool; // 0=Unlocked(false) 1=Locked(true)
-pub type Symbol = Vec<u8>; // Currency Symbol 
-pub type Rate = u32; // Exchange Rate
+// pub type Symbol = Vec<u8>; // Currency Symbol 
+// pub type Rate = u32; // Exchange Rate
 pub type Status = u16; // Generic Status for whatever the HashReference refers to
-pub type Deadline = u64; // Deadline as blocknumber
+// pub type Moment = u64;
 
 pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
-    type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
-    type AmountToBalance: Convert<AccountBalance, BalanceOf<Self>> + Convert<BalanceOf<Self>, AccountBalance>;
+    type Currency: Currency<Self::AccountId> + LockableCurrency<Self::AccountId, Moment=Self::BlockNumber>;
+    type Conversions: Convert<AccountBalance, BalanceOf<Self>> + Convert<BalanceOf<Self>, AccountBalance> + Convert<Vec<u8>, LockIdentifier>;
 }
-
-// Key : Account Identity and General Ledger Account Number 
-// Value : General Ledger Account Number (corresponding debit or credit), Current Blocknumber, Corresponding Account Identity, prior Balance, new balance, amount, debit or credit indicator
-// Rather than storing detail at the record
 
 decl_storage! {
     trait Store for Module<T: Trait> as TotemModule {
@@ -101,7 +106,7 @@ decl_storage! {
         // This storage is intended to signal to a marketplace that the originator is prepared to lockup funds to a deadline.
         // If the sender accepts respondence then the funds are moved to the main prefunding account
         // After deadline sender can withdraw funds
-        Prefunding get(prefunding): map T::Hash => Option<(AccountBalance,Deadline)>;
+        Prefunding get(prefunding): map T::Hash => Option<(BalanceOf<T>, T::BlockNumber)>;
         
         // Says who can take the money after deadline. Includes intended owner (same as origin for market posting)
         // 10, sender can take after deadline (initial state)
@@ -121,6 +126,13 @@ decl_storage! {
 decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
+        /// This function reserves funds from the sender for a given account. However the assets remain the property of the sender 
+        fn prefund_beneficiary(origin, recipient: T::AccountId, amount: AccountBalance, deadline: T::BlockNumber) -> Result {
+            let who = ensure_signed(origin)?;
+            let _ = Self::prefunding_for(who, recipient, amount, deadline)?;
+            
+            Ok(())
+        }
     }
 }
 
@@ -130,16 +142,15 @@ impl<T: Trait> Module<T> {
     // postings and vice-versa. For example Accounts Receivable is the gross invoice amount, which could correspond with 
     // a credit to liabilities for the sales tax amount and a credit to revenue for the net invoice amount. The sum of both credits being 
     // equal to the single posting into accounts receivable, but only one posting needs to be made to that account, and two posting for the others.
-    fn post(i: T::AccountId, a: Account, c: AccountBalance, d: bool, r: T::Hash) -> Result {
+    fn post(i: T::AccountId, a: Account, c: AccountBalance, d: bool, r: T::Hash, b: T::BlockNumber) -> Result {
         let zero: AccountBalance = 0;
         let key = (i.clone(), a);
-        let current_block = <system::Module<T>>::block_number();
         let abs: AccountBalance = c.abs();
-        let detail = (current_block, abs, d, r);
+        let detail = (b, abs, d, r);
         
         // !! Warning !! 
         // Values could feasibly overflow, with no visibility on other accounts. Therefore need to handle the error states
-        // Reversals occur in the function that calls this function, but updates are only made to storage once all three tests are passed
+        // Reversals must occur in the function that calls this function as updates are made to storage once all three tests are passed for either the debit or credit.
         if c > zero {
             // check adding the new amount to the existing balance
             match Self::balance_by_ledger(&key).checked_add(c) {
@@ -184,50 +195,54 @@ impl<T: Trait> Module<T> {
         
         Ok(())
     }
-
-    fn ensure_absolute(amount: AccountBalance) -> AccountBalance {
-        let zero: AccountBalance = 0; 
-        let absolute_amount: AccountBalance;        
+    // Main Prefunding Recipe including Accounting Postings
+    fn prefunding_for(who: T::AccountId, recipient: T::AccountId, amount: AccountBalance, deadline: T::BlockNumber) -> Result {
         
-        if amount < zero {
-            absolute_amount = amount * -1;    
-        } else {
-            absolute_amount = amount;
-        }
-    
-        return absolute_amount;
-    }
-    
-    fn prefunding_for(origin: T::Origin, recipient: T::AccountId, amount: AccountBalance, deadline: Deadline) -> Result {
-        
-        let who = ensure_signed(origin)?;
         // amount cannot be negative
-        let increase_amount: AccountBalance = Self::ensure_absolute(amount);
-        let decrease_amount: AccountBalance = -Self::ensure_absolute(amount);
+        let increase_amount: AccountBalance = amount.abs();
+        let decrease_amount: AccountBalance = -amount.abs();
     
-        // manage the deposit
-        let reference: T::Hash = Self::set_prefunding(who.clone(), recipient.clone(), amount, deadline); 
-        
+        let current_block = <system::Module<T>>::block_number();
+        let prefunding_hash: T::Hash = Self::get_pseudo_random_value(who.clone(), recipient.clone());
 
+        // manage the deposit
+            match Self::set_prefunding(who.clone(), recipient.clone(), amount, deadline, prefunding_hash) {
+                Ok(_) => (),
+                Err(e) => return Err(e),
+            }
+        
+        // Deposit taken at this point. Note that if an error occurs beyond here we need to remove the locked funds.
     
         // Process Balance Sheet and P&L updates
         // debit increase 110100050000000 Prefunding Account
         let mut account: Account = 110100050000000;
         // This is the first posting, if it errors there is nothing to reverse. Then exit.
-        match Self::post(who.clone(), account, increase_amount, false, reference) {
+        match Self::post(who.clone(), account, increase_amount, false, prefunding_hash, current_block) {
             Ok(_) => (),
-            Err(_) => return Err("Overflow error, amount too big!"),
+            Err(e) => {
+                T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
+                return Err("Overflow error, amount too big!");
+            },
         }
         
         // credit decrease 110100040000000 XTX Balance
         account = 110100040000000;
-        match Self::post(who.clone(), account, decrease_amount, true, reference) {
+        match Self::post(who.clone(), account, decrease_amount, true, prefunding_hash, current_block) {
             Ok(_) => (),
-            Err(_) => {
+            Err(e) => {
                 // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
                 // as this has already changed in storage.
                 account = 110100050000000;
-                Self::post(who.clone(), account, decrease_amount, true, reference);
+                match Self::post(who.clone(), account, decrease_amount, true, prefunding_hash, current_block) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        // This event is because there is a major system error in the reversal process
+                        T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
+                        Self::deposit_event(RawEvent::ErrorInError(who));
+                        return Err("System Failure in Account Posting");
+                    },
+                }
+                T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
                 return Err("Overflow error, amount too big!");
             },
         }
@@ -235,101 +250,133 @@ impl<T: Trait> Module<T> {
         // Update Memorandum Ledgers
         // debit increase 360600020000000	Runtime Ledger by Module
         account = 360600020000000;
-        match Self::post(who.clone(), account, increase_amount, false, reference) {
+        match Self::post(who.clone(), account, increase_amount, false, prefunding_hash, current_block) {
             Ok(_) => (),
-            Err(_) => {
+            Err(e) => {
                 // Error before the value was updated. Need to reverse-out the earlier credits and debits
                 // as these values has already changed in storage.
                 account = 110100050000000;
-                Self::post(who.clone(), account, decrease_amount, true, reference);
+                match Self::post(who.clone(), account, decrease_amount, true, prefunding_hash, current_block) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        // This event is because there is a major system error in the reversal process
+                        T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
+                        Self::deposit_event(RawEvent::ErrorInError(who));
+                        return Err("System Failure in Account Posting");
+                    },
+                }
                 account = 110100040000000;
-                Self::post(who.clone(), account, increase_amount, false, reference);
+                match Self::post(who.clone(), account, increase_amount, false, prefunding_hash, current_block) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        // This event is because there is a major system error in the reversal process
+                        T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
+                        Self::deposit_event(RawEvent::ErrorInError(who));
+                        return Err("System Failure in Account Posting");
+                    },
+                }
+                T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
                 return Err("Overflow error, amount too big!");
             },
         }
         
         // debit increase 360600060000000	Runtime Ledger Control
         account = 360600060000000;
-        match Self::post(who.clone(), account, increase_amount, false, reference) {
+        match Self::post(who.clone(), account, increase_amount, false, prefunding_hash, current_block) {
             Ok(_) => (),
-            Err(_) => {
+            Err(e) => {
                 // Error before the value was updated. Need to reverse-out the earlier credits and debits
                 // as these values has already changed in storage.
                 account = 110100050000000;
-                Self::post(who.clone(), account, decrease_amount, true, reference);
+                match Self::post(who.clone(), account, decrease_amount, true, prefunding_hash, current_block) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        // This event is because there is a major system error in the reversal process
+                        T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
+                        Self::deposit_event(RawEvent::ErrorInError(who));
+                        return Err("System Failure in Account Posting");
+                    },
+                }
                 account = 110100040000000;
-                Self::post(who.clone(), account, increase_amount, false, reference);
+                match Self::post(who.clone(), account, increase_amount, false, prefunding_hash, current_block) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        // This event is because there is a major system error in the reversal process
+                        T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
+                        Self::deposit_event(RawEvent::ErrorInError(who));
+                        return Err("System Failure in Account Posting");
+                    },
+                }
                 account = 360600020000000;
-                Self::post(who.clone(), account, decrease_amount, true, reference);
+                match Self::post(who.clone(), account, decrease_amount, true, prefunding_hash, current_block) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        // This event is because there is a major system error in the reversal process
+                        T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
+                        Self::deposit_event(RawEvent::ErrorInError(who));
+                        return Err("System Failure in Account Posting");
+                    },
+                }
+                T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
                 return Err("Overflow error, amount too big!");
             },
         }
-        
-        Ok(())
-    }
-        
-    fn set_prefunding(s: T::AccountId, r: T::AccountId, c: AccountBalance, d: Deadline) -> T::Hash {
-        
-        // Prepare
-    
-        // TODO Ensure that the funds can be substrated from sender's balance 
-        // without causing the account to be destroyed by the existential deposit 
-        
-        let prefunding_hash: T::Hash = Self::get_pseudo_random_value(s.clone(), r.clone());
-        
-        // let abs: T::Balance = Self::ensure_absolute(&c);
-    
-        // secure funds
-        // <balances::Module<T>>::decrease_free_balance(&s, &abs);
+        let converted_amount: BalanceOf<T> = <T::Conversions as Convert<AccountBalance, BalanceOf<T>>>::convert(amount);
 
-        // Reserve from the sender the amount they propose in the task
-        // Check that the current free balance minus the reserved amount does not destroy the account.
-        // If OK reserve the amount.
-        // Record the reserved amount in the Reserve Store
-        // Set the (withdrawal) status 10 11 01 00
-        // assert!(T::Currency::free_balance(&stash) >= balance);
+        let prefunded = (converted_amount, deadline);
+        let owners = (who.clone(), true, recipient.clone(), false);
+        let new_status: Status = 1; // Submitted
 
-        // You cannot reserve prefund any amount unless you have at least at balance of 1618 units.
-
-        let minimum_balance: BalanceOf<T> = <T::AmountToBalance as Convert<AccountBalance, BalanceOf<T>>>::convert(1618) + <T::AmountToBalance as Convert<AccountBalance, BalanceOf<T>>>::convert(c);
-
-        let current_balance = T::Currency::free_balance(&s);
-        assert!(current_balance >= minimum_balance);
-
-        // T::Currency::set_lock(
-        //     STAKING_ID, // id
-        //     &ledger.stash, // who
-        //     ledger.total, // amount
-        //     T::BlockNumber::max_value(), // until 
-        //     WithdrawReasons::all()); //
-            
-        //     <Ledger<T>>::insert(controller, ledger);
-            // TODO Set status
-
-
-
-
-
-
-
-
-        
-        // store in runtime
-        let prefunded = (Self::ensure_absolute(c), d);
-        let owners = (s.clone(), true, r.clone(), false);
+        // Record Prefunding ownership and status
         <Prefunding<T>>::insert(&prefunding_hash, prefunded);
-        <PrefundingHashOwner<T>>::insert(prefunding_hash, owners); 
+        <PrefundingHashOwner<T>>::insert(&prefunding_hash, owners); 
         
-        // add hash to list
-        <OwnerPrefundingHashList<T>>::mutate(&s, |owner_prefunding_hash_list| {
+        // Add reference hash to list of hashes
+        <OwnerPrefundingHashList<T>>::mutate(&who, |owner_prefunding_hash_list| {
             owner_prefunding_hash_list.push(prefunding_hash)
         });
-        
-        Self::deposit_event(RawEvent::PrefundingDeposit(s, c, d));
-    
-        return prefunding_hash;
+
+        <ReferenceStatus<T>>::insert(&prefunding_hash, new_status);
+
+        // Issue event
+        Self::deposit_event(RawEvent::PrefundingCompleted(who));
+
+        Ok(())
     }
-    
+    // Convert Hash to Prefund Id  
+    fn get_prefunding_id(hash: T::Hash) -> LockIdentifier {
+        // Convert Hash to ID using first 8 bytes of hash
+        return <T::Conversions as Convert<Vec<u8>, LockIdentifier>>::convert(hash.encode());
+    }
+    // Reserve the prefunding deposit
+    fn set_prefunding(s: T::AccountId, r: T::AccountId, c: AccountBalance, d: T::BlockNumber, h: T::Hash) -> Result {
+        
+        // Prepare make sure we are not taking the deposit again
+        ensure!(!<ReferenceStatus<T>>::exists(&h), "This hash already exists!");        
+
+        // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund.
+        ensure!((c > 0), "Cannot prefund zero");
+        let converted_amount: BalanceOf<T> = <T::Conversions as Convert<AccountBalance, BalanceOf<T>>>::convert(c);
+        let minimum_balance: BalanceOf<T> = <T::Conversions as Convert<AccountBalance, BalanceOf<T>>>::convert(1618) + converted_amount;        
+        let current_balance = T::Currency::free_balance(&s);
+        
+        // Ensure that the funds can be substrated from sender's balance 
+        // without causing the account to be destroyed by the existential deposit 
+        if current_balance >= minimum_balance {
+            
+            // Lock the amount from the sender and set deadline
+            T::Currency::set_lock(Self::get_prefunding_id(h), &s, converted_amount, d, WithdrawReason::Reserve.into());
+            
+            Self::deposit_event(RawEvent::PrefundingDeposit(s, c, d));
+            
+            Ok(())
+            
+        } else {
+            Self::deposit_event(RawEvent::ErrorInsufficientFunds(s));
+            return Err("Not enough funds to prefund");
+        }
+    }
+    // generate reference hash
     fn get_pseudo_random_value(sender: T::AccountId, recipient: T::AccountId) -> T::Hash {
         let tuple = (sender, recipient);
         let input = (
@@ -348,10 +395,14 @@ decl_event!(
     pub enum Event<T>
     where
     AccountId = <T as system::Trait>::AccountId,
+    BlockNumber = <T as system::Trait>::BlockNumber,
     {
         LegderUpdate(AccountId, Account, AccountBalance),
-        PrefundingDeposit(AccountId, AccountBalance, Deadline),
+        PrefundingDeposit(AccountId, AccountBalance, BlockNumber),
+        PrefundingCompleted(AccountId),
         ErrorOverflow(Account),
+        ErrorInsufficientFunds(AccountId),
+        ErrorInError(AccountId),
     }
 );
 
