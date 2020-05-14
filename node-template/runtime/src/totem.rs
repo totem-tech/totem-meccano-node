@@ -84,6 +84,8 @@ pub type UnLocked = bool; // 0=Unlocked(false) 1=Locked(true)
 pub type Status = u16; // Generic Status for whatever the HashReference refers to
 // pub type Moment = u64;
 
+pub const U16MAX: u16 = u16::max_value();
+
 pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
     type Currency: Currency<Self::AccountId> + LockableCurrency<Self::AccountId, Moment=Self::BlockNumber>;
@@ -119,7 +121,7 @@ decl_storage! {
         OwnerPrefundingHashList get(owner_prefunding_hash_list): map T::AccountId => Vec<T::Hash>;
         
         // Reference Hash generic status
-        ReferenceStatus get(reference_status): map T::Hash => Option<Status>;
+        ReferenceStatus get(reference_status): map T::Hash => Status;
     }
 }
 
@@ -137,16 +139,18 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
-    // Basic posting function (warning! can cause imbalance if not called with corresponding entries)
-    // The reason why this is a simple function is that (for example) one debit posting may correspond with one or many credit
-    // postings and vice-versa. For example Accounts Receivable is the gross invoice amount, which could correspond with 
-    // a credit to liabilities for the sales tax amount and a credit to revenue for the net invoice amount. The sum of both credits being 
-    // equal to the single posting into accounts receivable, but only one posting needs to be made to that account, and two posting for the others.
-    fn post(i: T::AccountId, a: Account, c: AccountBalance, d: bool, r: T::Hash, b: T::BlockNumber) -> Result {
+    // ****************************************************//
+    /// Basic posting function (warning! can cause imbalance if not called with corresponding debit or credit entries)
+    /// The reason why this is a simple function is that (for example) one debit posting may correspond with one or many credit
+    /// postings and vice-versa. For example a debit to Accounts Receivable is the gross invoice amount, which could correspond with 
+    /// a credit to liabilities for the sales tax amount and a credit to revenue for the net invoice amount. The sum of both credits being 
+    /// equal to the single debit in accounts receivable, but only one posting needs to be made to that account, and two posting for the others.
+    /// The Totem Accounting Recipes are constructed using this simple function.
+    fn post(o: T::AccountId, a: Account, c: AccountBalance, d: bool, h: T::Hash, b: T::BlockNumber) -> Result {
         let zero: AccountBalance = 0;
-        let key = (i.clone(), a);
+        let key = (o.clone(), a);
         let abs: AccountBalance = c.abs();
-        let detail = (b, abs, d, r);
+        let detail = (b, abs, d, h);
         
         // !! Warning !! 
         // Values could feasibly overflow, with no visibility on other accounts. Therefore need to handle the error states
@@ -162,8 +166,8 @@ impl<T: Trait> Module<T> {
                     match Self::global_ledger(&a).checked_add(c) {
                         Some(n) => (),
                         None => {
-                            Self::deposit_event(RawEvent::ErrorOverflow(a));
-                            return Err("Balance Value overflowed");
+                            Self::deposit_event(RawEvent::ErrorGlobalOverflow());
+                            return Err("Global Balance Value overflowed");
                         },
                     }
                 },
@@ -179,8 +183,8 @@ impl<T: Trait> Module<T> {
                     match Self::global_ledger(&a).checked_sub(c) {
                         Some(n) => (),
                         None => {
-                            Self::deposit_event(RawEvent::ErrorOverflow(a));
-                            return Err("Balance Value overflowed");
+                            Self::deposit_event(RawEvent::ErrorGlobalOverflow());
+                            return Err("Global Balance Value overflowed");
                         },
                     }
                 },
@@ -191,28 +195,31 @@ impl<T: Trait> Module<T> {
         <Detail<T>>::insert(&key, detail);
         <GlobalLedger<T>>::mutate(&a, |v| *v += c);
         
-        Self::deposit_event(RawEvent::LegderUpdate(i, a, c));
+        Self::deposit_event(RawEvent::LegderUpdate(o, a, c));
         
         Ok(())
     }
+    // ****************************************************//
+
+    // ****************************************************//
     // Main Prefunding Recipe including Accounting Postings
     fn prefunding_for(who: T::AccountId, recipient: T::AccountId, amount: AccountBalance, deadline: T::BlockNumber) -> Result {
         
         // amount cannot be negative
         let increase_amount: AccountBalance = amount.abs();
         let decrease_amount: AccountBalance = -amount.abs();
-    
+        
         let current_block = <system::Module<T>>::block_number();
         let prefunding_hash: T::Hash = Self::get_pseudo_random_value(who.clone(), recipient.clone());
-
+        
         // manage the deposit
-            match Self::set_prefunding(who.clone(), recipient.clone(), amount, deadline, prefunding_hash) {
-                Ok(_) => (),
-                Err(e) => return Err(e),
-            }
+        match Self::set_prefunding(who.clone(), amount, deadline, prefunding_hash) {
+            Ok(_) => (),
+            Err(e) => return Err(e),
+        }
         
         // Deposit taken at this point. Note that if an error occurs beyond here we need to remove the locked funds.
-    
+        
         // Process Balance Sheet and P&L updates
         // debit increase 110100050000000 Prefunding Account
         let mut account: Account = 110100050000000;
@@ -246,7 +253,7 @@ impl<T: Trait> Module<T> {
                 return Err("Overflow error, amount too big!");
             },
         }
-
+        
         // Update Memorandum Ledgers
         // debit increase 360600020000000	Runtime Ledger by Module
         account = 360600020000000;
@@ -322,38 +329,34 @@ impl<T: Trait> Module<T> {
             },
         }
         let converted_amount: BalanceOf<T> = <T::Conversions as Convert<AccountBalance, BalanceOf<T>>>::convert(amount);
-
+        
         let prefunded = (converted_amount, deadline);
-        let owners = (who.clone(), true, recipient.clone(), false);
         let new_status: Status = 1; // Submitted
-
+        // Locked by sender.
+        let owners = (who.clone(), true, recipient.clone(), false);
+        <PrefundingHashOwner<T>>::insert(&prefunding_hash, owners); 
+        
         // Record Prefunding ownership and status
         <Prefunding<T>>::insert(&prefunding_hash, prefunded);
-        <PrefundingHashOwner<T>>::insert(&prefunding_hash, owners); 
         
         // Add reference hash to list of hashes
         <OwnerPrefundingHashList<T>>::mutate(&who, |owner_prefunding_hash_list| {
             owner_prefunding_hash_list.push(prefunding_hash)
         });
-
+        
         <ReferenceStatus<T>>::insert(&prefunding_hash, new_status);
-
+        
         // Issue event
         Self::deposit_event(RawEvent::PrefundingCompleted(who));
-
+        
         Ok(())
     }
-    // Convert Hash to Prefund Id  
-    fn get_prefunding_id(hash: T::Hash) -> LockIdentifier {
-        // Convert Hash to ID using first 8 bytes of hash
-        return <T::Conversions as Convert<Vec<u8>, LockIdentifier>>::convert(hash.encode());
-    }
     // Reserve the prefunding deposit
-    fn set_prefunding(s: T::AccountId, r: T::AccountId, c: AccountBalance, d: T::BlockNumber, h: T::Hash) -> Result {
+    fn set_prefunding(s: T::AccountId, c: AccountBalance, d: T::BlockNumber, h: T::Hash) -> Result {
         
         // Prepare make sure we are not taking the deposit again
         ensure!(!<ReferenceStatus<T>>::exists(&h), "This hash already exists!");        
-
+        
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund.
         ensure!((c > 0), "Cannot prefund zero");
         let converted_amount: BalanceOf<T> = <T::Conversions as Convert<AccountBalance, BalanceOf<T>>>::convert(c);
@@ -376,6 +379,15 @@ impl<T: Trait> Module<T> {
             return Err("Not enough funds to prefund");
         }
     }
+    // ****************************************************//
+    
+    // ****************************************************//
+    // Utility functions
+    // Generate Prefund Id from hash  
+    fn get_prefunding_id(hash: T::Hash) -> LockIdentifier {
+        // Convert Hash to ID using first 8 bytes of hash
+        return <T::Conversions as Convert<Vec<u8>, LockIdentifier>>::convert(hash.encode());
+    }
     // generate reference hash
     fn get_pseudo_random_value(sender: T::AccountId, recipient: T::AccountId) -> T::Hash {
         let tuple = (sender, recipient);
@@ -387,8 +399,200 @@ impl<T: Trait> Module<T> {
             <system::Module<T>>::block_number()
         );
         return T::Hashing::hash(input.encode().as_slice()); // default hash BlakeTwo256
+    } 
+    // Get status of a reference hash or Max Value as error (will need to be checked outside this call) 
+    fn get_ref_status(h: T::Hash) -> Status {
+        match Self::reference_status(&h) {
+            status => status,
+            _ => U16MAX, // just return the max value as quasi-error state
+        }
     }
+    // check owner (of hash) - if anything fails then 
+    fn check_ref_owner(o: T::AccountId, h: T::Hash) -> bool {
+        match Self::prefunding_hash_owner(&h) {
+            Some(owners) => {
+                if Some(owners.0) == Some(o) { return true } else { () } 
+            },
+            None => (),
+        };
+        return false;
+    }
+    // check beneficiary (of hash reference)
+    fn check_ref_beneficiary(o: T::AccountId, h: T::Hash) -> bool {
+        match Self::prefunding_hash_owner(&h) {
+            Some(owners) => {
+                if Some(owners.2) == Some(o) { return true } else { () } 
+            },
+            None => (),
+        };
+        return false;
+    }    
+    // check hash exists
+    fn reference_exists(h: T::Hash) -> bool {
+        <ReferenceStatus<T>>::exists(&h)
+    }
+    // Prefunding deadline passed?
+    fn prefund_deadline_passed(h: T::Hash) -> bool {
+        let current_block: T::BlockNumber = <system::Module<T>>::block_number();
+        match Self::prefunding(&h) {
+            Some(deadline) => {
+                if Some(deadline.1) <= Some(current_block) { return true } else { () } 
+            },
+            None => (),
+        };
+        return false;
+    }
+    // Sets the release state by the owner or the beneficiary
+    fn set_release_state(o: T::AccountId, o_lock: UnLocked, b_lock: UnLocked, h: T::Hash, sender: bool) -> Result {
+        // 0= false, 1=true
+        // 10, sender can take after deadline (initial state)
+        // 11, accepted by recipient. (funds locked, nobody can take) 
+        // 01, sender approves (recipient can take, or refund)
+        // 00, only the recipient authorises sender to retake funds regardless of deadline.
 
+        let mut change: (T::AccountId, UnLocked, T::AccountId, UnLocked);     
+        if sender {
+            match Self::check_ref_owner(o.clone(), h) {
+                true => {
+                    match Self::prefunding_hash_owner(&h) {
+                        Some(owners) => {
+                            if owners.1 != o_lock && owners.1 == false {
+                                change = (o, o_lock, owners.2, owners.3);
+                            } else {
+                                return Err("Owner does not have permission to change this value");
+                            }
+                        },
+                        None => return Err("Error getting the hash data"),
+                    }
+                },
+                false => return Err("Not the owner, cannot change lock"),
+            };
+        } else {
+            match Self::check_ref_beneficiary(o.clone(), h) {
+                true => {
+                    match Self::prefunding_hash_owner(&h) {
+                        Some(owners) => change = (owners.0, owners.1, o, o_lock),
+                        None => return Err("Error getting the hash data"),
+                    }
+                },
+                false => return Err("Not the beneficiary, cannot change lock"),
+            }
+        }
+
+        <PrefundingHashOwner<T>>::remove(&h);
+        <PrefundingHashOwner<T>>::insert(&h, change);
+        
+        Ok(())
+
+    }
+    // Gets the state of the locked funds. The hash needs to be prequalified before passing in as no checks performed here.
+    fn get_release_state(h: T::Hash) -> (UnLocked, UnLocked) {
+        let owners = Self::prefunding_hash_owner(&h).unwrap();
+        return (owners.1, owners.3);
+    }
+    // cancel lock for owner
+    fn cancel_prefunding_lock(o: T::AccountId, h: T::Hash) -> Result {
+        // funds can be unlocked for the owner
+        // convert hash to lock identifyer
+        let prefunding_id = Self::get_prefunding_id(h);
+        // unlock the funds
+        T::Currency::remove_lock(prefunding_id, &o);
+        // perform cleanup removing all reference hashes. No accounting posting have been made, so no cleanup needed there
+        <Prefunding<T>>::take(&h);
+        <PrefundingHashOwner<T>>::take(&h);
+        <ReferenceStatus<T>>::take(&h);
+        <OwnerPrefundingHashList<T>>::mutate(&o, |owner_prefunding_hash_list| owner_prefunding_hash_list.retain(|e| e != &h));
+        // Issue event
+        Self::deposit_event(RawEvent::PrefundingCancelled(o, h));
+        Ok(())
+    }
+    // unlock for owner
+    fn unlock_funds_for_owner(o: T::AccountId, h: T::Hash) -> Result {
+        match Self::reference_exists(h) {
+            true => {
+                match Self::check_ref_owner(o.clone(), h) {
+                    true => {
+                        match Self::get_release_state(h) {
+                            (true, false)  => { // submitted, but not yet accepted
+                                // Check if the dealine has passed. If not funds cannot be release
+                                match Self::prefund_deadline_passed(h) {
+                                    true => {
+                                        match Self::cancel_prefunding_lock(o.clone(), h) {
+                                            Ok(_) => (),
+                                            Err(e) => return Err(e),
+                                        } 
+                                    },
+                                    false => { 
+                                        Self::deposit_event(RawEvent::ErrorDeadlineInPlay(o, h));
+                                        return Err("Deadline not yet passed. Wait a bit longer!"); 
+                                    },
+                                }
+                            },
+                            (true, true) => {
+                                Self::deposit_event(RawEvent::ErrorFundsInPlay(o));
+                                return Err("Funds locked for intended purpose by both parties.")
+                            },
+                            (false, true) => {
+                                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                                return Err("Funds locked for beneficiary.")
+                            },
+                            (false, false) => {
+                                // Owner has been  given permission by beneficiary to release funds
+                                match Self::cancel_prefunding_lock(o.clone(), h) {
+                                    Ok(_) => (),
+                                    Err(e) => return Err(e),
+                                }
+                            },
+                            _ => {
+                                Self::deposit_event(RawEvent::ErrorDeadlineInPlay(o, h));
+                                return Err("Error fetching release state");
+                            },
+                        }
+                    },
+                    false => {
+                        Self::deposit_event(RawEvent::ErrorNotOwner(o, h));
+                        return Err("You are not the owner of the hash!");
+                    },
+                }
+            }, 
+            false => {
+                Self::deposit_event(RawEvent::ErrorHashDoesNotExist(h));
+                return Err("Hash does not exist!");
+            }, 
+        }      
+        Ok(())
+    }
+    // unlock & pay beneficiary
+
+    // ****************************************************//
+    
+    // Prefunding get(prefunding): map T::Hash => Option<(BalanceOf<T>, T::BlockNumber)>;
+    // PrefundingHashOwner get(prefunding_hash_owner): map T::Hash => Option<(T::AccountId, UnLocked, T::AccountId, UnLocked)>;
+    // OwnerPrefundingHashList get(owner_prefunding_hash_list): map T::AccountId => Vec<T::Hash>;
+    // ReferenceStatus get(reference_status): map T::Hash => Option<Status>;
+
+    // // Simple invoice. Does not include tax jurisdiction, tax amounts, freight, commissions, tariffs, discounts and other extended line item values
+    // // must include a connection to the originating hash reference
+    // fn simple_invoice(origin: T::Origin, payer: T::AccountId, net: AccountBalance, reference: T::Hash) -> Result {
+        
+    //     // Validate that the hash is indeed assigned to the seller
+    
+    //     // Seller Origin
+    //     // Debit increase 110100080000000	Accounts receivable (Sales Control Account or Trade Debtor's Account)
+    //     // Credit increase 240400010000000	Product or Service Sales
+    //     // Debit increase 360600010000000	Sales Ledger by Payer
+    //     // Debit increase 360600050000000	Sales Ledger Control
+    
+    //     // Buyer Payer
+    //     // Credit increase 120200030000000	Accounts payable
+    //     // Debit increase 250500120000013	Labour
+    //     // Debit increase 360600030000000	Purchase Ledger by Vendor
+    //     // Debit increase 360600070000000	Purchase Ledger Control
+    
+    //     // Add status processing
+    
+    //     Ok(())
+    // }
 }
 
 decl_event!(
@@ -396,38 +600,25 @@ decl_event!(
     where
     AccountId = <T as system::Trait>::AccountId,
     BlockNumber = <T as system::Trait>::BlockNumber,
+    Hash = <T as system::Trait>::Hash,
     {
         LegderUpdate(AccountId, Account, AccountBalance),
         PrefundingDeposit(AccountId, AccountBalance, BlockNumber),
+        PrefundingCancelled(AccountId, Hash),
         PrefundingCompleted(AccountId),
         ErrorOverflow(Account),
+        ErrorGlobalOverflow(),
         ErrorInsufficientFunds(AccountId),
         ErrorInError(AccountId),
+        ErrorNotAllowed(Hash),
+        ErrorDeadlineInPlay(AccountId, Hash),
+        ErrorFundsInPlay(AccountId),
+        ErrorNotOwner(AccountId, Hash),
+        ErrorHashDoesNotExist(Hash),
+        ErrorFetchingReleaseState(Hash),
     }
 );
 
-//     // Simple invoice. Does not include tax jurisdiction, tax amounts, freight, commissions, tariffs, discounts and other extended line item values
-//     // must include a connection to the original hash
-//     fn simple_invoice(origin, payer: T::AccountId, net: AccountBalance, reference: Hashreference) -> Result {
-        
-//         // Validate that the hash is indeed assigned to the seller
-
-//         // Seller Origin
-//         // Debit increase 110100080000000	Accounts receivable (Sales Control Account or Trade Debtor's Account)
-//         // Credit increase 240400010000000	Product or Service Sales
-//         // Debit increase 360600010000000	Sales Ledger by Payer
-//         // Debit increase 360600050000000	Sales Ledger Control
-
-//         // Buyer Payer
-//         // Credit increase 120200030000000	Accounts payable
-//         // Debit increase 250500120000013	Labour
-//         // Debit increase 360600030000000	Purchase Ledger by Vendor
-//         // Debit increase 360600070000000	Purchase Ledger Control
-
-//         // Add status processing
-
-//         Ok(());
-//     }
 
 //     // This takes a simple invoice and settles it.
 //     fn simple_prefunded_settlement() -> Result {
