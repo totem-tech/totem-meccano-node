@@ -121,6 +121,16 @@ decl_storage! {
         OwnerPrefundingHashList get(owner_prefunding_hash_list): map T::AccountId => Vec<T::Hash>;
         
         // Reference Hash generic status
+        // draft(0),
+        // submitted(1),
+        // Abandoned or cancelled (50),
+        // disputed(100), can be resubmitted, if the current status is < 100 return this state
+        // rejected(200), can be resubmitted, if the current status is < 100 return this state
+        // accepted(300), can no longer be submitted,
+        // invoiced(400), can no longer be accepted, 
+        // settled(500), can no longer be invoiced,
+        // blocked(999),
+        // U16MAX, is quasi-error state
         ReferenceStatus get(reference_status): map T::Hash => Status;
     }
 }
@@ -427,9 +437,12 @@ impl<T: Trait> Module<T> {
         };
         return false;
     }    
-    // check hash exists
+    // check hash exists and is valid
     fn reference_exists(h: T::Hash) -> bool {
-        <ReferenceStatus<T>>::exists(&h)
+        match <ReferenceStatus<T>>::exists(&h) {
+            0 | 1 | 100 | 200 | 300 | 400 => return true,
+            _ => return false,
+        }
     }
     // Prefunding deadline passed?
     fn prefund_deadline_passed(h: T::Hash) -> bool {
@@ -491,7 +504,7 @@ impl<T: Trait> Module<T> {
         return (owners.1, owners.3);
     }
     // cancel lock for owner
-    fn cancel_prefunding_lock(o: T::AccountId, h: T::Hash) -> Result {
+    fn cancel_prefunding_lock(o: T::AccountId, h: T::Hash, s: Status) -> Result {
         // funds can be unlocked for the owner
         // convert hash to lock identifyer
         let prefunding_id = Self::get_prefunding_id(h);
@@ -500,7 +513,7 @@ impl<T: Trait> Module<T> {
         // perform cleanup removing all reference hashes. No accounting posting have been made, so no cleanup needed there
         <Prefunding<T>>::take(&h);
         <PrefundingHashOwner<T>>::take(&h);
-        <ReferenceStatus<T>>::take(&h);
+        <ReferenceStatus<T>>::insert(&h, s); // This sets the status but does not remove the hash
         <OwnerPrefundingHashList<T>>::mutate(&o, |owner_prefunding_hash_list| owner_prefunding_hash_list.retain(|e| e != &h));
         // Issue event
         Self::deposit_event(RawEvent::PrefundingCancelled(o, h));
@@ -517,7 +530,8 @@ impl<T: Trait> Module<T> {
                                 // Check if the dealine has passed. If not funds cannot be release
                                 match Self::prefund_deadline_passed(h) {
                                     true => {
-                                        match Self::cancel_prefunding_lock(o.clone(), h) {
+                                        let status: Status = 50; // Abandoned or Cancelled
+                                        match Self::cancel_prefunding_lock(o.clone(), h, status) {
                                             Ok(_) => (),
                                             Err(e) => return Err(e),
                                         } 
@@ -538,13 +552,14 @@ impl<T: Trait> Module<T> {
                             },
                             (false, false) => {
                                 // Owner has been  given permission by beneficiary to release funds
-                                match Self::cancel_prefunding_lock(o.clone(), h) {
+                                let status:  Status = 50 // Abandoned or cancelled
+                                match Self::cancel_prefunding_lock(o.clone(), h, status) {
                                     Ok(_) => (),
                                     Err(e) => return Err(e),
                                 }
                             },
                             _ => {
-                                Self::deposit_event(RawEvent::ErrorDeadlineInPlay(o, h));
+                                Self::deposit_event(RawEvent::ErrorFetchingReleaseState(o, h));
                                 return Err("Error fetching release state");
                             },
                         }
@@ -562,8 +577,68 @@ impl<T: Trait> Module<T> {
         }      
         Ok(())
     }
-    // unlock & pay beneficiary
+    // unlock & pay beneficiary with funds transfer and account updates (settlement of invoice)
+    fn unlock_funds_for_beneficiary(o: T::AccountId, h: T::Hash) -> Result {
+        match Self::reference_exists(h) {
+            true => {
+                match Self::check_ref_beneficiary(o.clone(), h) {
+                    true => {
+                        match Self::get_release_state(h) {
+                            (true, false)  => { // submitted, but not yet accepted
+                                Self::deposit_event(RawEvent::ErrorNotApproved(o));
+                                return Err("The demander has not approved the work yet!");
+                            },
+                            (true, true) => {
+                                Self::deposit_event(RawEvent::ErrorFundsInPlay(o));
+                                return Err("Funds locked for intended purpose by both parties.")
+                            },
+                            (false, true) => { // Owner has approved you can withdraw funds
+                                // Note handling the account posting is done outside of this function
+                                // Get status. Only allow if invoiced this will set the status to settled
+                                match <ReferenceStatus<T>>::exists(&h) {
+                                    400 => {
+                                        // get details of lock
+                                        let details = Self::prefunding_hash_owner(&h).ok_or("Error fetching details")?;
+                                        // Cancel prefunding lock
+                                        let status:  Status = 500 // Settled
+                                        match Self::cancel_prefunding_lock(details. status) {
+                                            Ok(_) => {
+                                                T::Currency::transfer();
+                                            },
+                                            Err(e) => return Err(e),
+                                        }
+                                        // transfer to beneficiary.
 
+                                    },
+                                    _ => return Err("Only allowed when status is Invoiced"),
+                                }
+                            },
+                            (false, false) => {
+                                // Owner has been given permission by beneficiary to release funds
+                                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                                return Err("Funds locked for intended purpose by both parties.")
+                                
+                            },
+                            _ => {
+                                Self::deposit_event(RawEvent::ErrorFetchingReleaseState(o, h));
+                                return Err("Error fetching release state");
+                            },
+                        }
+                    },
+                    false => {
+                        Self::deposit_event(RawEvent::ErrorNotOwner(o, h));
+                        return Err("You are not the owner of the hash!");
+                    },
+                }
+            }, 
+            false => {
+                Self::deposit_event(RawEvent::ErrorHashDoesNotExist(h));
+                return Err("Hash does not exist!");
+            }, 
+        }      
+        Ok(())
+    }
+    
     // ****************************************************//
     
     // Prefunding get(prefunding): map T::Hash => Option<(BalanceOf<T>, T::BlockNumber)>;
@@ -572,7 +647,7 @@ impl<T: Trait> Module<T> {
     // ReferenceStatus get(reference_status): map T::Hash => Option<Status>;
 
     // // Simple invoice. Does not include tax jurisdiction, tax amounts, freight, commissions, tariffs, discounts and other extended line item values
-    // // must include a connection to the originating hash reference
+    // // must include a connection to the originating reference. Invoices cannot be made to parties that haven't asked for something.
     // fn simple_invoice(origin: T::Origin, payer: T::AccountId, net: AccountBalance, reference: T::Hash) -> Result {
         
     //     // Validate that the hash is indeed assigned to the seller
@@ -593,6 +668,17 @@ impl<T: Trait> Module<T> {
     
     //     Ok(())
     // }
+
+    // Settles invoice by unlocking funds and updates various relevant accounts and pays amounts 
+    fn settle_prefunded_invoice() -> Result {
+        Ok(())
+    }
+    
+    // Check should be made for available balances, and if the amount submitted is more than the invoice amount. 
+    // Settles invoice by updates to various relevant accounts and transfer of funds 
+    fn settle_unfunded_invoice() -> Result {
+        Ok(())
+    }
 }
 
 decl_event!(
@@ -611,6 +697,7 @@ decl_event!(
         ErrorInsufficientFunds(AccountId),
         ErrorInError(AccountId),
         ErrorNotAllowed(Hash),
+        ErrorNotApproved(Hash),
         ErrorDeadlineInPlay(AccountId, Hash),
         ErrorFundsInPlay(AccountId),
         ErrorNotOwner(AccountId, Hash),
