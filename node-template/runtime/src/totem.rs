@@ -147,6 +147,16 @@ decl_module! {
             
             Ok(())
         }
+        fn simple_invoice(origin, recipient: T::AccountId, amount: AccountBalance, reference: T::Hash) -> Result {
+            let who = ensure_signed(origin)?;
+            let _ = Self::send_simple_invoice(who.clone(), recipient.clone(), amount, reference)?;
+            Ok(())
+        }
+        fn pay_prefunded_invoice(origin, reference: T::Hash) -> Result {
+            let who = ensure_signed(origin)?;
+            let _ = Self::settle_prefunded_invoice(who.clone(), reference)?;
+            Ok(())
+        }
     }
 }
 
@@ -159,7 +169,6 @@ impl<T: Trait> Module<T> {
     /// equal to the single debit in accounts receivable, but only one posting needs to be made to that account, and two posting for the others.
     /// The Totem Accounting Recipes are constructed using this simple function.
     fn post((o, a, c, d, h, b): (T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)) -> Result {
-    // fn post(o: T::AccountId, a: Account, c: AccountBalance, d: bool, h: T::Hash, b: T::BlockNumber) -> Result {
         let zero: AccountBalance = 0;
         let key = (o.clone(), a);
         let abs: AccountBalance = c.abs();
@@ -656,20 +665,20 @@ impl<T: Trait> Module<T> {
 
     // // Simple invoice. Does not include tax jurisdiction, tax amounts, freight, commissions, tariffs, discounts and other extended line item values
     // // must include a connection to the originating reference. Invoices cannot be made to parties that haven't asked for something.
-    fn send_simple_invoice(origin: T::AccountId, payer: T::AccountId, net: AccountBalance, reference: T::Hash) -> Result {
+    fn send_simple_invoice(o: T::AccountId, p: T::AccountId, n: AccountBalance, h: T::Hash) -> Result {
 
         // Validate that the hash is indeed assigned to the seller
-        match Self::check_ref_beneficiary(origin.clone(), reference) {
+        match Self::check_ref_beneficiary(o.clone(), h) {
             true => (),
             false => {
-                Self::deposit_event(RawEvent::ErrorNotAllowed(reference));
+                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
                 return Err("Not the beneficiary");
             },
         }
-
+    
         // amount cannot be negative
-        let increase_amount: AccountBalance = net.abs();
-        let decrease_amount: AccountBalance = -net.abs();
+        let increase_amount: AccountBalance = n.abs();
+        let decrease_amount: AccountBalance = -n.abs();
         
         let current_block = <system::Module<T>>::block_number();
         
@@ -684,26 +693,28 @@ impl<T: Trait> Module<T> {
         let account_6: Account = 250500120000013; // Debit  increase 250500120000013	Labour
         let account_7: Account = 360600030000000; // Debit  increase 360600030000000	Purchase Ledger by Vendor
         let account_8: Account = 360600070000000; // Debit  increase 360600070000000	Purchase Ledger Control       
-
+    
         // Keys for posting
-        let keyfwd1 = (origin.clone(), account_1, increase_amount, true, reference, current_block);
-        let keyfwd2 = (origin.clone(), account_2, increase_amount, false, reference, current_block);
-        let keyfwd3 = (origin.clone(), account_3, increase_amount, true, reference, current_block);
-        let keyfwd4 = (origin.clone(), account_4, increase_amount, true, reference, current_block);
-        let keyfwd5 = (origin.clone(), account_5, increase_amount, false, reference, current_block);
-        let keyfwd6 = (origin.clone(), account_6, increase_amount, true, reference, current_block);
-        let keyfwd7 = (origin.clone(), account_7, increase_amount, true, reference, current_block);
-        let keyfwd8 = (origin.clone(), account_8, increase_amount, true, reference, current_block);
+        let keyfwd1 = (o.clone(), account_1, increase_amount, true, h, current_block);
+        let keyfwd2 = (o.clone(), account_2, increase_amount, false, h, current_block);
+        let keyfwd3 = (o.clone(), account_3, increase_amount, true, h, current_block);
+        let keyfwd4 = (o.clone(), account_4, increase_amount, true, h, current_block);
+    
+        let keyfwd5 = (p.clone(), account_5, increase_amount, false, h, current_block);
+        let keyfwd6 = (p.clone(), account_6, increase_amount, true, h, current_block);
+        let keyfwd7 = (p.clone(), account_7, increase_amount, true, h, current_block);
+        let keyfwd8 = (p.clone(), account_8, increase_amount, true, h, current_block);
         
         // Reversal keys in case of errors
-        let keyrev1 = (origin.clone(), account_1, decrease_amount, false, reference, current_block);
-        let keyrev2 = (origin.clone(), account_2, decrease_amount, true, reference, current_block);
-        let keyrev3 = (origin.clone(), account_3, decrease_amount, false, reference, current_block);
-        let keyrev4 = (origin.clone(), account_4, decrease_amount, false, reference, current_block);
-        let keyrev5 = (origin.clone(), account_5, decrease_amount, true, reference, current_block);
-        let keyrev6 = (origin.clone(), account_6, decrease_amount, false, reference, current_block);
-        let keyrev7 = (origin.clone(), account_7, decrease_amount, false, reference, current_block);
-
+        let keyrev1 = (o.clone(), account_1, decrease_amount, false, h, current_block);
+        let keyrev2 = (o.clone(), account_2, decrease_amount, true, h, current_block);
+        let keyrev3 = (o.clone(), account_3, decrease_amount, false, h, current_block);
+        let keyrev4 = (o.clone(), account_4, decrease_amount, false, h, current_block);
+    
+        let keyrev5 = (p.clone(), account_5, decrease_amount, true, h, current_block);
+        let keyrev6 = (p.clone(), account_6, decrease_amount, false, h, current_block);
+        let keyrev7 = (p.clone(), account_7, decrease_amount, false, h, current_block);
+    
         // 
         match Self::post(keyfwd1) {
             Ok(_) => (),
@@ -712,7 +723,7 @@ impl<T: Trait> Module<T> {
                 return Err("Overflow error, amount too big!");
             },
         }
-
+    
         match Self::post(keyfwd2) {
             Ok(_) => (),
             Err(e) => {
@@ -722,7 +733,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -730,7 +741,7 @@ impl<T: Trait> Module<T> {
                 return Err("Overflow error, amount too big!");
             },
         }
-
+    
         match Self::post(keyfwd3) {
             Ok(_) => (),
             Err(e) => {
@@ -740,7 +751,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -748,7 +759,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -766,7 +777,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -774,7 +785,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -782,7 +793,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -800,7 +811,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -808,7 +819,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -816,7 +827,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -824,7 +835,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -832,7 +843,7 @@ impl<T: Trait> Module<T> {
                 return Err("Overflow error, amount too big!");
             },
         }
-
+    
         match Self::post(keyfwd6) {
             Ok(_) => (),
             Err(e) => {
@@ -842,7 +853,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -850,7 +861,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -858,7 +869,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -866,7 +877,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -874,7 +885,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -882,7 +893,7 @@ impl<T: Trait> Module<T> {
                 return Err("Overflow error, amount too big!");
             },
         }
-
+    
         match Self::post(keyfwd7) {
             Ok(_) => (),
             Err(e) => {
@@ -892,7 +903,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -900,7 +911,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -908,7 +919,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -916,7 +927,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -924,7 +935,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -932,7 +943,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -940,7 +951,7 @@ impl<T: Trait> Module<T> {
                 return Err("Overflow error, amount too big!");
             },
         }
-
+    
         match Self::post(keyfwd8) {
             Ok(_) => (),
             Err(e) => {
@@ -950,7 +961,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -958,7 +969,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -966,7 +977,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -974,7 +985,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -982,7 +993,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -990,7 +1001,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -998,7 +1009,7 @@ impl<T: Trait> Module<T> {
                     Ok(_) => (),
                     Err(_) => {
                         // This event is because there is a major system error in the reversal process
-                        Self::deposit_event(RawEvent::ErrorInError(origin));
+                        Self::deposit_event(RawEvent::ErrorInError(o));
                         return Err("System Failure in Account Posting");
                     },
                 }
@@ -1009,19 +1020,590 @@ impl<T: Trait> Module<T> {
         
         // Add status processing
         let new_status: Status = 400; // invoiced(400), can no longer be accepted, 
-        <ReferenceStatus<T>>::insert(&reference, new_status);
+        <ReferenceStatus<T>>::insert(&h, new_status);
         
         // Issue Event
-        Self::deposit_event(RawEvent::InvoiceIssued(reference));
+        Self::deposit_event(RawEvent::InvoiceIssued(h));
         Ok(())
     }
 
-    fn set_accepted_status() -> Result {
+    fn set_ref_status() -> Result {
+        
         Ok(())
     }
 
-    // Settles invoice by unlocking funds and updates various relevant accounts and pays amounts 
-    fn settle_prefunded_invoice() -> Result {
+    // Settles invoice by unlocking funds and updates various relevant accounts and pays prefunded amount
+    fn settle_prefunded_invoice(o: T::AccountId, h: T::Hash) -> Result {
+
+        // release state must be 11
+        // sender must be owner
+        // accounts updated before payment, because if there is an error then the accounting can be rolled back 
+        // set settled status
+
+        match Self::get_release_state(h) {
+            (true, false)  => { // submitted, but not yet accepted
+                Self::deposit_event(RawEvent::ErrorNotApproved(h));
+                return Err("The demander has not approved the work yet!");
+            },
+            (true, true) => {
+
+        // Validate that the hash is indeed owned by the buyer
+        match Self::check_ref_owner(o.clone(), h) {
+            true => {
+                // get beneficiary from hash
+                let details =  Self::prefunding_hash_owner(&h).ok_or("Error getting details from hash")?;        
+                let prefunding = <Prefunding<T>>::get(&h);
+
+                // get prefunding amount for posting to accounts
+                let prefunding = Self::prefunding(&h).ok_or("Error")?;
+                let amount = prefunding.0;
+                let converted_amount = <T::Conversions as Convert<BalanceOf<T>,AccountBalance>>::convert(amount);
+                let increase_amount: AccountBalance = converted_amount.abs();
+                let decrease_amount: AccountBalance = -converted_amount.abs();
+
+
+                let current_block = <system::Module<T>>::block_number();
+                
+                // Buyer
+                let account_1: Account = 120200030000000; // 120200030000000	Debit  decrease Accounts payable
+                let account_2: Account = 110100050000000; // 110100050000000	Credit decrease Totem Runtime Deposit (Escrow)
+                let account_3: Account = 360600020000000; // 360600020000000	Credit decrease Runtime Ledger by Module
+                let account_4: Account = 360600060000000; // 360600060000000	Credit decrease Runtime Ledger Control
+                let account_5: Account = 360600030000000; // 360600030000000	Credit decrease Purchase Ledger by Vendor
+                let account_6: Account = 360600070000000; // 360600070000000	Credit decrease Purchase Ledger Control
+                
+                // Seller
+                let account_7: Account = 110100040000000; // 110100040000000	Debit  increase XTX Balance
+                let account_8: Account = 110100080000000; // 110100080000000	Credit decrease Accounts receivable (Sales Control Account or Trade Debtor's Account)
+                let account_9: Account = 360600010000000; // 360600010000000	Credit decrease Sales Ledger by Payer
+                let account_10: Account = 360600050000000; // 360600050000000	Credit decrease Sales Ledger Control
+            
+                // Keys for posting
+                let keyfwd1 = (o.clone(), account_1, decrease_amount, true, h, current_block);
+                let keyfwd2 = (o.clone(), account_2, decrease_amount, false, h, current_block);
+                let keyfwd3 = (o.clone(), account_3, decrease_amount, false, h, current_block);
+                let keyfwd4 = (o.clone(), account_4, decrease_amount, false, h, current_block);            
+                let keyfwd5 = (o.clone(), account_5, decrease_amount, false, h, current_block);
+                let keyfwd6 = (o.clone(), account_6, decrease_amount, false, h, current_block);
+
+                let keyfwd7  = (details.2.clone(), account_7, increase_amount, true, h, current_block);
+                let keyfwd8  = (details.2.clone(), account_8, decrease_amount, false, h, current_block);
+                let keyfwd9  = (details.2.clone(), account_9, decrease_amount, false, h, current_block);
+                let keyfwd10 = (details.2.clone(), account_10, decrease_amount, false, h, current_block);
+                
+                // Reversal keys in case of errors
+                let keyrev1 = (o.clone(), account_1, increase_amount, false, h, current_block);
+                let keyrev2 = (o.clone(), account_2, increase_amount, true, h, current_block);
+                let keyrev3 = (o.clone(), account_3, increase_amount, true, h, current_block);
+                let keyrev4 = (o.clone(), account_4, increase_amount, true, h, current_block);            
+                let keyrev5 = (o.clone(), account_5, increase_amount, true, h, current_block);
+                let keyrev6 = (o.clone(), account_6, increase_amount, true, h, current_block);
+
+                let keyrev7  = (details.2.clone(), account_7, decrease_amount, false, h, current_block);
+                let keyrev8  = (details.2.clone(), account_8, increase_amount, true, h, current_block);
+                let keyrev9  = (details.2.clone(), account_9, increase_amount, true, h, current_block);
+            
+                match Self::post(keyfwd1) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_1));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+            
+                match Self::post(keyfwd2) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+                
+                match Self::post(keyfwd3) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev2) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+
+                match Self::post(keyfwd4) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev3) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev2) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+
+                match Self::post(keyfwd5) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev4) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev3) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev2) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+
+                match Self::post(keyfwd6) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev5) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev4) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev3) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev2) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+
+                match Self::post(keyfwd7) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev6) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev5) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev4) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev3) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev2) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+
+                match Self::post(keyfwd8) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev7) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev6) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev5) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev4) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev3) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev2) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+
+                match Self::post(keyfwd9) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev8) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev7) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev6) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev5) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev4) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev3) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev2) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+
+                match Self::post(keyfwd10) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        match Self::post(keyrev9) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev8) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev7) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev6) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev5) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev4) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev3) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev2) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        match Self::post(keyrev1) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                // This event is because there is a major system error in the reversal process
+                                Self::deposit_event(RawEvent::ErrorInError(o));
+                                return Err("System Failure in Account Posting");
+                            },
+                        }
+                        Self::deposit_event(RawEvent::ErrorOverflow(account_2));
+                        return Err("Overflow error, amount too big!");
+                    },
+                }
+
+                match Self::unlock_funds_for_beneficiary(details.2.clone(), h) {
+                    Ok(_) => (),
+                    Err(e) => return Err(e),
+                }
+            },
+            false => {
+                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                return Err("Not the owner");
+            },
+        }
+      
+
+
+
+
+
+
+
+
+
+
+            },
+            (false, true) => { // This state is not allowed for this functions
+                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                return Err("This function should not be used for this")
+            },
+            (false, false) => {
+                // Owner has been given permission by beneficiary to release funds
+                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                return Err("Funds locked for intended purpose by both parties.")
+                
+            },
+            _ => {
+                Self::deposit_event(RawEvent::ErrorReleaseState(h));
+                return Err("Error fetching release state");
+            },
+        }
+
+        // Add status processing
+        let new_status: Status = 500; // settled(500), can no longer be invoiced, 
+        <ReferenceStatus<T>>::insert(&h, new_status);
+
+  
         Ok(())
     }
     
