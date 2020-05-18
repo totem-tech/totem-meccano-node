@@ -56,6 +56,7 @@ pub use staking::StakerStatus;
 extern crate sodalite;
 
 // Totem Runtime Modules
+mod totem;
 mod boxkeys;
 mod bonsai;
 mod projects;
@@ -83,7 +84,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 1,
     // incremental changes
-	impl_version: 11,
+	impl_version: 12,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -94,6 +95,34 @@ pub fn native_version() -> NativeVersion {
 		runtime_version: VERSION,
 		can_author_with: Default::default(),
 	}
+}
+
+// Totem implemented for converting between Accounting Balances and Internal Balances
+pub struct ConversionHandler;
+
+// Basic type conversion
+impl ConversionHandler {
+	fn signed_to_unsigned(x: i128) -> u128 { x.abs() as u128 }
+}
+
+// Takes the AccountBalance and converts for use with BalanceOf<T>
+impl Convert<i128, u128> for ConversionHandler {
+	fn convert(x: i128) -> u128 { Self::signed_to_unsigned(x) as u128 }
+}
+// Takes BalanceOf<T> and converts for use with AccountBalance type
+impl Convert<u128, i128> for ConversionHandler {
+	fn convert(x: u128) -> i128 { x as i128 }
+}
+
+// Takes Vec<u8> encoded hash and converts for as a LockIdentifier type
+impl Convert<Vec<u8>, [u8;8]> for ConversionHandler {
+    fn convert(x: Vec<u8>) -> [u8;8] { 
+        let mut y: [u8;8] = [0;8];
+        for z in 0..8 {
+            y[z] = x[z].into();
+        };
+        return y;
+    }
 }
 
 pub struct CurrencyToVoteHandler;
@@ -252,6 +281,12 @@ impl archive::Trait for Runtime {
     type Event = Event;
 }
 
+impl totem::Trait for Runtime {
+    type Event = Event;
+    type Currency = balances::Module<Self>;
+    type Conversions = ConversionHandler;
+}
+
 construct_runtime!(
 	pub enum Runtime with Log(InternalLog: DigestItem<Hash, AuthorityId, AuthoritySignature>) where
 		Block = Block,
@@ -281,6 +316,7 @@ construct_runtime!(
 		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
 		BonsaiModule: bonsai::{Module, Call, Storage, Event<T>},
 		ArchiveModule: archive::{Module, Call, Event<T>},
+		TotemModule: totem::{Module, Call, Storage, Event<T>},
 	}
 );
 
