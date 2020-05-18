@@ -653,16 +653,10 @@
             }      
             Ok(())
         }
-        
         // ****************************************************//
         
-        // Prefunding get(prefunding): map T::Hash => Option<(BalanceOf<T>, T::BlockNumber)>;
-        // PrefundingHashOwner get(prefunding_hash_owner): map T::Hash => Option<(T::AccountId, UnLocked, T::AccountId, UnLocked)>;
-        // OwnerPrefundingHashList get(owner_prefunding_hash_list): map T::AccountId => Vec<T::Hash>;
-        // ReferenceStatus get(reference_status): map T::Hash => Option<Status>;
-        
-        // // Simple invoice. Does not include tax jurisdiction, tax amounts, freight, commissions, tariffs, discounts and other extended line item values
-        // // must include a connection to the originating reference. Invoices cannot be made to parties that haven't asked for something.
+        // Simple invoice. Does not include tax jurisdiction, tax amounts, freight, commissions, tariffs, discounts and other extended line item values
+        // must include a connection to the originating reference. Invoices cannot be made to parties that haven't asked for something.
         fn send_simple_invoice(o: T::AccountId, p: T::AccountId, n: AccountBalance, h: T::Hash) -> Result {
             
             // Validate that the hash is indeed assigned to the seller
