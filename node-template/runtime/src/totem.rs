@@ -138,21 +138,57 @@
     decl_module! {
         pub struct Module<T: Trait> for enum Call where origin: T::Origin {
             fn deposit_event<T>() = default;
-            /// This function reserves funds from the sender for a given account. However the assets remain the property of the sender 
-            fn prefund_beneficiary(origin, recipient: T::AccountId, amount: AccountBalance, deadline: T::BlockNumber) -> Result {
+            /// This function reserves funds from the buyer for a specific vendor account (Closed Order). It is used when an order is created.
+            /// Quatity is not relevant 
+            /// The prefunded amount remains as an asset of the buyer until the order is accepted
+            /// Updates only the accounts of the buyer 
+            fn prefund_closed_order(origin, beneficiary: T::AccountId, amount: AccountBalance, deadline: T::BlockNumber) -> Result {
                 let who = ensure_signed(origin)?;
-                let _ = Self::prefunding_for(who, recipient, amount, deadline)?;
+                // check that the beneficiary is not the sender
+                ensure!(who != beneficiary, "Beneficiary must be another account");
+                let _ = Self::prefunding_for(who, beneficiary, amount, deadline)?;
                 
                 Ok(())
             }
-            fn simple_invoice(origin, recipient: T::AccountId, amount: AccountBalance, reference: T::Hash) -> Result {
+            /// Creates a single line simple invoice without taxes, tariffs or commissions
+            /// This invoice is associated with a prefunded order - therefore needs to provide the hash reference of the order
+            /// Updates the accountiung for the vendor and the customer
+            fn invoice_prefunded_order(origin, payer: T::AccountId, amount: AccountBalance, reference: T::Hash) -> Result {
                 let who = ensure_signed(origin)?;
-                let _ = Self::send_simple_invoice(who.clone(), recipient.clone(), amount, reference)?;
+                let _ = Self::send_simple_invoice(who.clone(), payer.clone(), amount, reference)?;
                 Ok(())
             }
+            /// Buyer pays a prefunded order. Needs to supply the correct hash reference
+            /// Updates bother the buyer and the vendor accounts 
             fn pay_prefunded_invoice(origin, reference: T::Hash) -> Result {
                 let who = ensure_signed(origin)?;
                 let _ = Self::settle_prefunded_invoice(who.clone(), reference)?;
+                Ok(())
+            }
+            /// Setting the prefunded release state effectively locks the funds when the vendor agrees to work
+            /// It is generally only changed by the vendor, once the prefund is created            
+            fn set_prefund_release_state(origin, lock: UnLocked, reference: T::Hash) -> Result {
+                let who = ensure_signed(origin)?;
+                // check if they are the beneficary or the buyer/payer
+                // a similar check exists in the function, because this could be called by another module
+                // that is either vendor or buyer specific, and can therefore "self identify".
+                if Self::check_ref_owner(who.clone(), reference) {
+                    Self::set_release_state(who.clone(), lock, reference, true)?;
+                } else if Self::check_ref_beneficiary(who.clone(), reference) {
+                    Self::set_release_state(who.clone(), lock, reference, false)?;
+                } else {
+                    // Issue error 
+                    Self::deposit_event(RawEvent::ErrorLockNotAllowed(reference));
+                    return Err("You are not the owner or the beneficiary");
+
+                }
+                
+                Ok(())
+            }
+            /// Is ised by the buyer to recover funds if the vendor does not accept the order by the deadline
+            fn cancel_prefunded_closed_order(origin, reference: T::Hash) -> Result {
+                let who = ensure_signed(origin)?;
+                Self::unlock_funds_for_owner(who.clone(), reference)?;
                 Ok(())
             }
         }
@@ -466,7 +502,7 @@
             return false;
         }
         // Sets the release state by the owner or the beneficiary
-        fn set_release_state(o: T::AccountId, o_lock: UnLocked, b_lock: UnLocked, h: T::Hash, sender: bool) -> Result {
+        fn set_release_state(o: T::AccountId, o_lock: UnLocked, h: T::Hash, sender: bool) -> Result {
             // 0= false, 1=true
             // 10, sender can take after deadline (initial state)
             // 11, accepted by recipient. (funds locked, nobody can take) 
@@ -480,30 +516,40 @@
                         match Self::prefunding_hash_owner(&h) {
                             Some(owners) => {
                                 if owners.1 != o_lock && owners.1 == false {
-                                    change = (o, o_lock, owners.2, owners.3);
+                                    change = (o.clone(), o_lock, owners.2, owners.3);
                                 } else {
+                                    Self::deposit_event(RawEvent::ErrorLockNotAllowed(h));
                                     return Err("Owner does not have permission to change this value");
                                 }
                             },
                             None => return Err("Error getting the hash data"),
                         }
                     },
-                    false => return Err("Not the owner, cannot change lock"),
+                    false => {
+                        Self::deposit_event(RawEvent::ErrorLockNotAllowed(h));
+                        return Err("Not the owner, cannot change lock");
+                    },
                 };
             } else {
                 match Self::check_ref_beneficiary(o.clone(), h) {
                     true => {
                         match Self::prefunding_hash_owner(&h) {
-                            Some(owners) => change = (owners.0, owners.1, o, o_lock),
+                            Some(owners) => change = (owners.0, owners.1, o.clone(), o_lock),
                             None => return Err("Error getting the hash data"),
                         }
                     },
-                    false => return Err("Not the beneficiary, cannot change lock"),
+                    false => {
+                        Self::deposit_event(RawEvent::ErrorLockNotAllowed(h));
+                        return Err("Not the beneficiary, cannot change lock");
+                    },
                 }
             }
             
             <PrefundingHashOwner<T>>::remove(&h);
             <PrefundingHashOwner<T>>::insert(&h, change);
+
+            // Issue event
+            Self::deposit_event(RawEvent::PrefundingLockSet(o, h));
             
             Ok(())
             
@@ -896,6 +942,8 @@
             LegderUpdate(AccountId, Account, AccountBalance),
             PrefundingDeposit(AccountId, AccountBalance, BlockNumber),
             PrefundingCancelled(AccountId, Hash),
+            PrefundingLockSet(AccountId, Hash),
+            ErrorLockNotAllowed(Hash),
             PrefundingCompleted(AccountId),
             InvoiceIssued(Hash),
             ErrorOverflow(Account),
