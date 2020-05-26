@@ -39,7 +39,7 @@
 // In other accounting systems there are further values hierarchically below the subgroup (for example if you have multiple bank accounts), but this is not necessary in Totem as this is
 // replaced by the notion of Identity. The key takeaway is that everything in Totem is a property of an Identity
 
-// For example in reporting you may drill down to the detail in a heirarchical report like this:
+// For example in reporting yAmount_ou may drill down to the detail in a heirarchical report like this:
 // 110100010000000 Balance Sheet > Assets > Current Assets > Bank Current > CitiCorp Account (Identity)
 // 110100010000000 Balance Sheet > Assets > Current Assets > Bank Current > Bank of America Account (Identity)
 // Here the Ledger Account has a 1:n relationship to the identities, and therefore aggregates results
@@ -96,8 +96,8 @@
         trait Store for Module<T: Trait> as TotemModule {
             // Accounting Balances 
             BalanceByLedger get(balance_by_ledger): map (T::AccountId, Account) => AccountBalance;
-            // Detail of the accounting posting (for audit)
-            Detail get(detail): map (T::AccountId, Account) => Option<(T::BlockNumber,AccountBalance,Indicator,T::Hash)>;
+            // Detail of the accounting posting (for auditAmount_)
+            AmountDetail get(detail): map (T::AccountId, Account) => Option<(T::BlockNumber,AccountBalance,Indicator,T::Hash)>;
             // Address to book the sales tax to, and the tax jurisdiction 
             SalesTax get(sales_tax): map (T::AccountId, T::AccountId) => AccountBalance;
             
@@ -180,7 +180,7 @@
                     // Issue error 
                     Self::deposit_event(RawEvent::ErrorLockNotAllowed(reference));
                     return Err("You are not the owner or the beneficiary");
-
+                    
                 }
                 
                 Ok(())
@@ -202,7 +202,7 @@
         /// a credit to liabilities for the sales tax amount and a credit to revenue for the net invoice amount. The sum of both credits being 
         /// equal to the single debit in accounts receivable, but only one posting needs to be made to that account, and two posting for the others.
         /// The Totem Accounting Recipes are constructed using this simple function.
-        fn post((o, a, c, d, h, b): (T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)) -> Result {
+        fn post_amounts((o, a, c, d, h, b): (T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)) -> Result {
             let zero: AccountBalance = 0;
             let key = (o.clone(), a);
             let abs: AccountBalance = c.abs();
@@ -248,10 +248,52 @@
             }
             
             <BalanceByLedger<T>>::mutate(&key, |v| *v += c);
-            <Detail<T>>::insert(&key, detail);
+            <AmountDetail<T>>::insert(&key, detail);
             <GlobalLedger<T>>::mutate(&a, |v| *v += c);
             
             Self::deposit_event(RawEvent::LegderUpdate(o, a, c));
+            
+            Ok(())
+        }
+        
+        fn handle_multiposting_amounts(
+            o: T::AccountId, 
+            fwd: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>, 
+            rev: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>, 
+            trk: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>) -> Result {
+    
+                // let forward_keys = fwd.clone();
+                let reversal_keys = rev.clone();
+                let mut track_rev_keys = trk.clone();
+    
+    
+                let length_limit = reversal_keys.len();
+                // Iterate over forward keys. If Ok add reversal key to tracking, if error, then reverse out prior postings.
+                // for (pos, a) in forward_keys.iter().enumerate() {
+                for (pos, a) in fwd.clone().iter().enumerate() {
+                    
+                    match Self::post_amounts(a.clone()) {
+                        Ok(_) => { 
+                            if pos < length_limit { track_rev_keys.push(reversal_keys[pos].clone()) };
+                        },
+                        Err(e) => {
+                            // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                            // as this has already changed in storage.
+                            for (pos2, b) in track_rev_keys.iter().enumerate() {
+                                match Self::post_amounts(b.clone()) {
+                                    Ok(_) => (),
+                                    Err(_) => {
+                                        // This event is because there is a major system error in the reversal process
+                                        Self::deposit_event(RawEvent::ErrorInError(o));
+                                        return Err("System Failure in Account Posting");
+                                    },
+                                }
+                            }
+                            Self::deposit_event(RawEvent::ErrorOverflow(a.1));
+                            return Err("Overflow error, amount too big!");
+                        },
+                    }
+                }
             
             Ok(())
         }
@@ -268,13 +310,18 @@
             let current_block = <system::Module<T>>::block_number();
             let prefunding_hash: T::Hash = Self::get_pseudo_random_value(who.clone(), recipient.clone());
             
+            let converted_amount: BalanceOf<T> = <T::Conversions as Convert<AccountBalance, BalanceOf<T>>>::convert(amount);
+            let prefunded = (converted_amount, deadline);
+            let new_status: Status = 1; // Submitted, Locked by sender.
+            let owners = (who.clone(), true, recipient.clone(), false);
+            
             // manage the deposit
             match Self::set_prefunding(who.clone(), amount, deadline, prefunding_hash) {
                 Ok(_) => (),
                 Err(e) => return Err(e),
             }
             
-            // Deposit taken at this point. Note that if an error occurs beyond here we need to remove the locked funds.
+            // Deposit taken at this point. Note that if an error occurs beyond here we need to remove the locked funds.            
             
             // Buyer
             let account_1: Account = 110100050000000; // debit  increase 110100050000000 Prefunding Account
@@ -283,116 +330,25 @@
             let account_4: Account = 360600060000000; // debit  increase 360600060000000 Runtime Ledger Control
             
             // Keys for posting
-            let keyfwd1 = (who.clone(), account_1, increase_amount, true, prefunding_hash, current_block);
-            let keyfwd2 = (who.clone(), account_2, decrease_amount, false, prefunding_hash, current_block);
-            let keyfwd3 = (who.clone(), account_3, increase_amount, true, prefunding_hash, current_block);
-            let keyfwd4 = (who.clone(), account_4, increase_amount, true, prefunding_hash, current_block);
-            // /// Keys for reversal
-            let keyrev1 = (who.clone(), account_1, decrease_amount, false, prefunding_hash, current_block);
-            let keyrev2 = (who.clone(), account_2, increase_amount, true, prefunding_hash, current_block);
-            let keyrev3 = (who.clone(), account_3, decrease_amount, false, prefunding_hash, current_block);
-            let keyrev4 = (who.clone(), account_4, decrease_amount, false, prefunding_hash, current_block);
+            let mut forward_keys = Vec::<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>::with_capacity(10);
+            forward_keys.push((recipient.clone(), account_1, increase_amount, true, prefunding_hash, current_block));
+            forward_keys.push((recipient.clone(), account_2, decrease_amount, false, prefunding_hash, current_block));
+            forward_keys.push((recipient.clone(), account_3, increase_amount, true, prefunding_hash, current_block));
+            forward_keys.push((recipient.clone(), account_4, increase_amount, true, prefunding_hash, current_block));
             
-            match Self::post(keyfwd1) {
-                Ok(_) => (),
-                Err(e) => {
-                    T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                    return Err("Overflow error, amount too big!");
-                },
-            }
+            // Reversal keys in case of errors
+            let mut reversal_keys = Vec::<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>::with_capacity(9);
+            reversal_keys.push((recipient.clone(), account_1, decrease_amount, false, prefunding_hash, current_block));
+            reversal_keys.push((recipient.clone(), account_2, increase_amount, true, prefunding_hash, current_block));
+            reversal_keys.push((recipient.clone(), account_3, decrease_amount, false, prefunding_hash, current_block));
+            reversal_keys.push((recipient.clone(), account_4, decrease_amount, false, prefunding_hash, current_block));
             
-            match Self::post(keyfwd2) {
-                Ok(_) => (),
-                Err(e) => {
-                    // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
-                    // as this has already changed in storage.
-                    match Self::post(keyrev1) {
-                        Ok(_) => (),
-                        Err(_) => {
-                            // This event is because there is a major system error in the reversal process
-                            T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                            Self::deposit_event(RawEvent::ErrorInError(who));
-                            return Err("System Failure in Account Posting");
-                        },
-                    }
-                    T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                    return Err("Overflow error, amount too big!");
-                },
-            }
+            let track_rev_keys = Vec::<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>::with_capacity(9);
             
-            match Self::post(keyfwd3) {
-                Ok(_) => (),
-                Err(e) => {
-                    // Error before the value was updated. Need to reverse-out the earlier credits and debits
-                    // as these values has already changed in storage.
-                    match Self::post(keyrev2) {
-                        Ok(_) => (),
-                        Err(_) => {
-                            // This event is because there is a major system error in the reversal process
-                            T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                            Self::deposit_event(RawEvent::ErrorInError(who));
-                            return Err("System Failure in Account Posting");
-                        },
-                    }
-                    match Self::post(keyrev1) {
-                        Ok(_) => (),
-                        Err(_) => {
-                            // This event is because there is a major system error in the reversal process
-                            T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                            Self::deposit_event(RawEvent::ErrorInError(who));
-                            return Err("System Failure in Account Posting");
-                        },
-                    }
-                    T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                    return Err("Overflow error, amount too big!");
-                },
-            }
-            
-            match Self::post(keyfwd4) {
-                Ok(_) => (),
-                Err(e) => {
-                    // Error before the value was updated. Need to reverse-out the earlier credits and debits
-                    // as these values has already changed in storage.
-                    match Self::post(keyrev3) {
-                        Ok(_) => (),
-                        Err(_) => {
-                            // This event is because there is a major system error in the reversal process
-                            T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                            Self::deposit_event(RawEvent::ErrorInError(who));
-                            return Err("System Failure in Account Posting");
-                        },
-                    }
-                    match Self::post(keyrev2) {
-                        Ok(_) => (),
-                        Err(_) => {
-                            // This event is because there is a major system error in the reversal process
-                            T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                            Self::deposit_event(RawEvent::ErrorInError(who));
-                            return Err("System Failure in Account Posting");
-                        },
-                    }
-                    match Self::post(keyrev1) {
-                        Ok(_) => (),
-                        Err(_) => {
-                            // This event is because there is a major system error in the reversal process
-                            T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                            Self::deposit_event(RawEvent::ErrorInError(who));
-                            return Err("System Failure in Account Posting");
-                        },
-                    }
-                    T::Currency::remove_lock(Self::get_prefunding_id(prefunding_hash), &who);
-                    return Err("Overflow error, amount too big!");
-                },
-            }
-            
-            let converted_amount: BalanceOf<T> = <T::Conversions as Convert<AccountBalance, BalanceOf<T>>>::convert(amount);
-            let prefunded = (converted_amount, deadline);
-            let new_status: Status = 1; // Submitted
-            // Locked by sender.
-            let owners = (who.clone(), true, recipient.clone(), false);
-            <PrefundingHashOwner<T>>::insert(&prefunding_hash, owners); 
+            let _ = Self::handle_multiposting_amounts(who.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
             
             // Record Prefunding ownership and status
+            <PrefundingHashOwner<T>>::insert(&prefunding_hash, owners); 
             <Prefunding<T>>::insert(&prefunding_hash, prefunded);
             
             // Add reference hash to list of hashes
@@ -757,7 +713,7 @@
             
             let track_rev_keys = Vec::<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>::with_capacity(9);
 
-            let _ = Self::handle_multiposting(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+            let _ = Self::handle_multiposting_amounts(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
             
             // Add status processing
             let new_status: Status = 400; // invoiced(400), can no longer be accepted, 
@@ -773,47 +729,6 @@
             Ok(())
         }
 
-        fn handle_multiposting(
-            o: T::AccountId, 
-            fwd: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>, 
-            rev: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>, 
-            trk: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>) -> Result {
-
-                // let forward_keys = fwd.clone();
-                let reversal_keys = rev.clone();
-                let mut track_rev_keys = trk.clone();
-
-
-                let length_limit = reversal_keys.len();
-                // Iterate over forward keys. If Ok add reversal key to tracking, if error, then reverse out prior postings.
-                // for (pos, a) in forward_keys.iter().enumerate() {
-                for (pos, a) in fwd.clone().iter().enumerate() {
-                    
-                    match Self::post(a.clone()) {
-                        Ok(_) => { 
-                            if pos < length_limit { track_rev_keys.push(reversal_keys[pos].clone()) };
-                        },
-                        Err(e) => {
-                            // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
-                            // as this has already changed in storage.
-                            for (pos2, b) in track_rev_keys.iter().enumerate() {
-                                match Self::post(b.clone()) {
-                                    Ok(_) => (),
-                                    Err(_) => {
-                                        // This event is because there is a major system error in the reversal process
-                                        Self::deposit_event(RawEvent::ErrorInError(o));
-                                        return Err("System Failure in Account Posting");
-                                    },
-                                }
-                            }
-                            Self::deposit_event(RawEvent::ErrorOverflow(a.1));
-                            return Err("Overflow error, amount too big!");
-                        },
-                    }
-                }
-            
-            Ok(())
-        }
         
         // Settles invoice by unlocking funds and updates various relevant accounts and pays prefunded amount
         fn settle_prefunded_invoice(o: T::AccountId, h: T::Hash) -> Result {
@@ -892,7 +807,7 @@
                             
                             let track_rev_keys = Vec::<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber)>::with_capacity(9);
 
-                            let _ = Self::handle_multiposting(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+                            let _ = Self::handle_multiposting_amounts(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
                                    
                         },
                         false => {

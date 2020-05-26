@@ -76,11 +76,19 @@ pub type BlockNumber = u64;
 /// Index of an account's extrinsic in the chain.
 pub type Nonce = u64;
 
-mod totem;
+// mod totem;
+mod totem_traits;
+mod accounting;
+mod prefunding;
 mod boxkeys;
 mod projects;
 mod timekeeping;
 mod archive;
+
+// Test Traits
+mod marketplace;
+mod reputation_trait;
+mod simple_feedback;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -150,14 +158,26 @@ impl ConversionHandler {
 	fn signed_to_unsigned(x: i128) -> u128 { x.abs() as u128 }
 }
 
+// Takes the AccountBalance and make absolute but also returns AccountBalance
+impl Convert<i128, i128> for ConversionHandler {
+	fn convert(x: i128) -> i128 { x.abs() as i128 }
+}
+
 // Takes the AccountBalance and converts for use with BalanceOf<T>
 impl Convert<i128, u128> for ConversionHandler {
 	fn convert(x: i128) -> u128 { Self::signed_to_unsigned(x) as u128 }
 }
+
 // Takes BalanceOf<T> and converts for use with AccountBalance type
 impl Convert<u128, i128> for ConversionHandler {
 	fn convert(x: u128) -> i128 { x as i128 }
 }
+
+// Takes integer u64 and converts for use with AccountOf<T> type
+impl Convert<u64, u64> for ConversionHandler {
+	fn convert(x: u64) -> u64 { x }
+}
+
 
 // Takes Vec<u8> encoded hash and converts for as a LockIdentifier type
 impl Convert<Vec<u8>, [u8;8]> for ConversionHandler {
@@ -248,12 +268,6 @@ impl sudo::Trait for Runtime {
     type Proposal = Call;
 }
 
-// /// Used for the module template in `./template.rs`
-// impl template::Trait for Runtime {
-// 	type Event = Event;
-// }
-
-
 impl projects::Trait for Runtime {
     type Event = Event;
 }
@@ -270,10 +284,30 @@ impl archive::Trait for Runtime {
     type Event = Event;
 }
 
-impl totem::Trait for Runtime {
+// impl totem::Trait for Runtime {
+//     type Event = Event;
+// }
+
+impl accounting::Trait for Runtime {
     type Event = Event;
     type Currency = balances::Module<Self>;
     type Conversions = ConversionHandler;
+}
+
+impl prefunding::Trait for Runtime {
+    type Event = Event;
+    type Currency = balances::Module<Self>;
+    type Conversions = ConversionHandler;
+    type Accounting = AccountingModule;
+}
+
+impl marketplace::Trait for Runtime {
+	type ReputationSystem = SimpleFeedback;
+	type Event = Event;
+}
+
+impl simple_feedback::Trait for Runtime {
+	type Event = Event;
 }
 
 construct_runtime!(
@@ -293,7 +327,11 @@ construct_runtime!(
 		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
 		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
 		ArchiveModule: archive::{Module, Call, Event<T>},
-		TotemModule: totem::{Module, Call, Storage, Event<T>},
+		// TotemModule: totem::{Module, Call, Storage, Event<T>},
+		AccountingModule: accounting::{Module, Storage, Event<T>},
+        PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
+        Marketplace: marketplace::{Module, Call, Storage, Event<T>},
+		SimpleFeedback: simple_feedback::{Module, Storage, Event<T>},
 	}
 );
 
