@@ -48,15 +48,12 @@ use support::traits::{
 // Totem Traits
 use crate::totem_traits::{ Posting };
 
-type AccountOf<T>        = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
+type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
 type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::AccountBalance;
 
 type CurrencyBalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
-pub type Indicator = bool; // 0=Debit(false) 1=Credit(true) Note: Debit and Credit balances are account specific - see chart of accounts
 pub type UnLocked = bool; // 0=Unlocked(false) 1=Locked(true)
 pub type Status = u16; // Generic Status for whatever the HashReference refers to
-
-pub const U16MAX: u16 = u16::max_value();
 
 pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
@@ -158,7 +155,7 @@ decl_module! {
             
             Ok(())
         }
-        /// Is ised by the buyer to recover funds if the vendor does not accept the order by the deadline
+        /// Is used by the buyer to recover funds if the vendor does not accept the order by the deadline
         fn cancel_prefunded_closed_order(origin, reference: T::Hash) -> Result {
             let who = ensure_signed(origin)?;
             Self::unlock_funds_for_owner(who.clone(), reference)?;
@@ -194,7 +191,6 @@ impl<T: Trait> Module<T> {
         let currency_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(amount_converted.clone());
         let prefunded = (currency_amount, deadline);
         
-        let new_status: Status = 1; // Submitted, Locked by sender.
         let owners = (who.clone(), true, recipient.clone(), false);
         
         // manage the deposit
@@ -206,10 +202,10 @@ impl<T: Trait> Module<T> {
         // Deposit taken at this point. Note that if an error occurs beyond here we need to remove the locked funds.            
         
         // Buyer
-        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100050000000); // debit  increase 110100050000000 Prefunding Account
-        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100040000000); // credit decrease 110100040000000 XTX Balance
-        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600020000000); // debit  increase 360600020000000 Runtime Ledger by Module
-        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600060000000); // debit  increase 360600060000000 Runtime Ledger Control
+        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100050000000u64); // debit  increase 110100050000000 Prefunding Account
+        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // credit decrease 110100040000000 XTX Balance
+        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // debit  increase 360600020000000 Runtime Ledger by Module
+        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600060000000u64); // debit  increase 360600060000000 Runtime Ledger Control
         
         // Keys for posting
         let mut forward_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(10);
@@ -238,7 +234,7 @@ impl<T: Trait> Module<T> {
             owner_prefunding_hash_list.push(prefunding_hash)
         });
         
-        <ReferenceStatus<T>>::insert(&prefunding_hash, new_status);
+        Self::set_ref_status(prefunding_hash, 1)?; // Submitted, Locked by sender.
         
         // Issue event
         Self::deposit_event(RawEvent::PrefundingCompleted(who));
@@ -273,7 +269,6 @@ impl<T: Trait> Module<T> {
             return Err("Not enough funds to prefund");
         }
     }
-    
     // ****************************************************//
     // Utility functions
     // ****************************************************//
@@ -294,13 +289,6 @@ impl<T: Trait> Module<T> {
         );
         return T::Hashing::hash(input.encode().as_slice()); // default hash BlakeTwo256
     } 
-    /// Get status of a reference hash or Max Value as error (will need to be checked outside this call) 
-    fn get_ref_status(h: T::Hash) -> Status {
-        match Self::reference_status(&h) {
-            status => status,
-            _ => U16MAX, // just return the max value as quasi-error state
-        }
-    }
     /// check owner (of hash) - if anything fails then returns false
     fn check_ref_owner(o: T::AccountId, h: T::Hash) -> bool {
         match Self::prefunding_hash_owner(&h) {
@@ -322,7 +310,7 @@ impl<T: Trait> Module<T> {
         return false;
     }    
     /// check hash exists and is valid
-    fn reference_exists(h: T::Hash) -> bool {
+    fn reference_valid(h: T::Hash) -> bool {
         match <ReferenceStatus<T>>::get(&h) {
             0 | 1 | 100 | 200 | 300 | 400 => return true,
             _ => return false,
@@ -415,7 +403,7 @@ impl<T: Trait> Module<T> {
     }
     /// unlock for owner
     fn unlock_funds_for_owner(o: T::AccountId, h: T::Hash) -> Result {
-        match Self::reference_exists(h) {
+        match Self::reference_valid(h) {
             true => {
                 match Self::check_ref_owner(o.clone(), h) {
                     true => {
@@ -452,10 +440,6 @@ impl<T: Trait> Module<T> {
                                     Err(e) => return Err(e),
                                 }
                             },
-                            _ => {
-                                Self::deposit_event(RawEvent::ErrorReleaseState(h));
-                                return Err("Error fetching release state");
-                            },
                         }
                     },
                     false => {
@@ -473,7 +457,7 @@ impl<T: Trait> Module<T> {
     }
     /// unlock & pay beneficiary with funds transfer and account updates (settlement of invoice)
     fn unlock_funds_for_beneficiary(o: T::AccountId, h: T::Hash) -> Result {
-        match Self::reference_exists(h) {
+        match Self::reference_valid(h) {
             true => {
                 match Self::check_ref_beneficiary(o.clone(), h) { // TODO this should return the details otherwise there is second read later in the process
                     true => {
@@ -486,9 +470,9 @@ impl<T: Trait> Module<T> {
                                 Self::deposit_event(RawEvent::ErrorFundsInPlay(o));
                                 return Err("Funds locked for intended purpose by both parties.")
                             },
-                            (false, true) => { // Owner has approved you can withdraw funds
+                            (false, true) => { 
+                                // Owner has approved now get status of hash. Only allow if invoiced.
                                 // Note handling the account posting is done outside of this function
-                                // Get status. Only allow if invoiced this will set the status to settled
                                 match <ReferenceStatus<T>>::get(&h) {
                                     400 => {
                                         // get details of lock
@@ -502,7 +486,7 @@ impl<T: Trait> Module<T> {
                                                 // transfer to beneficiary.
                                                 match T::Currency::transfer(&details.0, &o, prefunding.0) {
                                                     Ok(_) => (),
-                                                    Err(e) => return Err("Error during transfer"),
+                                                    Err(_) => return Err("Error during transfer"),
                                                 }
                                             },
                                             Err(e) => return Err(e),
@@ -518,10 +502,6 @@ impl<T: Trait> Module<T> {
                                 return Err("Funds locked for intended purpose by both parties.")
                                 
                             },
-                            _ => {
-                                Self::deposit_event(RawEvent::ErrorReleaseState(h));
-                                return Err("Error fetching release state");
-                            },
                         }
                     },
                     false => {
@@ -534,7 +514,8 @@ impl<T: Trait> Module<T> {
                 Self::deposit_event(RawEvent::ErrorHashDoesNotExist(h));
                 return Err("Hash does not exist!");
             }, 
-        }      
+        }
+
         Ok(())
     }
     // ****************************************************//
@@ -570,16 +551,16 @@ impl<T: Trait> Module<T> {
         let current_block_dupe = <system::Module<T>>::block_number();
         
         // Seller
-        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100080000000); // Debit  increase 110100080000000	Accounts receivable (Sales Control Account or Trade Debtor's Account)
-        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(240400010000000); // Credit increase 240400010000000	Product or Service Sales
-        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600010000000); // Debit  increase 360600010000000	Sales Ledger by Payer
-        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600050000000); // Debit  increase 360600050000000	Sales Ledger Control
+        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100080000000u64); // Debit  increase 110100080000000	Accounts receivable (Sales Control Account or Trade Debtor's Account)
+        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(240400010000000u64); // Credit increase 240400010000000	Product or Service Sales
+        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // Debit  increase 360600010000000	Sales Ledger by Payer
+        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600050000000u64); // Debit  increase 360600050000000	Sales Ledger Control
         
         // Buyer
-        let account_5: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(120200030000000); // Credit increase 120200030000000	Accounts payable
-        let account_6: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(250500120000013); // Debit  increase 250500120000013	Labour
-        let account_7: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600030000000); // Debit  increase 360600030000000	Purchase Ledger by Vendor
-        let account_8: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600070000000); // Debit  increase 360600070000000	Purchase Ledger Control       
+        let account_5: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(120200030000000u64); // Credit increase 120200030000000	Accounts payable
+        let account_6: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(250500120000013u64); // Debit  increase 250500120000013	Labour
+        let account_7: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600030000000u64); // Debit  increase 360600030000000	Purchase Ledger by Vendor
+        let account_8: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600070000000u64); // Debit  increase 360600070000000	Purchase Ledger Control       
         
         // Keys for posting
         let mut forward_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(10);
@@ -617,11 +598,10 @@ impl<T: Trait> Module<T> {
         Ok(())
     }
     
-    fn set_ref_status() -> Result {
-        
+    fn set_ref_status(h: T::Hash, s: Status) -> Result {
+        <ReferenceStatus<T>>::insert(&h, s);
         Ok(())
     }
-    
     
     // Settles invoice by unlocking funds and updates various relevant accounts and pays prefunded amount
     fn settle_prefunded_invoice(o: T::AccountId, h: T::Hash) -> Result {
@@ -629,8 +609,10 @@ impl<T: Trait> Module<T> {
         // release state must be 11
         // sender must be owner
         // accounts updated before payment, because if there is an error then the accounting can be rolled back 
-        // set settled status
         
+        let payer: T::AccountId;
+        let beneficiary: T::AccountId;
+
         match Self::get_release_state(h) {
             (true, false)  => { // submitted, but not yet accepted
                 Self::deposit_event(RawEvent::ErrorNotApproved(h));
@@ -643,7 +625,6 @@ impl<T: Trait> Module<T> {
                     true => {
                         // get beneficiary from hash
                         let details =  Self::prefunding_hash_owner(&h).ok_or("Error getting details from hash")?;        
-                        let prefunding = <Prefunding<T>>::get(&h);
                         
                         // get prefunding amount for posting to accounts
                         let prefunding = Self::prefunding(&h).ok_or("Error")?;
@@ -660,17 +641,17 @@ impl<T: Trait> Module<T> {
                         let current_block = <system::Module<T>>::block_number();
                         let current_block_dupe = <system::Module<T>>::block_number();
                         
-                        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(120200030000000); // 120200030000000	Debit  decrease Accounts payable
-                        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100050000000); // 110100050000000	Credit decrease Totem Runtime Deposit (Escrow)
-                        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600020000000); // 360600020000000	Credit decrease Runtime Ledger by Module
-                        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600060000000); // 360600060000000	Credit decrease Runtime Ledger Control
-                        let account_5: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600030000000); // 360600030000000	Credit decrease Purchase Ledger by Vendor
-                        let account_6: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600070000000); // 360600070000000	Credit decrease Purchase Ledger Control
+                        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(120200030000000u64); // 120200030000000	Debit  decrease Accounts payable
+                        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100050000000u64); // 110100050000000	Credit decrease Totem Runtime Deposit (Escrow)
+                        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // 360600020000000	Credit decrease Runtime Ledger by Module
+                        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600060000000u64); // 360600060000000	Credit decrease Runtime Ledger Control
+                        let account_5: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600030000000u64); // 360600030000000	Credit decrease Purchase Ledger by Vendor
+                        let account_6: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600070000000u64); // 360600070000000	Credit decrease Purchase Ledger Control
                         
-                        let account_7: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100040000000); // 110100040000000	Debit  increase XTX Balance
-                        let account_8: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100080000000); // 110100080000000	Credit decrease Accounts receivable (Sales Control Account or Trade Debtor's Account)
-                        let account_9: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600010000000); // 360600010000000	Credit decrease Sales Ledger by Payer
-                        let account_10: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600050000000); // 360600050000000	Credit decrease Sales Ledger Control
+                        let account_7: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // 110100040000000	Debit  increase XTX Balance
+                        let account_8: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100080000000u64); // 110100080000000	Credit decrease Accounts receivable (Sales Control Account or Trade Debtor's Account)
+                        let account_9: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // 360600010000000	Credit decrease Sales Ledger by Payer
+                        let account_10: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600050000000u64); // 360600050000000	Credit decrease Sales Ledger Control
                         
                         // Keys for posting
                         // Buyer
@@ -706,6 +687,10 @@ impl<T: Trait> Module<T> {
                         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
                         
                         <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+                        // export details for final payment steps
+                        payer = o.clone();        
+                        beneficiary = details.2.clone();        
+
                     },
                     false => {
                         Self::deposit_event(RawEvent::ErrorNotAllowed(h));
@@ -724,16 +709,16 @@ impl<T: Trait> Module<T> {
                 return Err("Funds locked for intended purpose by both parties.")
                 
             },
-            _ => {
-                Self::deposit_event(RawEvent::ErrorReleaseState(h));
-                return Err("Error fetching release state");
-            },
         }
         
-        // Add status processing
-        let new_status: Status = 500; // settled(500), can no longer be invoiced, 
-        <ReferenceStatus<T>>::insert(&h, new_status);
+        // Set release lock "buyer who has approved invoice"
+        // this may have been set independently, but is required for next step
+        Self::set_release_state(payer.clone(), false, h.clone(), true)?;
         
+        // Unlock, tansfer funds and mark hash as settled in full
+        Self::unlock_funds_for_beneficiary(beneficiary.clone(), h.clone())?;
+        
+        Self::deposit_event(RawEvent::InvoiceSettled(h));
         Ok(())
     }
     
@@ -760,6 +745,7 @@ decl_event!(
         ErrorLockNotAllowed(Hash),
         PrefundingCompleted(AccountId),
         InvoiceIssued(Hash),
+        InvoiceSettled(Hash),
         ErrorOverflow(Account),
         ErrorGlobalOverflow(),
         ErrorInsufficientFunds(AccountId),
