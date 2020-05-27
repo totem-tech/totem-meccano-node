@@ -158,11 +158,6 @@ impl ConversionHandler {
 	fn signed_to_unsigned(x: i128) -> u128 { x.abs() as u128 }
 }
 
-// Takes the AccountBalance and make absolute but also returns AccountBalance
-impl Convert<i128, i128> for ConversionHandler {
-	fn convert(x: i128) -> i128 { x.abs() as i128 }
-}
-
 // Takes the AccountBalance and converts for use with BalanceOf<T>
 impl Convert<i128, u128> for ConversionHandler {
 	fn convert(x: i128) -> u128 { Self::signed_to_unsigned(x) as u128 }
@@ -170,12 +165,26 @@ impl Convert<i128, u128> for ConversionHandler {
 
 // Takes BalanceOf<T> and converts for use with AccountBalance type
 impl Convert<u128, i128> for ConversionHandler {
-	fn convert(x: u128) -> i128 { x as i128 }
+    fn convert(x: u128) -> i128 { x as i128 }
 }
 
 // Takes integer u64 and converts for use with AccountOf<T> type
 impl Convert<u64, u64> for ConversionHandler {
-	fn convert(x: u64) -> u64 { x }
+    fn convert(x: u64) -> u64 { x }
+}
+
+// Takes integer u64 or AccountOf<T> and converts for use with BalanceOf<T> type
+impl Convert<u64, u128> for ConversionHandler {
+    fn convert(x: u64) -> u128 { x as u128 }
+}
+
+// Takes integer i128 and inverts for use mainly with AccountBalanceOf<T> type
+impl Convert<i128, i128> for ConversionHandler {
+    fn convert(x: i128) -> i128 { x }
+}
+// Used for extracting a user's balance into an integer for calculations 
+impl Convert<u128, u128> for ConversionHandler {
+    fn convert(x: u128) -> u128 { x }
 }
 
 
@@ -290,8 +299,6 @@ impl archive::Trait for Runtime {
 
 impl accounting::Trait for Runtime {
     type Event = Event;
-    type Currency = balances::Module<Self>;
-    type Conversions = ConversionHandler;
 }
 
 impl prefunding::Trait for Runtime {

@@ -1,14 +1,15 @@
 use support::dispatch::Result;
-// use parity_codec::{ Encode, Decode, Codec };
-use runtime_primitives::traits::{Zero, One};
+// use parity_codec::{ Encode, Decode, Codec, HasCompact};
+use runtime_primitives::traits::{ Member};
 use rstd::prelude::Vec;
-use rstd::ops::*;
+// use rstd::ops::*;
 
-// pub trait Posting<AccountId,Hash,BlockNumber>: Clone + Decode + Encode + Codec + Eq {
 pub trait Posting<AccountId,Hash,BlockNumber> {
 
-    type Account: Clone + PartialOrd;
-    type AccountBalance: Clone + PartialOrd + Add + Sub + Mul + Div + Neg + Zero + One;
+    // type Account: Member + PartialOrd + Copy;
+    type Account: Member + Copy;
+    // type AccountBalance: Member + PartialOrd + Copy + Into<i128> + SimpleArithmetic;
+    type AccountBalance: Member + Copy + Into<i128>;
 
     fn handle_multiposting_amounts(
         o: AccountId,

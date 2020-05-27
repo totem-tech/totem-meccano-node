@@ -36,7 +36,7 @@ use parity_codec::{Encode};
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap, ensure};
 use runtime_primitives::traits::{Convert, Hash}; // Use with node template only
 // use node_primitives::{Zero, Hash}; // Use with full node
-use system::{self};
+use system::{self, ensure_signed};
 use rstd::prelude::*;
 use support::traits::{
     Currency, 
@@ -51,7 +51,7 @@ use crate::totem_traits::{ Posting };
 type AccountOf<T>        = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
 type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::AccountBalance;
     
-type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
+type CurrencyBalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
 pub type Indicator = bool; // 0=Debit(false) 1=Credit(true) Note: Debit and Credit balances are account specific - see chart of accounts
 pub type UnLocked = bool; // 0=Unlocked(false) 1=Locked(true)
 pub type Status = u16; // Generic Status for whatever the HashReference refers to
@@ -61,11 +61,17 @@ pub const U16MAX: u16 = u16::max_value();
 pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
     type Currency: Currency<Self::AccountId> + LockableCurrency<Self::AccountId, Moment=Self::BlockNumber>;
-    type Conversions: Convert<AccountBalanceOf<Self>, BalanceOf<Self>> + 
-        Convert<BalanceOf<Self>, AccountBalanceOf<Self>> + 
+    type Conversions: 
+        Convert<AccountBalanceOf<Self>, CurrencyBalanceOf<Self>> + 
+        Convert<CurrencyBalanceOf<Self>, AccountBalanceOf<Self>> + 
         Convert<Vec<u8>, LockIdentifier> + 
-        Convert<u64, AccountOf<Self>> +
-        Convert<AccountBalanceOf<Self>, AccountBalanceOf<Self>>;
+        Convert<u64, AccountOf<Self>> + 
+        Convert<u64, CurrencyBalanceOf<Self>> +
+        Convert<i128, AccountBalanceOf<Self>> +
+        Convert<u128, AccountBalanceOf<Self>> +
+        Convert<u128, i128> +
+        Convert<AccountBalanceOf<Self>, i128> +
+        Convert<CurrencyBalanceOf<Self>, u128>;
     type Accounting: Posting<Self::AccountId,Self::Hash,Self::BlockNumber>;
 }
     
@@ -75,7 +81,7 @@ decl_storage! {
         // This storage is intended to signal to a marketplace that the originator is prepared to lockup funds to a deadline.
         // If the sender accepts respondence then the funds are moved to the main prefunding account
         // After deadline sender can withdraw funds
-        Prefunding get(prefunding): map T::Hash => Option<(BalanceOf<T>, T::BlockNumber)>;
+        Prefunding get(prefunding): map T::Hash => Option<(CurrencyBalanceOf<T>, T::BlockNumber)>;
         
         // Says who can take the money after deadline. Includes intended owner (same as origin for market posting)
         // 10, sender can take after deadline (initial state)
@@ -109,7 +115,7 @@ decl_module! {
         /// Quatity is not relevant 
         /// The prefunded amount remains as an asset of the buyer until the order is accepted
         /// Updates only the accounts of the buyer 
-        fn prefund_closed_order(origin, beneficiary: T::AccountId, amount: AccountBalanceOf<T>, deadline: T::BlockNumber) -> Result {
+        fn prefund_closed_order(origin, beneficiary: T::AccountId, amount: u128, deadline: T::BlockNumber) -> Result {
             let who = ensure_signed(origin)?;
             // check that the beneficiary is not the sender
             ensure!(who != beneficiary, "Beneficiary must be another account");
@@ -121,44 +127,44 @@ decl_module! {
         /// This invoice is associated with a prefunded order - therefore needs to provide the hash reference of the order
         /// Updates the accountiung for the vendor and the customer
         ////********************************************
-        // fn invoice_prefunded_order(origin, payer: T::AccountId, amount: AccountBalance, reference: T::Hash) -> Result {
-        //     let who = ensure_signed(origin)?;
-        //     Self::send_simple_invoice(who.clone(), payer.clone(), amount, reference)?;
-        //     Ok(())
-        // }
-        // /// Buyer pays a prefunded order. Needs to supply the correct hash reference
-        // /// Updates bother the buyer and the vendor accounts 
-        // fn pay_prefunded_invoice(origin, reference: T::Hash) -> Result {
-        //     let who = ensure_signed(origin)?;
-        //     Self::settle_prefunded_invoice(who.clone(), reference)?;
-        //     Ok(())
-        // }
-        // /// Setting the prefunded release state effectively locks the funds when the vendor agrees to work
-        // /// It is generally only changed by the vendor, once the prefund is created            
-        // fn set_prefund_release_state(origin, lock: UnLocked, reference: T::Hash) -> Result {
-        //     let who = ensure_signed(origin)?;
-        //     // check if they are the beneficary or the buyer/payer
-        //     // a similar check exists in the function, because this could be called by another module
-        //     // that is either vendor or buyer specific, and can therefore "self identify".
-        //     if Self::check_ref_owner(who.clone(), reference) {
-        //         Self::set_release_state(who.clone(), lock, reference, true)?;
-        //     } else if Self::check_ref_beneficiary(who.clone(), reference) {
-        //         Self::set_release_state(who.clone(), lock, reference, false)?;
-        //     } else {
-        //         // Issue error 
-        //         Self::deposit_event(RawEvent::ErrorLockNotAllowed(reference));
-        //         return Err("You are not the owner or the beneficiary");
+        fn invoice_prefunded_order(origin, payer: T::AccountId, amount: i128, reference: T::Hash) -> Result {
+            let who = ensure_signed(origin)?;
+            Self::send_simple_invoice(who.clone(), payer.clone(), amount, reference)?;
+            Ok(())
+        }
+        /// Buyer pays a prefunded order. Needs to supply the correct hash reference
+        /// Updates bother the buyer and the vendor accounts 
+        fn pay_prefunded_invoice(origin, reference: T::Hash) -> Result {
+            let who = ensure_signed(origin)?;
+            Self::settle_prefunded_invoice(who.clone(), reference)?;
+            Ok(())
+        }
+        /// Setting the prefunded release state effectively locks the funds when the vendor agrees to work
+        /// It is generally only changed by the vendor, once the prefund is created            
+        fn set_prefund_release_state(origin, lock: UnLocked, reference: T::Hash) -> Result {
+            let who = ensure_signed(origin)?;
+            // check if they are the beneficary or the buyer/payer
+            // a similar check exists in the function, because this could be called by another module
+            // that is either vendor or buyer specific, and can therefore "self identify".
+            if Self::check_ref_owner(who.clone(), reference) {
+                Self::set_release_state(who.clone(), lock, reference, true)?;
+            } else if Self::check_ref_beneficiary(who.clone(), reference) {
+                Self::set_release_state(who.clone(), lock, reference, false)?;
+            } else {
+                // Issue error 
+                Self::deposit_event(RawEvent::ErrorLockNotAllowed(reference));
+                return Err("You are not the owner or the beneficiary");
                 
-        //     }
+            }
             
-        //     Ok(())
-        // }
-        // /// Is ised by the buyer to recover funds if the vendor does not accept the order by the deadline
-        // fn cancel_prefunded_closed_order(origin, reference: T::Hash) -> Result {
-        //     let who = ensure_signed(origin)?;
-        //     Self::unlock_funds_for_owner(who.clone(), reference)?;
-        //     Ok(())
-        // }
+            Ok(())
+        }
+        /// Is ised by the buyer to recover funds if the vendor does not accept the order by the deadline
+        fn cancel_prefunded_closed_order(origin, reference: T::Hash) -> Result {
+            let who = ensure_signed(origin)?;
+            Self::unlock_funds_for_owner(who.clone(), reference)?;
+            Ok(())
+        }
     }
 }
     
@@ -166,27 +172,34 @@ decl_module! {
 
         // ****************************************************//
         // Main Prefunding Recipe including Accounting Postings
-        fn prefunding_for(who: T::AccountId, recipient: T::AccountId, amount: AccountBalanceOf<T>, deadline: T::BlockNumber) -> Result {
+        fn prefunding_for(who: T::AccountId, recipient: T::AccountId, amount: u128, deadline: T::BlockNumber) -> Result {
             
-            // amount cannot be negative
-            let abs_amount: AccountBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, AccountBalanceOf<T>>>::convert(amount);
-            let increase_amount: AccountBalanceOf<T> = abs_amount;
-            let zero: AccountBalanceOf<T> = <T::Conversions as Convert<BalanceOf<T>, AccountBalanceOf<T>>>::convert(0);
-            let decrease_amount: AccountBalanceOf<T> = zero - abs_amount;
+            // As amount will always be positive, convert for use in accounting
+            let amount_converted: AccountBalanceOf<T> = <T::Conversions as Convert<u128, AccountBalanceOf<T>>>::convert(amount);  
+            // Convert this for the inversion
+            let mut to_invert: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount_converted.clone());
+            // invert the amount
+            to_invert = to_invert * -1;
             
+            let increase_amount: AccountBalanceOf<T> = amount_converted.clone();
+            let decrease_amount: AccountBalanceOf<T> = <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(to_invert);
+
             let current_block = <system::Module<T>>::block_number();
             
             // Prefunding is always recorded in the same block. It cannot be posted toà another period
             let current_block_dupe = <system::Module<T>>::block_number(); 
             
             let prefunding_hash: T::Hash = Self::get_pseudo_random_value(who.clone(), recipient.clone());
-            let converted_amount: BalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, BalanceOf<T>>>::convert(amount);
-            let prefunded = (converted_amount, deadline);
+
+            // convert the account balanace to the currency balance (i128 -> u128)
+            let currency_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(amount_converted.clone());
+            let prefunded = (currency_amount, deadline);
+
             let new_status: Status = 1; // Submitted, Locked by sender.
             let owners = (who.clone(), true, recipient.clone(), false);
             
             // manage the deposit
-            match Self::set_prefunding(who.clone(), amount, deadline, prefunding_hash) {
+            match Self::set_prefunding(who.clone(), amount_converted.clone(), deadline, prefunding_hash) {
                 Ok(_) => (),
                 Err(e) => return Err(e),
             }
@@ -215,10 +228,10 @@ decl_module! {
             
             let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
             // let _ = <<T as Trait>::Accounting as Posting<T::AccountId, T::Hash, T::BlockNumber>>::handle_multiposting_amounts(who.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
-            
-            // let _ = Self::handle_multiposting_amounts(who.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
-            let _ = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(who.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
             // let _ = <<T as Trait>::ReputationSystem as Reputation<T::AccountId>>::rate(reviewer, reviewee, feedback);
+            // let _ = Self::handle_multiposting_amounts(who.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+            
+            // let _ = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(who.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
 
 
 
@@ -246,23 +259,23 @@ decl_module! {
             
             // Prepare make sure we are not taking the deposit again
             ensure!(!<ReferenceStatus<T>>::exists(&h), "This hash already exists!");        
+            let event_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(c.clone());
             
-            // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund.
-            ensure!((c > 0), "Cannot prefund zero");
-            let converted_amount: BalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, BalanceOf<T>>>::convert(c);
-            let min_amount = 1618;
-            // let minimum_balance: BalanceOf<T> = <T::Conversions as Convert<i128, BalanceOf<T>>>::convert(1618) + converted_amount;        
-            let minimum_balance: BalanceOf<T> = <T::Conversions as Convert<i128, BalanceOf<T>>>::convert(min_amount) + converted_amount;        
-            let current_balance = T::Currency::free_balance(&s);
-            
+            // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
             // Ensure that the funds can be substrated from sender's balance 
             // without causing the account to be destroyed by the existential deposit 
+            let min_amount: u128 =  1618u128;
+            // let current_balance = T::Currency::free_balance(&s);
+            let current_balance: u128 = <T::Conversions as Convert<CurrencyBalanceOf<T>, u128>>::convert(T::Currency::free_balance(&s));
+            let minimum_balance: u128 = min_amount + current_balance;        
+            
             if current_balance >= minimum_balance {
+                let converted_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(c.clone());
                 
                 // Lock the amount from the sender and set deadline
                 T::Currency::set_lock(Self::get_prefunding_id(h), &s, converted_amount, d, WithdrawReason::Reserve.into());
                 
-                Self::deposit_event(RawEvent::PrefundingDeposit(s, c, d));
+                Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
                 
                 Ok(())
                 
@@ -539,7 +552,8 @@ decl_module! {
         
         // Simple invoice. Does not include tax jurisdiction, tax amounts, freight, commissions, tariffs, discounts and other extended line item values
         // must include a connection to the originating reference. Invoices cannot be made to parties that haven't asked for something.
-        fn send_simple_invoice(o: T::AccountId, p: T::AccountId, n: AccountBalanceOf<T>, h: T::Hash) -> Result {
+        fn send_simple_invoice(o: T::AccountId, p: T::AccountId, n: i128, h: T::Hash) -> Result {
+            
             
             // Validate that the hash is indeed assigned to the seller
             match Self::check_ref_beneficiary(o.clone(), h) {
@@ -550,11 +564,18 @@ decl_module! {
                 },
             }
             
-            // amount cannot be negative
-            let abs_amount = <T::Conversions as Convert<AccountBalanceOf<T>, AccountBalanceOf<T>>>::convert(n);
-            let increase_amount: AccountBalanceOf<T> = abs_amount;
-            let decrease_amount: AccountBalanceOf<T> = -abs_amount.into();
-            
+            // Amount CAN be negative - this is therefore not an Invoice but a Credit Note!
+            // The account postings are identical to an invoice, however we must also handle the refund immediately if possible.
+            // In order to proceed with a credit note, validate that the vendor has sufficient funds.
+            // If they do not have sufficient funds, the credit note can still be issued, but will remain outstanding until it is settled.
+
+            // As amount will always be positive, convert for use in accounting
+            let amount_converted: AccountBalanceOf<T> = <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(n.clone());  
+            // invert the amount
+            let inverted: i128 = n * -1;
+            let increase_amount: AccountBalanceOf<T> = amount_converted.clone();
+            let decrease_amount: AccountBalanceOf<T> =  <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(inverted);
+
             let current_block = <system::Module<T>>::block_number();
             let current_block_dupe = <system::Module<T>>::block_number();
             
@@ -640,11 +661,15 @@ decl_module! {
                             
                             // get prefunding amount for posting to accounts
                             let prefunding = Self::prefunding(&h).ok_or("Error")?;
-                            let amount = prefunding.0;
-                            let abs_amount = <T::Conversions as Convert<AccountBalanceOf<T>,AccountBalanceOf<T>>>::convert(amount);
-                            let increase_amount: AccountBalanceOf<T> = abs_amount;
-                            let decrease_amount: AccountBalanceOf<T> = -abs_amount.into();
+                            let prefunded_amount: CurrencyBalanceOf<T> = prefunding.0;
                             
+                            // convert to Account Balance type
+                            let amount: AccountBalanceOf<T> = <T::Conversions as Convert<CurrencyBalanceOf<T>,AccountBalanceOf<T>>>::convert(prefunded_amount.into());
+                            // Convert for calculation
+                            let mut to_invert: i128 = <T::Conversions as Convert<AccountBalanceOf<T>,i128>>::convert(amount.clone());
+                            to_invert = to_invert * -1;
+                            let increase_amount: AccountBalanceOf<T> = amount;
+                            let decrease_amount: AccountBalanceOf<T> = <T::Conversions as Convert<i128,AccountBalanceOf<T>>>::convert(to_invert);
                             
                             let current_block = <system::Module<T>>::block_number();
                             let current_block_dupe = <system::Module<T>>::block_number();
@@ -697,9 +722,6 @@ decl_module! {
                             ////**************************************************////
                             // let _ = Self::handle_multiposting_amounts(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
                             ////**************************************************////
-                            
-
-                                   
                         },
                         false => {
                             Self::deposit_event(RawEvent::ErrorNotAllowed(h));
