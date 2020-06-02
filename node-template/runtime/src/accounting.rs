@@ -49,15 +49,33 @@
 // Bank of America Account (Identity) has properties > Bank Current > Current Assets > Assets > Balance Sheet > 110100010000000 
 // Here the Identity has a 1:1 relationship to its properties defined in the account number that is being posted to
 
-// use parity_codec::{Decode, Encode, Codec};
+// Totem Live Accounting Primitives
+// * All entities operating on the Totem Live Accounting network have XTX as the Functional Currency. This cannot be changed.
+// * All accounting is carried out on Accrual basis. 
+// * Accounting periods close every block, although entities are free to choose a specific block for longer periods (month/year close is a nominated block number, periods are defined by  block number ranges)
+// * In order to facilitate expense recognistion (for example the period in which the transaction is recorded, may not necessrily be the period in which the 
+// transaction is recognised) adjustments must specify the period(block number or block range) to which they relate. By default the transaction block number and the period block number are identical on first posting.
+
+
+// Curency Types
+// The UI provides spot rate for live results for Period close reporting (also known as Reporting Currency or Presentation Currency), which is supported byt the exchange rates module.
+// General rules for Currency conversion at Period Close follow GAAP rules and are carried out as follows:  
+// * Revenue recognition in the period when they occur, and expenses recognised (including asset consumption) in the same period as the revenue to which they relate
+// is recognised. 
+// * All other expenses are recognised in the period in which they occur.
+// * Therefore the currency conversion for revenue and related expenses is calculated at the spot rate for the period (block) in which they are recognised.
+// * All other currency conversions are made at the rate for the period close. The UI can therefore present the correct conversions for any given value at any point in time. 
+
+use parity_codec::{ Encode };
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap};
 use system::{self};
 use rstd::prelude::*;
+use runtime_primitives::traits::Hash;
 
 // Totem Traits
 use crate::totem_traits::{ Posting };
 
-pub trait Trait: system::Trait {
+pub trait Trait: system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
@@ -75,6 +93,10 @@ decl_storage! {
         GlobalLedger get(global_ledger): map Account => AccountBalance;
         // Address to book the sales tax to and the tax jurisdiction (Experimental, may be deprecated in future) 
         TaxesByJurisdiction get(taxes_by_jurisdiction): map (T::AccountId, T::AccountId) => AccountBalance;
+
+        // TODO
+        // Quantities Accounting
+        // Depreciation (calculated everytime there is a transaction so as not to overwork the runtime) - sets "last seen block" to calculate the delta for depreciation
     }
 }
 
@@ -147,7 +169,6 @@ impl<T: Trait> Module<T> {
     }
 }
 
-// impl<T: Clone + Decode + Encode + Codec + Eq> Posting<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
 impl<T: Trait> Posting<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
     
     type Account = Account;
@@ -197,6 +218,17 @@ impl<T: Trait> Posting<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
             }
         Ok(())
     }
+    fn get_pseudo_random_hash(sender: T::AccountId, recipient: T::AccountId) -> T::Hash {
+        let tuple = (sender, recipient);
+        let input = (
+            tuple,
+            <timestamp::Module<T>>::get(),
+            <system::Module<T>>::random_seed(),
+            <system::Module<T>>::extrinsic_index(),
+            <system::Module<T>>::block_number()
+        );
+        return T::Hashing::hash(input.encode().as_slice()); // default hash BlakeTwo256
+    } 
 }
     
 decl_event!(
