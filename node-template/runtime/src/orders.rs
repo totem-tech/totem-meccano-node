@@ -64,13 +64,25 @@ type ApprovalStatus = u16; // submitted(0), accepted(1), rejected(2)
 type Product = H256; // `Hash` in full node
 type UnitPrice = i128; 
 type Quantity = i128;
-type OrderHeader = (u16, T::AccounBalanceOf, bool, u16, u64, u64);
+
+// buy_or_sell: u16, // 0: buy, 1: sell, extensible
+// amount: AccountBalanceOf<T>, // amount should be the sum of all the items untiprices * quantities
+// open_closed: bool, // 0: open(true) 1: closed(false)
+// order_type: u16, // 0: personal, 1: business, extensible 
+// deadline: u64, // prefunding acceptance deadline 
+// due_date: u64, // due date is the future delivery date (in blocks) 
+type OrderHeader = (u16, i128, bool, u16, u64, u64);
+
 type OrderItem = Vec<(Product, UnitPrice, Quantity)>;
 
 
 pub trait Trait: system::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
-    type Conversions: Convert<i128, AccountBalanceOf<Self>> + Convert<AccountBalanceOf<Self>, i128>;
+    type Conversions: 
+        Convert<i128, AccountBalanceOf<Self>> + 
+        Convert<i128, u128> + 
+        Convert<AccountBalanceOf<Self>, i128> + 
+        Convert<u64, Self::BlockNumber>;
     type Accounting: Posting<Self::AccountId,Self::Hash,Self::BlockNumber>;
     type Prefunding: Encumbrance<Self::AccountId,Self::Hash,Self::BlockNumber>;
 }
@@ -80,10 +92,11 @@ decl_storage! {
         Owner get(owner): map T::AccountId => Vec<T::Hash>;
         Beneficiary get(beneficiary): map T::AccountId => Vec<T::Hash>;
         Approver get(approver): map T::AccountId => Vec<T::Hash>;
-        Header get(header): map T::Hash => Option<(bool, <AccountBalanceOf<T>, bool, u16, T::BlockNumber, T::BlockNumber)>;
         Details get(details): map T::Hash => OrderItem;
         Status get(status): map T::Hash => Option<OrderStatus>;
         Approved get(approved): map T::Hash => Option<ApprovalStatus>;
+        Order get(order): map T::Hash => Option<(u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)>;
+        // Order get(order): map T::Hash => Option<(bool,u16)>;
     }
 }
 
@@ -92,19 +105,6 @@ decl_module! {
         fn deposit_event<T>() = default;
     }
 }
-
-
-// {
-//     buy: integer (0: sell, 1: buy),
-//     assignee: identity,
-//     currency: string (XTX, USD....),
-//     description: string  
-//     reward: integer
-//     title: string
-//     status: integer (same as timekeeping, and maybe some more task-specific statuses)
-//     type:  integer (1: business, 0: personal) (same as with the identity derivation path) 
-//   }
-//   token: hash
 
 impl<T: Trait> Module<T> {
     // The approver should be able to set the status, and once approved the process should continue further
@@ -137,8 +137,8 @@ impl<T: Trait> Module<T> {
         amount: AccountBalanceOf<T>, // amount should be the sum of all the items untiprices * quantities
         open_closed: bool, // 0: open(true) 1: closed(false)
         order_type: u16, // 0: personal, 1: business, extensible 
-        deadline: T::BlockNumber, // prefunding acceptance deadline 
-        due_date: T::BlockNumber, // due date is the future delivery date (in blocks) 
+        deadline: u64, // prefunding acceptance deadline 
+        due_date: u64, // due date is the future delivery date (in blocks) 
         // order_items: Vec<(Product, UnitPrice, Quantity)> // for simple items there will only be one item, item number is accessed by its position in Vec 
         order_items: OrderItem // for simple items there will only be one item, item number is accessed by its position in Vec 
     ) -> Result {
@@ -161,13 +161,13 @@ impl<T: Trait> Module<T> {
         // check or set the approver status
         if Self::initial_approval_state(commander.clone(), approver.clone(), order_hash) {
             // approval status has been set to approved, continue.
-            // let prefund_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
-            // let order_header = (bool, <AccountBalanceOf<T>, bool, u16, T::BlockNumber, T::BlockNumber);
-            let order_header = (buy_or_sell, amount, open_closed, order_type, deadline, due_date);
+            let prefund_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
+            let order_header = (buy_or_sell, prefund_amount, open_closed, order_type, deadline, due_date);
             Self::record_approved_order(commander.clone(), fulfiller.clone(), order_hash, order_header, order_items)?;
 
         } else {
             // This is not an error but requires further processing by the approver. Exiting gracefully.
+            Self::deposit_event(RawEvent::OrderCreatedForApproval(commander, approver, order_hash));
             ();
         }
 
@@ -178,7 +178,15 @@ impl<T: Trait> Module<T> {
         
         // Set Prefunding - do this now, it does not matter if there are errors after this point.
         ensure!(c != f, "Beneficiary must be another account");
-        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), h.1, h.5)?;
+        let amount: u128 = <T::Conversions as Convert<i128, u128>>::convert(h.1);
+        let balance_amount: AccountBalanceOf<T> = <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(h.1);
+        let deadline: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(h.4);
+        let due_date: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(h.5);
+        // make storage tuple
+        // <(bool,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)>;
+        let order_hdr: (u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber) = (h.0, balance_amount, h.2, h.3, deadline, due_date); 
+
+        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), amount, deadline)?;
         // Set order status to submitted 
         let status: OrderStatus = 0;
         
@@ -194,7 +202,7 @@ impl<T: Trait> Module<T> {
         <Beneficiary<T>>::mutate(&f, |b| b.push(o.clone()));
 
         // Set details of Order
-        <Header<T>>::insert(&o, h);
+        <Order<T>>::insert(&o, order_hdr);
         <Details<T>>::insert(&o, i);
 
         // issue events
@@ -231,5 +239,6 @@ decl_event!(
     Hash = <T as system::Trait>::Hash
     {
         OrderCreated(AccountId, AccountId, Hash),
+        OrderCreatedForApproval(AccountId, AccountId, Hash),
     }
 );
