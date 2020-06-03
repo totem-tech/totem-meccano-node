@@ -73,7 +73,7 @@ use rstd::prelude::*;
 use runtime_primitives::traits::Hash;
 
 // Totem Traits
-use crate::totem_traits::{ Posting };
+use crate::accounting_traits::{ Posting };
 
 pub trait Trait: system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;

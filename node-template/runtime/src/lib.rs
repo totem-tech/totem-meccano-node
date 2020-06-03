@@ -77,9 +77,11 @@ pub type BlockNumber = u64;
 pub type Nonce = u64;
 
 // mod totem;
-mod totem_traits;
+mod accounting_traits;
 mod accounting;
 mod prefunding;
+mod prefunding_traits;
+mod orders;
 mod boxkeys;
 mod projects;
 mod timekeeping;
@@ -301,11 +303,19 @@ impl accounting::Trait for Runtime {
     type Event = Event;
 }
 
+
 impl prefunding::Trait for Runtime {
     type Event = Event;
     type Currency = balances::Module<Self>;
     type Conversions = ConversionHandler;
     type Accounting = AccountingModule;
+}
+
+impl orders::Trait for Runtime {
+    type Event = Event;
+    type Conversions = ConversionHandler;
+    type Accounting = AccountingModule;
+    type Prefunding = PrefundingModule;
 }
 
 impl marketplace::Trait for Runtime {
@@ -336,6 +346,7 @@ construct_runtime!(
 		ArchiveModule: archive::{Module, Call, Event<T>},
 		// TotemModule: totem::{Module, Call, Storage, Event<T>},
 		AccountingModule: accounting::{Module, Storage, Event<T>},
+		OrdersModule: orders::{Module, Call, Storage, Event<T>},
         PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
         Marketplace: marketplace::{Module, Call, Storage, Event<T>},
 		SimpleFeedback: simple_feedback::{Module, Storage, Event<T>},

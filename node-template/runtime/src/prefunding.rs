@@ -46,7 +46,8 @@ use support::traits::{
 };
 
 // Totem Traits
-use crate::totem_traits::{ Posting, Encumbrance };
+use crate::accounting_traits::{ Posting };
+use crate::prefunding_traits::{ Encumbrance };
 
 // Totem Trait Types
 type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
