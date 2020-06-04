@@ -22,7 +22,7 @@
 
 // The orders module supports creation of purchase orders and tasks and other types of market order.
 // A basic workflow is as follows:
-// * In general orders are assigned to a partner that the ordering identity already knows and is required to be accepted.
+// * In general orders are assigned to a partner that the ordering identity already knows and is required to be accepted by that party to become active.
 // * Orders can be made without already knowing the seller - these are called market orders
 // * The order can be prefunded by calling into the prefunding module, which updates the accounting ledgers.
 // * Once the order is accepted, the work must begin, and once completed, the vendor sets the state to completed.
@@ -92,10 +92,11 @@ decl_storage! {
         Owner get(owner): map T::AccountId => Vec<T::Hash>;
         Beneficiary get(beneficiary): map T::AccountId => Vec<T::Hash>;
         Approver get(approver): map T::AccountId => Vec<T::Hash>;
+        
+        Order get(order): map T::Hash => Option<(T::AccountId,T::AccountId,T::AccountId,u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)>;
         Details get(details): map T::Hash => OrderItem;
         Status get(status): map T::Hash => Option<OrderStatus>;
         Approved get(approved): map T::Hash => Option<ApprovalStatus>;
-        Order get(order): map T::Hash => Option<(u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)>;
         // Order get(order): map T::Hash => Option<(bool,u16)>;
     }
 }
@@ -107,6 +108,12 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
+    fn set_approval(a: T::AccountId, h:T::Hash) -> Result {
+        // check that the hash exists and that it can be approved by sender
+        ensure!(<Status<T>>::exists(&h), "The hash already exists! Try again.");
+        Ok(())
+    }
+
     // The approver should be able to set the status, and once approved the process should continue further
     // pending_approval (0), accepted(1), rejected(2) are the tree states to be set
     // If the status is 2 the commander may edit and resubmit
@@ -163,7 +170,7 @@ impl<T: Trait> Module<T> {
             // approval status has been set to approved, continue.
             let prefund_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
             let order_header = (buy_or_sell, prefund_amount, open_closed, order_type, deadline, due_date);
-            Self::record_approved_order(commander.clone(), fulfiller.clone(), order_hash, order_header, order_items)?;
+            Self::record_approved_order(commander.clone(), fulfiller.clone(), approver.clone(), order_hash, order_header, order_items)?;
 
         } else {
             // This is not an error but requires further processing by the approver. Exiting gracefully.
@@ -174,7 +181,7 @@ impl<T: Trait> Module<T> {
         Ok(())
     }
     
-    fn record_approved_order(c: T::AccountId, f: T::AccountId, o: T::Hash, h: OrderHeader, i: OrderItem ) -> Result {
+    fn record_approved_order(c: T::AccountId, f: T::AccountId, a: T::AccountId, o: T::Hash, h: OrderHeader, i: OrderItem ) -> Result {
         
         // Set Prefunding - do this now, it does not matter if there are errors after this point.
         ensure!(c != f, "Beneficiary must be another account");
@@ -183,8 +190,7 @@ impl<T: Trait> Module<T> {
         let deadline: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(h.4);
         let due_date: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(h.5);
         // make storage tuple
-        // <(bool,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)>;
-        let order_hdr: (u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber) = (h.0, balance_amount, h.2, h.3, deadline, due_date); 
+        let order_hdr: (T::AccountId,T::AccountId,T::AccountId,u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber) = (c.clone(), f.clone(), a.clone(), h.0, balance_amount, h.2, h.3, deadline, due_date); 
 
         <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), amount, deadline)?;
         // Set order status to submitted 
@@ -209,6 +215,43 @@ impl<T: Trait> Module<T> {
         Self::deposit_event(RawEvent::OrderCreated(c, f, o));
         
         Ok(())
+    }
+    
+    fn approve_order(a: T::AccountId, h: T::Hash, s: ApprovalStatus) -> Result {
+        
+        // is the supplied account the approver of the hash supplied?
+        match Self::order(&h) {
+            Some(order) => {
+                if a == order.2 {
+                    // check the status being proposed
+                    match s {
+                        1 | 2 => (), // approved
+                        _ => {
+                            // not in scope
+                            Self::deposit_event(RawEvent::ErrorApprStatus(h));
+                            return Err("The submitted status not allowed.");
+
+                        }, 
+                    }
+                } else {
+                    Self::deposit_event(RawEvent::ErrorNotApprover(a,h));
+                    return Err("Cannot change an order that you are not the approver of");
+                }
+            },
+            None => {
+                Self::deposit_event(RawEvent::ErrorRefNotFound(h));
+                return Err("reference hash does not exist");
+            },
+        }
+        
+        // if all is approved
+        <Status<T>>::remove(&h);
+        <Status<T>>::insert(&h, s);
+        
+        Self::deposit_event(RawEvent::OrderStatusUpdate(h, s));
+
+        Ok(())
+
     }
 
     fn accept_simple_prefunded_closed_order(fullfiller: T::AccountId, ) -> Result {
@@ -240,5 +283,9 @@ decl_event!(
     {
         OrderCreated(AccountId, AccountId, Hash),
         OrderCreatedForApproval(AccountId, AccountId, Hash),
+        OrderStatusUpdate(Hash, ApprovalStatus),
+        ErrorNotApprover(AccountId, Hash),
+        ErrorApprStatus(Hash),
+        ErrorRefNotFound(Hash),
     }
 );
