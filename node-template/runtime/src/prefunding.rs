@@ -69,6 +69,7 @@ pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     Convert<Vec<u8>, LockIdentifier> + 
     Convert<u64, AccountOf<Self>> + 
     Convert<u64, CurrencyBalanceOf<Self>> +
+    Convert<u64, Self::BlockNumber> +
     Convert<i128, AccountBalanceOf<Self>> +
     Convert<u128, AccountBalanceOf<Self>> +
     Convert<u128, i128> +
@@ -283,6 +284,7 @@ impl<T: Trait> Module<T> {
                                         match Self::cancel_prefunding_lock(details.0.clone(), h, status) {
                                             Ok(_) => {
                                                 // transfer to beneficiary.
+                                                // TODO when currency conversion is implemnted the payment should be at the current rate for the currency
                                                 match T::Currency::transfer(&details.0, &o, prefunding.0) {
                                                     Ok(_) => (),
                                                     Err(_) => return Err("Error during transfer"),
@@ -354,6 +356,17 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         // convert the account balanace to the currency balance (i128 -> u128)
         let currency_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(amount_converted.clone());
+        
+        // NEED TO CHECK THAT THE DEADLINE IS SENSIBLE!!!!
+        // 48 hours is the minimum deadline 
+        let minimum_deadline: T::BlockNumber = current_block + <T::Conversions as Convert<u64, T::BlockNumber>>::convert(11520u64);
+        
+        if deadline < minimum_deadline {
+            Self::deposit_event(RawEvent::ErrorShortDeadline(current_block, deadline));
+            return Err("Deadline is too short!");
+        }
+        
+        
         let prefunded = (currency_amount, deadline);
         
         let owners = (who.clone(), true, recipient.clone(), false);
@@ -760,5 +773,6 @@ decl_event!(
         ErrorReleaseState(Hash),
         ErrorGettingPrefundData(Hash),
         ErrorTransfer(AccountId, AccountId),
+        ErrorShortDeadline(BlockNumber, BlockNumber),
     }
 );

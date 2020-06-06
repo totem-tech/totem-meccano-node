@@ -5,8 +5,8 @@ use rstd::prelude::Vec;
 
 pub trait Posting<AccountId,Hash,BlockNumber> {
 
-    type Account: Member + Copy;
-    type AccountBalance: Member + Copy + Into<i128> + Encode + Decode;
+    type Account: Member + Copy + Eq;
+    type AccountBalance: Member + Copy + Into<i128> + Encode + Decode + Eq;
 
     fn handle_multiposting_amounts(
         o: AccountId,
