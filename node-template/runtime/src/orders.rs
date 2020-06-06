@@ -367,7 +367,7 @@ impl<T: Trait> Module<T> {
 
                 let current_block = <system::Module<T>>::block_number();
 
-                // Update with new 
+                // apply a new fulfiller but check that it isn't the commander
                 match order.1.clone() {
                     fulfiller => (),
                     commander => {
@@ -376,13 +376,12 @@ impl<T: Trait> Module<T> {
                     },
                     _ => f = fulfiller,
                 }
-
+                // apply a new amount
+                // This also indicates a change to the items
+                // TODO this should be replaced with a more thorough sanity check of the item changes                        
                 match order.4 {
                     amount => (),
                     _ => {
-                        // This also indicates a change to the items
-                        // TODO this should be replaced with a more thorough sanity check of the items                        
-                        // For the moment all items are relaced regardless
                         let amount_converted: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
                         // check that the amount is greater than zero
                         if amount_converted > 0i128 {
@@ -424,18 +423,12 @@ impl<T: Trait> Module<T> {
                     }
                 }
 
-
                 // Create Order sub header
-                let converted_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
-                // let converted_deadline: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(order.7);
-                // let converted_due_date: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(order.8);
-                
-                // order_sub_hdr: (u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)
                 // order_sub_hdr: (buy_or_sell, converted_amount, open_closed, order_type, deadline, due_date)
-        
+                let converted_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
                 let sub:OrderSubHeader = (order.3, converted_amount, order.5, order.6, dl, dd); 
                 let status: OrderStatus = 0;
-                // (c: T::AccountId, f: T::AccountId, a: T::AccountId, o: T::Hash, h: OrderSubHeader, i: OrderItem )
+
                 Self::set_order_approval(order.0, order.1, order.2, reference, sub, order_items, status)?;
         
                 // prefunding can only be cancelled if deadline has passed, otherwise the prefunding remains as a deposit
@@ -445,16 +438,17 @@ impl<T: Trait> Module<T> {
             None => return Err("Error getting order details"),
         }
         
-        
-        
         Ok(())
     }
-    // for simple items there will only be one item, item number is accessed by its position in Vec 
+    /// Used by the beneficiary (fulfiller) to accept the order. It effectively creates a state change for the order and the prefunding
+    /// The order is locked for the beneficiary 
     fn accept_simple_prefunded_closed_order(fullfiller: T::AccountId, ) -> Result {
+        // Update the status in this module
+        // Update the prefunding status (confirm locked funds)
         Ok(())
     }
-    // Accepting the order means that it converts to a closed order for further processing
-    fn accept_simple_prefunded_open_order() -> Result {
+    /// This is used by any party that wants to accept a market order. This is non-blocking and can accept many applicants
+    fn post_simple_prefunded_open_order() -> Result {
         Ok(())
     }
     fn complete_simple_prefunded_closed_order() -> Result {
