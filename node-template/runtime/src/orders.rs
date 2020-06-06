@@ -54,6 +54,9 @@ use crate::prefunding_traits::{ Encumbrance };
 type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
 type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::AccountBalance;
 
+// 0=Unlocked(false) 1=Locked(true)
+pub type UnLocked<T> = <<T as Trait>::Prefunding as Encumbrance<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::UnLocked; 
+
 // Other trait types
 // type CurrencyBalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
 
@@ -81,6 +84,7 @@ pub trait Trait: system::Trait {
     type Conversions: 
     Convert<i128, AccountBalanceOf<Self>> + 
     Convert<i128, u128> + 
+    Convert<bool, UnLocked<Self>> + 
     Convert<AccountBalanceOf<Self>, i128> + 
     Convert<AccountBalanceOf<Self>, u128> + 
     Convert<u64, Self::BlockNumber> +
@@ -94,6 +98,7 @@ decl_storage! {
         Owner get(owner): map T::AccountId => Vec<T::Hash>;
         Beneficiary get(beneficiary): map T::AccountId => Vec<T::Hash>;
         Approver get(approver): map T::AccountId => Vec<T::Hash>;
+        Postulate get(postulate): map T::Hash => Vec<T::AccountId>;
         
         Order get(order): map T::Hash => Option<(T::AccountId,T::AccountId,T::AccountId,u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)>;
         Details get(details): map T::Hash => OrderItem;
@@ -364,9 +369,9 @@ impl<T: Trait> Module<T> {
                 let mut a: AccountBalanceOf<T> = order.4;
                 let mut dl: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(order.7);
                 let mut dd: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(order.8);
-
+                
                 let current_block = <system::Module<T>>::block_number();
-
+                
                 // apply a new fulfiller but check that it isn't the commander
                 match order.1.clone() {
                     fulfiller => (),
@@ -422,18 +427,18 @@ impl<T: Trait> Module<T> {
                         dd = due_date;
                     }
                 }
-
+                
                 // Create Order sub header
                 // order_sub_hdr: (buy_or_sell, converted_amount, open_closed, order_type, deadline, due_date)
                 let converted_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
                 let sub:OrderSubHeader = (order.3, converted_amount, order.5, order.6, dl, dd); 
                 let status: OrderStatus = 0;
-
+                
                 Self::set_order_approval(order.0, order.1, order.2, reference, sub, order_items, status)?;
-        
+                
                 // prefunding can only be cancelled if deadline has passed, otherwise the prefunding remains as a deposit
                 // TODO we could use the cancel prefunding function to do this, but also we need to check exchange rates
-
+                
             },
             None => return Err("Error getting order details"),
         }
@@ -442,13 +447,51 @@ impl<T: Trait> Module<T> {
     }
     /// Used by the beneficiary (fulfiller) to accept the order. It effectively creates a state change for the order and the prefunding
     /// The order is locked for the beneficiary 
-    fn accept_simple_prefunded_closed_order(fullfiller: T::AccountId, ) -> Result {
-        // Update the status in this module
-        // Update the prefunding status (confirm locked funds)
+    fn accept_simple_prefunded_closed_order(f: T::AccountId, h: T::Hash, s: OrderStatus) -> Result {
+        // check that this is the fulfiller
+        match Self::order(&h) {
+            Some(order) => {
+                if order.1 != f {
+                    Self::deposit_event(RawEvent::ErrorNotFulfiller(f,h));
+                    return Err("You are not the chosen one!")
+                }
+                // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5), reason_code(0), reason text.
+                // Update the status in this module
+                match s {
+                    1 => {
+                        // Order Accepted
+                        // Update the prefunding status (confirm locked funds)
+                        let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(true);
+                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false)?;
+                    },
+                    2 => {
+                        // order rejected
+                        let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(false);
+                        // set release state for releasing funds for fulfiller.
+                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false)?;
+                        // set release state for releasing funds for commander.
+                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.0.clone(),lock,h,true)?;
+                        // now release the funds lock
+                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.0,h)?;
+                    },
+                    _ => {
+                        Self::deposit_event(RawEvent::ErrorNotAllowed(h,s));
+                        return Err("Order status is not allowed!");
+                    },
+                }
+                <Status<T>>::remove(&h);
+                <Status<T>>::insert(&h, s);
+            },
+            None => {
+                Self::deposit_event(RawEvent::ErrorRefNotFound(h));
+                return Err("Reference Hash not found");
+            },
+        }
         Ok(())
     }
-    /// This is used by any party that wants to accept a market order. This is non-blocking and can accept many applicants
-    fn post_simple_prefunded_open_order() -> Result {
+    /// This is used by any party that wants to accept a market order in whole or part. 
+    /// This is non-blocking and can accept many applicants
+    fn postulate_simple_prefunded_open_order() -> Result {
         Ok(())
     }
     fn complete_simple_prefunded_closed_order() -> Result {
@@ -477,10 +520,12 @@ decl_event!(
         OrderCreatedForApproval(AccountId, AccountId, Hash),
         OrderStatusUpdate(Hash, ApprovalStatus),
         ErrorNotApprover(AccountId, Hash),
+        ErrorNotFulfiller(AccountId, Hash),
         ErrorOrderStatus(Hash),
         ErrorApprStatus(Hash),
         ErrorApproved(Hash),
         ErrorRefNotFound(Hash),
+        ErrorNotAllowed(Hash, OrderStatus),
         ErrorFulfiller(Hash),
         ErrorAmount(AccountBalance),
         ErrorShortDeadline(BlockNumber, BlockNumber),

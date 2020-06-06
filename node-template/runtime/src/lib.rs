@@ -170,7 +170,7 @@ impl Convert<u128, i128> for ConversionHandler {
     fn convert(x: u128) -> i128 { x as i128 }
 }
 
-// Takes integer u64 and converts for use with AccountOf<T> type
+// Takes integer u64 and converts for use with AccountOf<T> type or BlockNumber
 impl Convert<u64, u64> for ConversionHandler {
     fn convert(x: u64) -> u64 { x }
 }
@@ -187,6 +187,10 @@ impl Convert<i128, i128> for ConversionHandler {
 // Used for extracting a user's balance into an integer for calculations 
 impl Convert<u128, u128> for ConversionHandler {
     fn convert(x: u128) -> u128 { x }
+}
+// Used to convert to associated type UnLocked<T> 
+impl Convert<bool, bool> for ConversionHandler {
+    fn convert(x: bool) -> bool { x }
 }
 
 
