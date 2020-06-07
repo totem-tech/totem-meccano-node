@@ -445,65 +445,132 @@ impl<T: Trait> Module<T> {
         
         Ok(())
     }
-    /// Used by the beneficiary (fulfiller) to accept the order. It effectively creates a state change for the order and the prefunding
-    /// The order is locked for the beneficiary 
-    fn accept_simple_prefunded_closed_order(f: T::AccountId, h: T::Hash, s: OrderStatus) -> Result {
+    /// Used by the beneficiary (fulfiller) to accept, reject or invoice the order. 
+    /// It effectively creates a state change for the order and the prefunding
+    /// When accepting, the order is locked for the beneficiary or when rejected the funds are released for the order owner.
+    /// When invoicing the 
+    fn set_state_simple_prefunded_closed_order(f: T::AccountId, h: T::Hash, s: OrderStatus) -> Result {
         // check that this is the fulfiller
         match Self::order(&h) {
             Some(order) => {
                 if order.1 != f {
                     Self::deposit_event(RawEvent::ErrorNotFulfiller(f,h));
-                    return Err("You are not the chosen one!")
+                    return Err("You are not the chosen one!");
                 }
-                // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5), reason_code(0), reason text.
-                // Update the status in this module
-                match s {
-                    1 => {
-                        // Order Accepted
-                        // Update the prefunding status (confirm locked funds)
-                        let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(true);
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false)?;
+                // check the currenct status
+                match Self::status(&h).unwrap() {
+                    0 => {
+                        // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5), reason_code(0), reason text.
+                        // Update the status in this module
+                        match s {
+                            1 => {
+                                // Order Accepted
+                                // Update the prefunding status (confirm locked funds)
+                                let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(true);
+                                <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false)?;
+                            },
+                            2 => {
+                                // order rejected
+                                let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(false);
+                                // set release state for releasing funds for fulfiller.
+                                <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false)?;
+                                // set release state for releasing funds for commander.
+                                <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.0.clone(),lock,h,true)?;
+                                // now release the funds lock
+                                <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.0,h)?;
+                            },
+                            _ => {
+                                Self::deposit_event(RawEvent::ErrorNotAllowed(h,s));
+                                return Err("Order status is not allowed!");
+                            },
+                        }
                     },
-                    2 => {
-                        // order rejected
-                        let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(false);
-                        // set release state for releasing funds for fulfiller.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false)?;
-                        // set release state for releasing funds for commander.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.0.clone(),lock,h,true)?;
-                        // now release the funds lock
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.0,h)?;
+                    1 => {
+                        // Update the status in this module
+                        match s {
+                            5 => {
+                                // Order Completed. Now we are going to issue the invoice.
+                                let amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(order.4);
+                                <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::send_simple_invoice(f.clone(), order.0.clone(), amount, h)?;
+                            },
+                            _ => {
+                                Self::deposit_event(RawEvent::ErrorNotAllowed(h,s));
+                                return Err("Order status is not allowed!");
+                            },
+                        }
+                        
+                    },
+                    2 | 5  => {
+                        Self::deposit_event(RawEvent::ErrorNotAllowed(h, s));
+                        return Err("The order has a status that cannot be changed!");
                     },
                     _ => {
-                        Self::deposit_event(RawEvent::ErrorNotAllowed(h,s));
-                        return Err("Order status is not allowed!");
+                        Self::deposit_event(RawEvent::ErrorNotAllowed(h, s));
+                        return Err("The order has an unkown state!");
                     },
                 }
-                <Status<T>>::remove(&h);
-                <Status<T>>::insert(&h, s);
             },
             None => {
                 Self::deposit_event(RawEvent::ErrorRefNotFound(h));
                 return Err("Reference Hash not found");
             },
         }
+        <Status<T>>::remove(&h);
+        <Status<T>>::insert(&h, s);
+        Self::deposit_event(RawEvent::OrderCompleted(h));
+        Ok(())
+    }
+    /// Used by the buyer to accept or reject (TODO) the invoice that was raised by the seller.
+    fn accept_prefunded_invoice(o: T::AccountId, h: T::Hash, s: OrderStatus) -> Result {
+        // check that this is the fulfiller
+        match Self::order(&h) {
+            Some(order) => {
+                if order.0 != o {
+                    Self::deposit_event(RawEvent::ErrorNotCommander(o,h));
+                    return Err("You are not the chosen one!");
+                }
+                // check the currenct status
+                match Self::status(&h).unwrap() {
+                    5 => {
+                        match s {
+                            3 => {
+                                // Invoice is disputed. TODO provide the ability to change the invoice and resubmit
+                                Self::deposit_event(RawEvent::ErrorNotImplmented());
+                                return Err("TODO!");
+                            },
+                            6 => {
+                                // Invoice Accepted. Now pay-up!.
+                                <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::settle_prefunded_invoice(o.clone(), h)?;
+                                Self::deposit_event(RawEvent::InvoicePayed(h));
+                            },
+                            _ => {
+                                // All other states are not allowed
+                                Self::deposit_event(RawEvent::ErrorNotAllowed(h, s));
+                                return Err("The order has an unkown state!");
+                            },
+                        }
+                        // Update the status in this module
+                    },
+                    _ => {
+                        Self::deposit_event(RawEvent::ErrorOrderStatus(h));
+                        return Err("The order has an unkown state!");
+                    },
+                }
+            },
+            None => {
+                Self::deposit_event(RawEvent::ErrorRefNotFound(h));
+                return Err("Reference Hash not found");
+            },
+        }
+
+        <Status<T>>::remove(&h);
+        <Status<T>>::insert(&h, s);
+        
         Ok(())
     }
     /// This is used by any party that wants to accept a market order in whole or part. 
     /// This is non-blocking and can accept many applicants
     fn postulate_simple_prefunded_open_order() -> Result {
-        Ok(())
-    }
-    fn complete_simple_prefunded_closed_order() -> Result {
-        Ok(())
-    }
-    fn accept_prefunded_invoice() -> Result {
-        Ok(())
-    }
-    //********************************************//
-    //** Utilities *******************************//
-    //********************************************//
-    fn set_status_order() -> Result {
         Ok(())
     }
 }
@@ -519,8 +586,11 @@ decl_event!(
         OrderCreated(AccountId, AccountId, Hash),
         OrderCreatedForApproval(AccountId, AccountId, Hash),
         OrderStatusUpdate(Hash, ApprovalStatus),
+        OrderCompleted(Hash),
+        InvoicePayed(Hash),
         ErrorNotApprover(AccountId, Hash),
         ErrorNotFulfiller(AccountId, Hash),
+        ErrorNotCommander(AccountId, Hash),
         ErrorOrderStatus(Hash),
         ErrorApprStatus(Hash),
         ErrorApproved(Hash),
@@ -530,5 +600,6 @@ decl_event!(
         ErrorAmount(AccountBalance),
         ErrorShortDeadline(BlockNumber, BlockNumber),
         ErrorShortDueDate(BlockNumber, BlockNumber),
+        ErrorNotImplmented(),
     }
 );
