@@ -92,7 +92,7 @@ pub struct Timekeeper<
 // It is recognised that measurements of time periods using block numbers as a timestamp is not the recommended approach
 // due to significant time-drift over long periods of elapsed time.
 
-// This module however uses number of blocks as a time measurement (with 1 block equivalent to approximately 5 seconds)
+// This module however uses number of blocks as a time measurement (with 1 block equivalent to approximately 15 seconds)
 // on the basis that the employee's working time measurement segments do not present a
 // significant calculation risk when measuring and capturing relatively small amounts of booked time.
 // The blocktime therefore behaves similar to a stopwatch for timekeeping.
@@ -321,36 +321,36 @@ decl_module! {
                 if input_time_hash == default_hash {        
 
                         // This is the default hash therefore it is a new submission.
-                        // Create a new random hash
-                        let intermediate_time_hash = <system::Module<T>>::random_seed().using_encoded(<T as system::Trait>::Hashing::hash);
-                        let time_hash: TimeHash = convert_hash(&intermediate_time_hash); // Conversion from T::Hash to Hash
-
+                        
                         // prepare new time record
                         let time_data: Timekeeper<
-                                            T::AccountId,
-                                            ProjectHashRef,
-                                            NumberOfBlocks,
-                                            LockStatus,
-                                            StatusOfTimeRecord,
-                                            ReasonCodeStruct,
-                                            PostingPeriod,
-                                            StartOrEndBlockNumber,
-                                            NumberOfBreaks> = Timekeeper {
-                                                worker: who.clone(),
-                                                project_hash: project_hash.clone(),
-                                                total_blocks: number_of_blocks.into(),
-                                                locked_status: false,
-                                                locked_reason: initial_reason_for_lock,
-                                                submit_status: 1, // new record always gets status 1
-                                                reason_code: initial_submit_reason,
-                                                posting_period: 0, // temporary for this version of totem (meccano).
-                                                start_block: start_block_number.into(),
-                                                end_block: end_block_number.into(),
-                                                nr_of_breaks: break_counter.into(),
-                                            };
-
+                            T::AccountId,
+                            ProjectHashRef,
+                            NumberOfBlocks,
+                            LockStatus,
+                            StatusOfTimeRecord,
+                            ReasonCodeStruct,
+                            PostingPeriod,
+                            StartOrEndBlockNumber,
+                            NumberOfBreaks> = Timekeeper {
+                                worker: who.clone(),
+                                project_hash: project_hash.clone(),
+                                total_blocks: number_of_blocks.into(),
+                                locked_status: false,
+                                locked_reason: initial_reason_for_lock,
+                                submit_status: 1, // new record always gets status 1
+                                reason_code: initial_submit_reason,
+                                posting_period: 0, // temporary for this version of totem (meccano).
+                                start_block: start_block_number.into(),
+                                end_block: end_block_number.into(),
+                                nr_of_breaks: break_counter.into(),
+                             };
+                        
+                        // Create a new random hash
+                        let intermediate_time_hash = time_data.clone().using_encoded(<T as system::Trait>::Hashing::hash);
+                        let time_hash: TimeHash = convert_hash(&intermediate_time_hash); // Conversion from T::Hash to Hash
+                        
                         // Now update all time relevant records
-
                         //WorkerTimeRecordsHashList
                         <WorkerTimeRecordsHashList<T>>::mutate(&who, |worker_time_records_hash_list| worker_time_records_hash_list.push(time_hash.clone()));
 

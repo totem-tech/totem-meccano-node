@@ -93,40 +93,54 @@ decl_module! {
         ) -> Result {
             // check transaction signed
             let who = ensure_signed(origin)?;
-            // let token.clone(): DataHash = token.clone();
-            
+            let event_type = record_type.clone();
+
             // check which type of record
             // then check that the supplied hash is owned by the signer of the transaction
             match record_type {
                 3000 => {
                     match <projects::Module<T>>::check_project_owner(who.clone(), key.clone()) {
                         true => (), // Do nothing
-                        false => return Err("You cannot add a record you do not own"),
+                        false => {
+                            
+                            Self::deposit_event(RawEvent::RecordOwnerError(who, key, token));
+                            return Err("You cannot add a record you do not own");
+                        },
                     }
                 },
                 4000 => {
-
+                    
                     // Convert from H256 to [u8; 32]. Might need dereferencing in other contexts
                     // let key_copy2: T::Hash  = key.clone();
-
+                    
                     match <timekeeping::Module<T>>::check_time_record_owner(who.clone(), key.clone()) {
                         true => (), // Do nothing
-                        false => return Err("You cannot add a record you do not own"),
+                        false => {
+                            Self::deposit_event(RawEvent::RecordOwnerError(who, key, token));
+                            return Err("You cannot add a record you do not own");
+                        },
                     }
                 },
-                _ => return Err("Unknown or unimplemented record type. Cannot store record"),
+                _ => {
+                    Self::deposit_event(RawEvent::UnknownRecordType(event_type));
+                    return Err("Unknown or unimplemented record type. Cannot store record");
+                },
             };
             
             // TODO implement fee payment mechanism
             // take the payment for the transaction
             // send the payment to the storage treasury
-                                        
-            // remove store the token. This overwrites any existing hash.
-            <IsValidRecord<T>>::remove(key.clone());
+            
+            if <IsValidRecord<T>>::exists(key) {
+                // remove store the token. This overwrites any existing hash.
+                <IsValidRecord<T>>::remove(key.clone());
+                // Self::new_account(dest, new_to_balance);
+            };
+
             <IsValidRecord<T>>::insert(key.clone(), token.clone());
 
             // issue event
-            Self::deposit_event(RawEvent::IsValidRecord(record_type, key.clone(), token.clone()));
+            Self::deposit_event(RawEvent::SuccessfullyAdded(event_type, key, token));
             
             Ok(())
         }
@@ -138,7 +152,8 @@ decl_event!(
     where
     AccountId = <T as system::Trait>::AccountId,
     {
-        Dummy(AccountId),
-        IsValidRecord(RecordType, Hash, Hash),
+        SuccessfullyAdded(RecordType, Hash, Hash),
+        RecordOwnerError(AccountId, Hash, Hash),
+        UnknownRecordType(RecordType),
     }
 );

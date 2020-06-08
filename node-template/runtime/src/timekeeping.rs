@@ -316,49 +316,50 @@ decl_module! {
                 if input_time_hash == default_hash {        
 
                         // This is the default hash therefore it is a new submission.
-                        // Create a new random hash
-                        let time_hash: T::Hash = <system::Module<T>>::random_seed().using_encoded(<T as system::Trait>::Hashing::hash);
-
+                        
                         // prepare new time key
                         // let time_key = time_hash.clone();
-
+                        
                         // prepare new time record
                         let time_data: Timekeeper<
-                                            T::AccountId,
-                                            ProjectHashRef,
-                                            NumberOfBlocks,
-                                            LockStatus,
-                                            StatusOfTimeRecord,
-                                            ReasonCodeStruct,
-                                            PostingPeriod,
-                                            StartOrEndBlockNumber,
-                                            NumberOfBreaks> = Timekeeper {
-                                                worker: who.clone(),
-                                                project_hash: project_hash.clone(),
-                                                total_blocks: number_of_blocks.into(),
-                                                locked_status: false,
-                                                locked_reason: initial_reason_for_lock,
-                                                submit_status: 1, // new record always gets status 1
-                                                reason_code: initial_submit_reason,
-                                                posting_period: 0, // temporary for this version of totem (meccano).
-                                                start_block: start_block_number.into(),
-                                                end_block: end_block_number.into(),
-                                                nr_of_breaks: break_counter.into(),
-                                            };
+                            T::AccountId,
+                            ProjectHashRef,
+                            NumberOfBlocks,
+                            LockStatus,
+                            StatusOfTimeRecord,
+                            ReasonCodeStruct,
+                            PostingPeriod,
+                            StartOrEndBlockNumber,
+                            NumberOfBreaks> = Timekeeper {
+                                worker: who.clone(),
+                                project_hash: project_hash.clone(),
+                                total_blocks: number_of_blocks.into(),
+                                locked_status: false,
+                                locked_reason: initial_reason_for_lock,
+                                submit_status: 1, // new record always gets status 1
+                                reason_code: initial_submit_reason,
+                                posting_period: 0, // temporary for this version of totem (meccano).
+                                start_block: start_block_number.into(),
+                                end_block: end_block_number.into(),
+                                nr_of_breaks: break_counter.into(),
+                            };
+                        
+                        // Create a new random hash
+                        let time_hash: T::Hash = time_data.clone().using_encoded(<T as system::Trait>::Hashing::hash);
 
                         // Now update all time relevant records
-
+                        
                         //WorkerTimeRecordsHashList
                         <WorkerTimeRecordsHashList<T>>::mutate(&who, |worker_time_records_hash_list| worker_time_records_hash_list.push(time_hash.clone()));
-
+                        
                         // Add time hash to project list
                         <ProjectTimeRecordsHashList<T>>::mutate(&project_hash, |project_time_hash_list| {
                             project_time_hash_list.push(time_hash.clone())
                         });
-
+                        
                         //TimeHashOwner
                         <TimeHashOwner<T>>::insert(time_hash.clone(), who.clone());
-
+                        
                         // Insert record
                         <TimeRecord<T>>::insert(time_hash.clone(), &time_data);
                         Self::deposit_event(RawEvent::SubmitedTimeRecord(time_hash));
