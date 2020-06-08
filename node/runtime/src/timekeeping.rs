@@ -92,7 +92,7 @@ pub struct Timekeeper<
 // It is recognised that measurements of time periods using block numbers as a timestamp is not the recommended approach
 // due to significant time-drift over long periods of elapsed time.
 
-// This module however uses number of blocks as a time measurement (with 1 block equivalent to approximately 5 seconds)
+// This module however uses number of blocks as a time measurement (with 1 block equivalent to approximately 15 seconds)
 // on the basis that the employee's working time measurement segments do not present a
 // significant calculation risk when measuring and capturing relatively small amounts of booked time.
 // The blocktime therefore behaves similar to a stopwatch for timekeeping.
