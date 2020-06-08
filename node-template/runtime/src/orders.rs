@@ -39,7 +39,7 @@ use support::{
     StorageMap
 };
 
-// use system::ensure_signed;
+use system::ensure_signed;
 use parity_codec::{Decode, Encode};
 use runtime_primitives::traits::{Convert};
 use rstd::prelude::*;
@@ -111,6 +111,100 @@ decl_storage! {
 decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
+        /// Create Simple Prefunded Service Order
+        /// Can specify an approver. If the approver is the sale as the sender then the order is considered approved by default
+        fn create_spfso(
+            origin, 
+            approver: T::AccountId, 
+            fulfiller: T::AccountId, 
+            buy_or_sell: u16, // 0: buy, 1: sell, extensible
+            amount: AccountBalanceOf<T>, // amount should be the sum of all the items untiprices * quantities
+            open_closed: bool, // 0: open(true) 1: closed(false)
+            order_type: u16, // 0: personal, 1: business, extensible 
+            deadline: u64, // prefunding acceptance deadline 
+            due_date: u64, // due date is the future delivery date (in blocks) 
+            order_items: OrderItem // for simple items there will only be one item, item number is accessed by its position in Vec 
+        ) -> Result {
+            let who = ensure_signed(origin)?;
+            Self::set_simple_prefunded_service_order(
+                who.clone(),
+                approver.clone(),
+                fulfiller.clone(),
+                buy_or_sell,
+                amount,
+                open_closed,
+                order_type,
+                deadline,
+                due_date,
+                order_items
+            )?;
+            Ok(())
+        }
+        /// Change Simple Prefunded Service Order.
+        /// Can only be changed by the original ordering party, and only before it is accepted and the deadline or due date is not passed
+        fn change_spfso(
+            origin, 
+            approver: T::AccountId, 
+            fulfiller: T::AccountId, 
+            amount: AccountBalanceOf<T>, 
+            deadline: u64, 
+            due_date: u64, 
+            order_items: OrderItem,
+            reference: T::Hash) -> Result {
+                let who = ensure_signed(origin)?;
+                Self::change_simple_prefunded_order(
+                who.clone(), 
+                approver.clone(),
+                fulfiller.clone(),
+                amount,
+                deadline,
+                due_date,
+                order_items,
+                reference)?;
+            Ok(())
+        }
+        /// Sets the approval status of an order 
+        /// Can only be used by the nominated approver (must be known to the ordering party)
+        fn change_approval(origin, h: T::Hash, s: ApprovalStatus) -> Result {
+            let who = ensure_signed(origin)?;
+            Self::change_approval_state(who.clone(), h, s)?;
+            Ok(())
+        }
+        /// Can be used by buyer or seller
+        /// Buyer - Used by the buyer to accept or reject (TODO) the invoice that was raised by the seller.
+        /// Seller - Used to accept, reject or invoice the order. 
+        fn handle_spfso(origin, h: T::Hash, s: OrderStatus) -> Result {
+            let who = ensure_signed(origin)?;
+            // get order details and determine if the sender is the buyer or the seller
+            match Self::order(&h) {
+                Some(order) => {
+                    if who == order.0 {
+                        // This is the buyer 
+                        //TODO if the order us passed as an arg it doesn't need to be read again
+                        Self::accept_prefunded_invoice(who.clone(), h, s)?;
+                        
+                    } else if who == order.1 {
+                        // This is the seller
+                        //TODO if the order us passed as an arg it doesn't need to be read again
+                        Self::set_state_simple_prefunded_closed_order(who.clone(), h, s)?;
+                    
+                    } else {
+                        // this is an error
+                        Self::deposit_event(RawEvent::ErrorURNobody(who));
+                        return Err("You should not be doing this!");
+                    }
+                },
+                None => {
+                    Self::deposit_event(RawEvent::ErrorRefNotFound(h));
+                    return Err("Could not find this reference!");
+                },
+            }
+
+
+
+
+            Ok(())
+        }
     }
 }
 
@@ -134,7 +228,7 @@ impl<T: Trait> Module<T> {
         true
     }
     
-    /// Open an order for a specific AccountId and prefund it. This is equivalent to an encumbrance. 
+    /// API Open an order for a specific AccountId and prefund it. This is equivalent to an encumbrance. 
     /// The amount is the functional currency and conversions are not necessary at this stage of accounting. 
     /// The UI therefore handles presentation or reporting currency translations at spot rate 
     /// This is not for goods.
@@ -259,7 +353,7 @@ impl<T: Trait> Module<T> {
         
         Ok(())
     }
-    /// This function is used to accept or reject the order by the named approver. Mainly used for the API
+    /// API This function is used to accept or reject the order by the named approver. Mainly used for the API
     fn change_approval_state(a: T::AccountId, h: T::Hash, s: ApprovalStatus) -> Result {
         
         // is the supplied account the approver of the hash supplied?
@@ -311,16 +405,13 @@ impl<T: Trait> Module<T> {
         Ok(())
         
     }
-    /// Allows commander to change the order either before it is accepted by beneficiary, or
+    /// API Allows commander to change the order either before it is accepted by beneficiary, or
     /// when it has been rejected by approver
     fn change_simple_prefunded_order(
         commander: T::AccountId, 
         approver: T::AccountId, 
         fulfiller: T::AccountId, 
-        // buy_or_sell: u16, 
         amount: AccountBalanceOf<T>, 
-        // open_closed: bool, 
-        // order_type: u16, 
         deadline: u64, 
         due_date: u64, 
         order_items: OrderItem,
@@ -453,14 +544,9 @@ impl<T: Trait> Module<T> {
         // check that this is the fulfiller
         match Self::order(&h) {
             Some(order) => {
-                if order.1 != f {
-                    Self::deposit_event(RawEvent::ErrorNotFulfiller(f,h));
-                    return Err("You are not the chosen one!");
-                }
                 // check the currenct status
                 match Self::status(&h).unwrap() {
                     0 => {
-                        // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5), reason_code(0), reason text.
                         // Update the status in this module
                         match s {
                             1 => {
@@ -525,10 +611,6 @@ impl<T: Trait> Module<T> {
         // check that this is the fulfiller
         match Self::order(&h) {
             Some(order) => {
-                if order.0 != o {
-                    Self::deposit_event(RawEvent::ErrorNotCommander(o,h));
-                    return Err("You are not the chosen one!");
-                }
                 // check the currenct status
                 match Self::status(&h).unwrap() {
                     5 => {
@@ -591,6 +673,7 @@ decl_event!(
         ErrorNotApprover(AccountId, Hash),
         ErrorNotFulfiller(AccountId, Hash),
         ErrorNotCommander(AccountId, Hash),
+        ErrorURNobody(AccountId),
         ErrorOrderStatus(Hash),
         ErrorApprStatus(Hash),
         ErrorApproved(Hash),
