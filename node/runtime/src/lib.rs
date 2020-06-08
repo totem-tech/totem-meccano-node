@@ -56,7 +56,12 @@ pub use staking::StakerStatus;
 extern crate sodalite;
 
 // Totem Runtime Modules
-mod totem;
+// mod totem;
+mod accounting_traits;
+mod accounting;
+mod prefunding;
+mod prefunding_traits;
+mod orders;
 mod boxkeys;
 mod bonsai;
 mod projects;
@@ -82,9 +87,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 1,
+	spec_version: 4,
     // incremental changes
-	impl_version: 12,
+	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -109,9 +114,33 @@ impl ConversionHandler {
 impl Convert<i128, u128> for ConversionHandler {
 	fn convert(x: i128) -> u128 { Self::signed_to_unsigned(x) as u128 }
 }
+
 // Takes BalanceOf<T> and converts for use with AccountBalance type
 impl Convert<u128, i128> for ConversionHandler {
-	fn convert(x: u128) -> i128 { x as i128 }
+    fn convert(x: u128) -> i128 { x as i128 }
+}
+
+// Takes integer u64 and converts for use with AccountOf<T> type or BlockNumber
+impl Convert<u64, u64> for ConversionHandler {
+    fn convert(x: u64) -> u64 { x }
+}
+
+// Takes integer u64 or AccountOf<T> and converts for use with BalanceOf<T> type
+impl Convert<u64, u128> for ConversionHandler {
+    fn convert(x: u64) -> u128 { x as u128 }
+}
+
+// Takes integer i128 and inverts for use mainly with AccountBalanceOf<T> type
+impl Convert<i128, i128> for ConversionHandler {
+    fn convert(x: i128) -> i128 { x }
+}
+// Used for extracting a user's balance into an integer for calculations 
+impl Convert<u128, u128> for ConversionHandler {
+    fn convert(x: u128) -> u128 { x }
+}
+// Used to convert to associated type UnLocked<T> 
+impl Convert<bool, bool> for ConversionHandler {
+    fn convert(x: bool) -> bool { x }
 }
 
 // Takes Vec<u8> encoded hash and converts for as a LockIdentifier type
@@ -281,10 +310,28 @@ impl archive::Trait for Runtime {
     type Event = Event;
 }
 
-impl totem::Trait for Runtime {
+// impl totem::Trait for Runtime {
+//     type Event = Event;
+//     type Currency = balances::Module<Self>;
+//     type Conversions = ConversionHandler;
+// }
+
+impl accounting::Trait for Runtime {
+    type Event = Event;
+}
+
+impl prefunding::Trait for Runtime {
     type Event = Event;
     type Currency = balances::Module<Self>;
     type Conversions = ConversionHandler;
+    type Accounting = AccountingModule;
+}
+
+impl orders::Trait for Runtime {
+    type Event = Event;
+    type Conversions = ConversionHandler;
+    type Accounting = AccountingModule;
+    type Prefunding = PrefundingModule;
 }
 
 construct_runtime!(
@@ -316,7 +363,10 @@ construct_runtime!(
 		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
 		BonsaiModule: bonsai::{Module, Call, Storage, Event<T>},
 		ArchiveModule: archive::{Module, Call, Event<T>},
-		TotemModule: totem::{Module, Call, Storage, Event<T>},
+		// TotemModule: totem::{Module, Call, Storage, Event<T>},
+		AccountingModule: accounting::{Module, Storage, Event<T>},
+		OrdersModule: orders::{Module, Call, Storage, Event<T>},
+        PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
 	}
 );
 

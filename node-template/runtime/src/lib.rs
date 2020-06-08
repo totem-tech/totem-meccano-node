@@ -193,7 +193,6 @@ impl Convert<bool, bool> for ConversionHandler {
     fn convert(x: bool) -> bool { x }
 }
 
-
 // Takes Vec<u8> encoded hash and converts for as a LockIdentifier type
 impl Convert<Vec<u8>, [u8;8]> for ConversionHandler {
     fn convert(x: Vec<u8>) -> [u8;8] { 
@@ -306,7 +305,6 @@ impl archive::Trait for Runtime {
 impl accounting::Trait for Runtime {
     type Event = Event;
 }
-
 
 impl prefunding::Trait for Runtime {
     type Event = Event;
