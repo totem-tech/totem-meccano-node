@@ -67,7 +67,7 @@
 // * All other currency conversions are made at the rate for the period close. The UI can therefore present the correct conversions for any given value at any point in time. 
 
 use parity_codec::{ Encode };
-use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap};
+use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageValue, StorageMap};
 use system::{self};
 use rstd::prelude::*;
 use runtime_primitives::traits::Hash;
@@ -85,10 +85,16 @@ type Indicator = bool; // 0=Debit(false) 1=Credit(true) Note: Debit and Credit b
 
 decl_storage! {
     trait Store for Module<T: Trait> as AccountingModule {
+        // Every accounting post gets an index
+        PostingNumber get(posting_number): Option<u128>;
+        // Associate the posting index with the identity
+        IdAccountPostingIdList get(id_account_posting_id_list): map (T::AccountId, Account) => Vec<u128>;
+        // Convenience list of Accounts used by an identity. Useful for UI read performance
+        AccountsById get(accounts_by_id): map T::AccountId => Vec<Account>;
         // Accounting Balances 
         BalanceByLedger get(balance_by_ledger): map (T::AccountId, Account) => AccountBalance;
         // Detail of the accounting posting (for Audit)
-        AmountDetail get(amount_detail): map (T::AccountId, Account) => Option<(T::BlockNumber,AccountBalance,Indicator,T::Hash, T::BlockNumber)>;
+        PostingDetail get(posting_detail): map (T::AccountId, Account, u128) => Option<(T::BlockNumber,AccountBalance,Indicator,T::Hash, T::BlockNumber)>;
         // yay! Totem!
         GlobalLedger get(global_ledger): map Account => AccountBalance;
         // Address to book the sales tax to and the tax jurisdiction (Experimental, may be deprecated in future) 
@@ -115,17 +121,21 @@ impl<T: Trait> Module<T> {
     /// The Totem Accounting Recipes are constructed using this simple function.
     /// The second Blocknumber is for re-targeting the entry in the accounts, i.e. for adjustments prior to or after the current period (generally accruals).
     fn post_amounts((o, a, c, d, h, b, t): (T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)) -> Result {
+        let mut posting_index: u128 = 0; 
+        if <PostingNumber<T>>::exists() {
+            posting_index = Self::posting_number().ok_or("Error fetching latest posting index")? + 1;
+        }
         let zero: AccountBalance = 0;
-        let key = (o.clone(), a);
-        let ab: AccountBalance = c.abs();
+        let ab: AccountBalance = c.abs();        
+        let balance_key = (o.clone(), a);
+        let posting_key = (o.clone(), a, posting_index);
         let detail = (b, ab, d, h, t);
-        
         // !! Warning !! 
-        // Values could feasibly overflow, with no visibility on other accounts. In this even this function return an error.
+        // Values could feasibly overflow, with no visibility on other accounts. In this event this function returns an error.
         // Reversals must occur in the parent function (that calls this function). Updates are only made to storage once all three tests below are passed for debits or credits.
         if c > zero {
             // check adding the new amount to the existing balance
-            match Self::balance_by_ledger(&key).checked_add(c) {
+            match Self::balance_by_ledger(&balance_key).checked_add(c) {
                 None => {
                     Self::deposit_event(RawEvent::ErrorOverflow(a));
                     return Err("Balance Value overflowed");
@@ -142,7 +152,7 @@ impl<T: Trait> Module<T> {
             };
         } else if c < zero {
             // check subtracting the new amount from the existing balance
-            match Self::balance_by_ledger(&key).checked_sub(c) {
+            match Self::balance_by_ledger(&balance_key).checked_sub(c) {
                 None => {
                     Self::deposit_event(RawEvent::ErrorOverflow(a));
                     return Err("Balance Value overflowed");
@@ -158,12 +168,16 @@ impl<T: Trait> Module<T> {
                 },
             };
         }
-        
-        <BalanceByLedger<T>>::mutate(&key, |v| *v += c);
-        <AmountDetail<T>>::insert(&key, detail);
+
+        <PostingNumber<T>>::put(posting_index);
+        <IdAccountPostingIdList<T>>::mutate(&balance_key, |id_account_posting_id_list| id_account_posting_id_list.push(posting_index));
+        <AccountsById<T>>::mutate(&o, |accounts_by_id| accounts_by_id.retain(|h| h != &a));
+        <AccountsById<T>>::mutate(&o, |accounts_by_id| accounts_by_id.push(a));
+        <BalanceByLedger<T>>::mutate(&balance_key, |v| *v += c);
+        <PostingDetail<T>>::insert(&posting_key, detail);
         <GlobalLedger<T>>::mutate(&a, |v| *v += c);
         
-        Self::deposit_event(RawEvent::LegderUpdate(o, a, c));
+        Self::deposit_event(RawEvent::LegderUpdate(o, a, c, posting_index));
         
         Ok(())
     }
@@ -236,7 +250,7 @@ decl_event!(
     where
     AccountId = <T as system::Trait>::AccountId,
     {
-        LegderUpdate(AccountId, Account, AccountBalance),
+        LegderUpdate(AccountId, Account, AccountBalance, u128),
         ErrorOverflow(Account),
         ErrorGlobalOverflow(),
         ErrorInsufficientFunds(AccountId),
