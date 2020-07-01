@@ -66,17 +66,23 @@ type ApprovalStatus = u16; // submitted(0), accepted(1), rejected(2)
 
 type Product = Hash;
 type UnitPrice = i128; 
-type Quantity = i128;
+type Quantity = u128;
+type UnitOfMeasure = u16;
 
 // buy_or_sell: u16, // 0: buy, 1: sell, extensible
 // amount: AccountBalanceOf<T>, // amount should be the sum of all the items untiprices * quantities
 // open_closed: bool, // 0: open(true) 1: closed(false)
-// order_type: u16, // 0: personal, 1: business, extensible 
+// order_type: u16, // 0 Services, 1 Goods, 2 Inventory
 // deadline: u64, // prefunding acceptance deadline 
 // due_date: u64, // due date is the future delivery date (in blocks) 
 type OrderSubHeader = (u16, i128, bool, u16, u64, u64);
 
-type OrderItem = Vec<(Product, UnitPrice, Quantity)>;
+#[derive(PartialEq, Eq, Clone, Encode, Decode, Default)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct ItemDetailsStruct(Product, UnitPrice, Quantity, UnitOfMeasure);
+
+// type OrderItem = Vec<(Product, UnitPrice, Quantity, UnitOfMeasure)>;
+type OrderItem = Vec<ItemDetailsStruct>;
 
 
 pub trait Trait: system::Trait {
@@ -114,11 +120,11 @@ decl_module! {
         /// Create Simple Prefunded Service Order
         /// Can specify an approver. If the approver is the sale as the sender then the order is considered approved by default
         fn create_spfso(
-            origin, 
+            origin,
             approver: T::AccountId, 
             fulfiller: T::AccountId, 
             buy_or_sell: u16, // 0: buy, 1: sell, extensible
-            amount: AccountBalanceOf<T>, // amount should be the sum of all the items untiprices * quantities
+            total_amount: i128, // amount should be the sum of all the items untiprices * quantities
             open_closed: bool, // 0: open(true) 1: closed(false)
             order_type: u16, // 0: personal, 1: business, extensible 
             deadline: u64, // prefunding acceptance deadline 
@@ -126,6 +132,7 @@ decl_module! {
             order_items: OrderItem // for simple items there will only be one item, item number is accessed by its position in Vec 
         ) -> Result {
             let who = ensure_signed(origin)?;
+            let amount: AccountBalanceOf<T> = <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(total_amount);
             Self::set_simple_prefunded_service_order(
                 who.clone(),
                 approver.clone(),
@@ -138,6 +145,12 @@ decl_module! {
                 due_date,
                 order_items
             )?;
+            Ok(())
+        }
+        fn test_tuple(
+            origin, 
+            order_items: OrderItem
+        ) -> Result {
             Ok(())
         }
         /// Change Simple Prefunded Service Order.
@@ -258,8 +271,11 @@ impl<T: Trait> Module<T> {
         } else {
             // this is a closed order, still will need to check or set the approver status
             // check that the fulfiller is not the commander as this makes no sense
-            if !open_closed && commander == approver {
+            if commander == fulfiller {
+                Self::deposit_event(RawEvent::ErrorCannotBeBoth(commander));
                 return Err("Cannot make an order for yourself!");
+            } else {
+                (); //continue
             }
         }
         // check or set the approver status
@@ -267,10 +283,9 @@ impl<T: Trait> Module<T> {
             let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline);
             let due_date_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(due_date);
             // approval status has been set to approved, continue.
-            // let prefund_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
             
             // Set prefunding first. It does not matter if later the process fails, as this is locking funds for the commander
-            // The risk is that they cannot get bakc the funds until after the deadline_converted
+            // The risk is that they cannot get back the funds until after the deadline, even of they want to cancel.
             Self:: set_prefunding(commander.clone(), fulfiller.clone(), amount, deadline_converted)?;
             
             // Set order status to submitted 
@@ -671,6 +686,7 @@ decl_event!(
         OrderCompleted(Hash),
         InvoicePayed(Hash),
         ErrorNotApprover(AccountId, Hash),
+        ErrorCannotBeBoth(AccountId),
         ErrorNotFulfiller(AccountId, Hash),
         ErrorNotCommander(AccountId, Hash),
         ErrorURNobody(AccountId),
