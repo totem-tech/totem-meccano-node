@@ -63,7 +63,8 @@ pub type Status = u16; // Generic Status for whatever the HashReference refers t
 pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
     type Currency: Currency<Self::AccountId> + LockableCurrency<Self::AccountId, Moment=Self::BlockNumber>;
-    type Conversions: 
+    type Conversions:
+    Convert<AccountBalanceOf<Self>, u128> +
     Convert<AccountBalanceOf<Self>, CurrencyBalanceOf<Self>> + 
     Convert<CurrencyBalanceOf<Self>, AccountBalanceOf<Self>> + 
     Convert<Vec<u8>, LockIdentifier> + 
@@ -180,11 +181,12 @@ impl<T: Trait> Module<T> {
         
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
         // Ensure that the funds can be subtracted from sender's balance without causing the account to be destroyed by the existential deposit 
-        let min_amount: u128 =  1618u128;
+        let min_balance: u128 =  1618u128;
         let current_balance: u128 = <T::Conversions as Convert<CurrencyBalanceOf<T>, u128>>::convert(T::Currency::free_balance(&s));
-        let minimum_balance: u128 = min_amount + current_balance;        
+        let prefund_amount: u128 = <T::Conversions as Convert<AccountBalanceOf<T>, u128>>::convert(c.clone());
+        let minimum_amount: u128 = min_balance + prefund_amount;        
         
-        if current_balance >= minimum_balance {
+        if current_balance >= minimum_amount {
             let converted_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(c.clone());
             
             // Lock the amount from the sender and set deadline
@@ -195,7 +197,7 @@ impl<T: Trait> Module<T> {
             Ok(())
             
         } else {
-            Self::deposit_event(RawEvent::ErrorInsufficientFunds(s));
+            Self::deposit_event(RawEvent::ErrorInsufficientFunds(s, prefund_amount, minimum_amount, current_balance));
             return Err("Not enough funds to prefund");
         }
     }
@@ -762,7 +764,7 @@ decl_event!(
         InvoiceSettled(Hash),
         ErrorOverflow(Account),
         ErrorGlobalOverflow(),
-        ErrorInsufficientFunds(AccountId),
+        ErrorInsufficientFunds(AccountId, u128, u128, u128),
         ErrorInError(AccountId),
         ErrorNotAllowed(Hash),
         ErrorNotApproved(Hash),
