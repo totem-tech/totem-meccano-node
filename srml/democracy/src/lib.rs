@@ -733,7 +733,7 @@ mod tests {
 	use primitives::BuildStorage;
 	use primitives::traits::{BlakeTwo256, IdentityLookup};
 	use primitives::testing::{Digest, DigestItem, Header};
-	use balances::BalanceLock;
+	use balances::BalanceLockV1;
 
 	const AYE: Vote = Vote(-1);
 	const NAY: Vote = Vote(0);
@@ -1286,10 +1286,10 @@ mod tests {
 			assert_eq!(Democracy::end_block(System::block_number()), Ok(()));
 
 			assert_eq!(Balances::locks(1), vec![]);
-			assert_eq!(Balances::locks(2), vec![BalanceLock { id: DEMOCRACY_ID, amount: u64::max_value(), until: 6, reasons: WithdrawReason::Transfer.into() }]);
-			assert_eq!(Balances::locks(3), vec![BalanceLock { id: DEMOCRACY_ID, amount: u64::max_value(), until: 5, reasons: WithdrawReason::Transfer.into() }]);
-			assert_eq!(Balances::locks(4), vec![BalanceLock { id: DEMOCRACY_ID, amount: u64::max_value(), until: 4, reasons: WithdrawReason::Transfer.into() }]);
-			assert_eq!(Balances::locks(5), vec![BalanceLock { id: DEMOCRACY_ID, amount: u64::max_value(), until: 3, reasons: WithdrawReason::Transfer.into() }]);
+			assert_eq!(Balances::locks(2), vec![BalanceLockV1 { id: DEMOCRACY_ID, amount: u64::max_value(), until: 6, reasons: WithdrawReason::Transfer.into() }]);
+			assert_eq!(Balances::locks(3), vec![BalanceLockV1 { id: DEMOCRACY_ID, amount: u64::max_value(), until: 5, reasons: WithdrawReason::Transfer.into() }]);
+			assert_eq!(Balances::locks(4), vec![BalanceLockV1 { id: DEMOCRACY_ID, amount: u64::max_value(), until: 4, reasons: WithdrawReason::Transfer.into() }]);
+			assert_eq!(Balances::locks(5), vec![BalanceLockV1 { id: DEMOCRACY_ID, amount: u64::max_value(), until: 3, reasons: WithdrawReason::Transfer.into() }]);
 			assert_eq!(Balances::locks(6), vec![]);
 
 			System::set_block_number(2);
