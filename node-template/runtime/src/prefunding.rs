@@ -176,7 +176,12 @@ impl<T: Trait> Module<T> {
     fn set_prefunding(s: T::AccountId, c: AccountBalanceOf<T>, d: T::BlockNumber, h: T::Hash) -> Result {
         
         // Prepare make sure we are not taking the deposit again
-        ensure!(!<ReferenceStatus<T>>::exists(&h), "This hash already exists!");        
+        // ensure!(!<ReferenceStatus<T>>::exists(&h), "This hash already exists!");
+        if <ReferenceStatus<T>>::exists(&h) {
+            Self::deposit_event(RawEvent::ErrorHashExists(h));
+            return Err("This hash already exists!");
+        }
+
         let event_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(c.clone());
         
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
@@ -771,6 +776,7 @@ decl_event!(
         ErrorDeadlineInPlay(AccountId, Hash),
         ErrorFundsInPlay(AccountId),
         ErrorNotOwner(AccountId, Hash),
+        ErrorHashExists(Hash),
         ErrorHashDoesNotExist(Hash),
         ErrorReleaseState(Hash),
         ErrorGettingPrefundData(Hash),

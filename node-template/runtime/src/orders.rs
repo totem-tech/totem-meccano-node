@@ -217,7 +217,7 @@ decl_module! {
 
 impl<T: Trait> Module<T> {
     /// The approver should be able to set the status, and once approved the process should continue further
-    /// pending_approval (0), accepted(1), rejected(2) are the tree states to be set
+    /// pending_approval (0), approved(1), rejected(2) are the tree states to be set
     /// If the status is 2 the commander may edit and resubmit
     fn set_init_appr_state(
         c: T::AccountId, 
@@ -256,21 +256,23 @@ impl<T: Trait> Module<T> {
         
         // Generate Hash for order
         let order_hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::get_pseudo_random_hash(commander.clone(),approver.clone());
-        // TODO check that it does not already exist
-        ensure!(!<Status<T>>::exists(&order_hash), "The hash already exists! Try again.");
         
-        if open_closed {
-            // This is an open order. No need to check the fulfiller, but will need to check or set the approver status
-            ();
-        } else {
-            // this is a closed order, still will need to check or set the approver status
-            // check that the fulfiller is not the commander as this makes no sense
-            if commander == fulfiller {
-                Self::deposit_event(RawEvent::ErrorCannotBeBoth(commander));
-                return Err("Cannot make an order for yourself!");
-            } else {
-                (); //continue
-            }
+        if <Status<T>>::exists(&order_hash) {
+            Self::deposit_event(RawEvent::ErrorHashExists(order_hash));
+            return Err("The hash already exists! Try again.");
+        }
+        // ensure!(!<Status<T>>::exists(&order_hash), "The hash already exists! Try again.");
+        
+        match open_closed {
+            true => (), // This is an open order. No need to check the fulfiller, but will need to check or set the approver status
+            false => {
+                if commander == fulfiller {
+                    // this is a closed order, still will need to check or set the approver status
+                    // check that the fulfiller is not the commander as this makes no sense
+                    Self::deposit_event(RawEvent::ErrorCannotBeBoth(commander));
+                    return Err("Cannot make an order for yourself!");
+                }
+            },
         }
         // check or set the approver status
         if Self::set_init_appr_state(commander.clone(), approver.clone(), order_hash) {
@@ -340,8 +342,6 @@ impl<T: Trait> Module<T> {
         s: OrderStatus
     ) -> Result {
         
-        // Set Prefunding - do this now, it does not matter if there are errors after this point.
-        ensure!(c != f, "Beneficiary must be another account");
         let order_hdr: (T::AccountId,T::AccountId,T::AccountId,u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber) = Self::format_order_hdr(c.clone(), f.clone(), a.clone(), h); 
         
         // Set hash for commander
@@ -356,7 +356,8 @@ impl<T: Trait> Module<T> {
         // Set details of Order
         <Order<T>>::insert(&o, order_hdr);
         <Details<T>>::insert(&o, i);
-        
+
+        // TODO set the approval status!
         // issue events
         Self::deposit_event(RawEvent::OrderCreated(c, f, o));
         
@@ -386,7 +387,7 @@ impl<T: Trait> Module<T> {
                             // (c: T::AccountId, f: T::AccountId, a: T::AccountId, o: T::Hash, h: OrderSubHeader, i: OrderItem )
                             Self::set_order_approval(order.0, order.1, order.2, h, sub, details, status)?;
                         } 
-                        2 => (), // approved!
+                        2 => (), // rejected!
                         _ => {
                             // not in scope
                             Self::deposit_event(RawEvent::ErrorApprStatus(h));
@@ -680,6 +681,7 @@ decl_event!(
         OrderCompleted(Hash),
         InvoicePayed(Hash),
         ErrorNotApprover(AccountId, Hash),
+        ErrorHashExists(Hash),
         ErrorCannotBeBoth(AccountId),
         ErrorNotFulfiller(AccountId, Hash),
         ErrorNotCommander(AccountId, Hash),
