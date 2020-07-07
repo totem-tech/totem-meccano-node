@@ -82,7 +82,8 @@ type OrderSubHeader = (u16, i128, bool, u16, u64, u64);
 pub struct ItemDetailsStruct(Product, UnitPrice, Quantity, UnitOfMeasure);
 
 // type OrderItem = Vec<(Product, UnitPrice, Quantity, UnitOfMeasure)>;
-type OrderItem = Vec<ItemDetailsStruct>;
+// type OrderItem = Vec<ItemDetailsStruct>;
+type OrderItem = ItemDetailsStruct;
 
 
 pub trait Trait: system::Trait {
@@ -107,7 +108,7 @@ decl_storage! {
         Postulate get(postulate): map T::Hash => Vec<T::AccountId>;
         
         Order get(order): map T::Hash => Option<(T::AccountId,T::AccountId,T::AccountId,u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)>;
-        Details get(details): map T::Hash => OrderItem;
+        Details get(details): map T::Hash => OrderItem; // Could be Vec here
         Status get(status): map T::Hash => Option<OrderStatus>;
         Approved get(approved): map T::Hash => Option<ApprovalStatus>;
         // Order get(order): map T::Hash => Option<(bool,u16)>;
@@ -126,7 +127,7 @@ decl_module! {
             buy_or_sell: u16, // 0: buy, 1: sell, extensible
             total_amount: i128, // amount should be the sum of all the items untiprices * quantities
             open_closed: bool, // 0: open(true) 1: closed(false)
-            order_type: u16, // 0: personal, 1: business, extensible 
+            order_type: u16, // 0: service, 1: inventory, 2: asset extensible 
             deadline: u64, // prefunding acceptance deadline 
             due_date: u64, // due date is the future delivery date (in blocks) 
             order_items: OrderItem // for simple items there will only be one item, item number is accessed by its position in Vec 
