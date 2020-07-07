@@ -66,17 +66,24 @@ type ApprovalStatus = u16; // submitted(0), accepted(1), rejected(2)
 
 type Product = Hash;
 type UnitPrice = i128; 
-type Quantity = i128;
+type Quantity = u128;
+type UnitOfMeasure = u16;
 
 // buy_or_sell: u16, // 0: buy, 1: sell, extensible
 // amount: AccountBalanceOf<T>, // amount should be the sum of all the items untiprices * quantities
 // open_closed: bool, // 0: open(true) 1: closed(false)
-// order_type: u16, // 0: personal, 1: business, extensible 
+// order_type: u16, // 0 Services, 1 Goods, 2 Inventory
 // deadline: u64, // prefunding acceptance deadline 
 // due_date: u64, // due date is the future delivery date (in blocks) 
 type OrderSubHeader = (u16, i128, bool, u16, u64, u64);
 
-type OrderItem = Vec<(Product, UnitPrice, Quantity)>;
+#[derive(PartialEq, Eq, Clone, Encode, Decode, Default)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct ItemDetailsStruct(Product, UnitPrice, Quantity, UnitOfMeasure);
+
+// type OrderItem = Vec<(Product, UnitPrice, Quantity, UnitOfMeasure)>;
+// type OrderItem = Vec<ItemDetailsStruct>;
+type OrderItem = ItemDetailsStruct;
 
 
 pub trait Trait: system::Trait {
@@ -101,7 +108,7 @@ decl_storage! {
         Postulate get(postulate): map T::Hash => Vec<T::AccountId>;
         
         Order get(order): map T::Hash => Option<(T::AccountId,T::AccountId,T::AccountId,u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber)>;
-        Details get(details): map T::Hash => OrderItem;
+        Details get(details): map T::Hash => OrderItem; // Could be Vec here
         Status get(status): map T::Hash => Option<OrderStatus>;
         Approved get(approved): map T::Hash => Option<ApprovalStatus>;
         // Order get(order): map T::Hash => Option<(bool,u16)>;
@@ -114,18 +121,19 @@ decl_module! {
         /// Create Simple Prefunded Service Order
         /// Can specify an approver. If the approver is the sale as the sender then the order is considered approved by default
         fn create_spfso(
-            origin, 
+            origin,
             approver: T::AccountId, 
             fulfiller: T::AccountId, 
             buy_or_sell: u16, // 0: buy, 1: sell, extensible
-            amount: AccountBalanceOf<T>, // amount should be the sum of all the items untiprices * quantities
+            total_amount: i128, // amount should be the sum of all the items untiprices * quantities
             open_closed: bool, // 0: open(true) 1: closed(false)
-            order_type: u16, // 0: personal, 1: business, extensible 
+            order_type: u16, // 0: service, 1: inventory, 2: asset extensible 
             deadline: u64, // prefunding acceptance deadline 
             due_date: u64, // due date is the future delivery date (in blocks) 
             order_items: OrderItem // for simple items there will only be one item, item number is accessed by its position in Vec 
         ) -> Result {
             let who = ensure_signed(origin)?;
+            let amount: AccountBalanceOf<T> = <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(total_amount);
             Self::set_simple_prefunded_service_order(
                 who.clone(),
                 approver.clone(),
@@ -140,6 +148,7 @@ decl_module! {
             )?;
             Ok(())
         }
+        fn test_tuple(origin,order_items: OrderItem) -> Result {Ok(())}
         /// Change Simple Prefunded Service Order.
         /// Can only be changed by the original ordering party, and only before it is accepted and the deadline or due date is not passed
         fn change_spfso(
@@ -210,7 +219,7 @@ decl_module! {
 
 impl<T: Trait> Module<T> {
     /// The approver should be able to set the status, and once approved the process should continue further
-    /// pending_approval (0), accepted(1), rejected(2) are the tree states to be set
+    /// pending_approval (0), approved(1), rejected(2) are the tree states to be set
     /// If the status is 2 the commander may edit and resubmit
     fn set_init_appr_state(
         c: T::AccountId, 
@@ -249,28 +258,32 @@ impl<T: Trait> Module<T> {
         
         // Generate Hash for order
         let order_hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::get_pseudo_random_hash(commander.clone(),approver.clone());
-        // TODO check that it does not already exist
-        ensure!(!<Status<T>>::exists(&order_hash), "The hash already exists! Try again.");
         
-        if open_closed {
-            // This is an open order. No need to check the fulfiller, but will need to check or set the approver status
-            ();
-        } else {
-            // this is a closed order, still will need to check or set the approver status
-            // check that the fulfiller is not the commander as this makes no sense
-            if !open_closed && commander == approver {
-                return Err("Cannot make an order for yourself!");
-            }
+        if <Status<T>>::exists(&order_hash) {
+            Self::deposit_event(RawEvent::ErrorHashExists(order_hash));
+            return Err("The hash already exists! Try again.");
+        }
+        // ensure!(!<Status<T>>::exists(&order_hash), "The hash already exists! Try again.");
+        
+        match open_closed {
+            true => (), // This is an open order. No need to check the fulfiller, but will need to check or set the approver status
+            false => {
+                if commander == fulfiller {
+                    // this is a closed order, still will need to check or set the approver status
+                    // check that the fulfiller is not the commander as this makes no sense
+                    Self::deposit_event(RawEvent::ErrorCannotBeBoth(commander));
+                    return Err("Cannot make an order for yourself!");
+                }
+            },
         }
         // check or set the approver status
         if Self::set_init_appr_state(commander.clone(), approver.clone(), order_hash) {
             let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline);
             let due_date_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(due_date);
             // approval status has been set to approved, continue.
-            // let prefund_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
             
             // Set prefunding first. It does not matter if later the process fails, as this is locking funds for the commander
-            // The risk is that they cannot get bakc the funds until after the deadline_converted
+            // The risk is that they cannot get back the funds until after the deadline, even of they want to cancel.
             Self:: set_prefunding(commander.clone(), fulfiller.clone(), amount, deadline_converted)?;
             
             // Set order status to submitted 
@@ -331,8 +344,6 @@ impl<T: Trait> Module<T> {
         s: OrderStatus
     ) -> Result {
         
-        // Set Prefunding - do this now, it does not matter if there are errors after this point.
-        ensure!(c != f, "Beneficiary must be another account");
         let order_hdr: (T::AccountId,T::AccountId,T::AccountId,u16,AccountBalanceOf<T>,bool,u16,T::BlockNumber,T::BlockNumber) = Self::format_order_hdr(c.clone(), f.clone(), a.clone(), h); 
         
         // Set hash for commander
@@ -347,7 +358,8 @@ impl<T: Trait> Module<T> {
         // Set details of Order
         <Order<T>>::insert(&o, order_hdr);
         <Details<T>>::insert(&o, i);
-        
+
+        // TODO set the approval status!
         // issue events
         Self::deposit_event(RawEvent::OrderCreated(c, f, o));
         
@@ -377,7 +389,7 @@ impl<T: Trait> Module<T> {
                             // (c: T::AccountId, f: T::AccountId, a: T::AccountId, o: T::Hash, h: OrderSubHeader, i: OrderItem )
                             Self::set_order_approval(order.0, order.1, order.2, h, sub, details, status)?;
                         } 
-                        2 => (), // approved!
+                        2 => (), // rejected!
                         _ => {
                             // not in scope
                             Self::deposit_event(RawEvent::ErrorApprStatus(h));
@@ -671,6 +683,8 @@ decl_event!(
         OrderCompleted(Hash),
         InvoicePayed(Hash),
         ErrorNotApprover(AccountId, Hash),
+        ErrorHashExists(Hash),
+        ErrorCannotBeBoth(AccountId),
         ErrorNotFulfiller(AccountId, Hash),
         ErrorNotCommander(AccountId, Hash),
         ErrorURNobody(AccountId),

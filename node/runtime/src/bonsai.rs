@@ -78,12 +78,13 @@ decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
         
-        // /
-        // / This function stores a record hash for BONSAI 2FA for couchDB
-        // /
-        // / Record types are the same as the Archive Record Types
-        // / * 3000 Activities (previously Projects)
-        // / * 4000 Timekeeping
+        ///
+        /// This function stores a record hash for BONSAI 2FA for couchDB
+        ///
+        /// Record types are the same as the Archive Record Types
+        /// * 3000 Activities (previously Projects)
+        /// * 4000 Timekeeping
+        /// * 5000 Orders
         
         fn update_record(
             origin,

@@ -292,7 +292,7 @@ impl<Balance: SimpleArithmetic + Copy + As<u64>> VestingSchedule<Balance> {
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct BalanceLock<Balance, BlockNumber> {
+pub struct BalanceLockV1<Balance, BlockNumber> {
     pub id: LockIdentifier,
     pub amount: Balance,
     pub until: BlockNumber,
@@ -365,7 +365,7 @@ decl_storage! {
         pub ReservedBalance get(reserved_balance): map T::AccountId => T::Balance;
 
         /// Any liquidity locks on some account balances.
-        pub Locks get(locks): map T::AccountId => Vec<BalanceLock<T::Balance, T::BlockNumber>>;
+        pub Locks get(locks): map T::AccountId => Vec<BalanceLockV1<T::Balance, T::BlockNumber>>;
     }
     add_extra_genesis {
         config(balances): Vec<(T::AccountId, T::Balance)>;
@@ -1012,7 +1012,7 @@ where
         reasons: WithdrawReasons,
     ) {
         let now = <system::Module<T>>::block_number();
-        let mut new_lock = Some(BalanceLock {
+        let mut new_lock = Some(BalanceLockV1 {
             id,
             amount,
             until,
@@ -1044,7 +1044,7 @@ where
         reasons: WithdrawReasons,
     ) {
         let now = <system::Module<T>>::block_number();
-        let mut new_lock = Some(BalanceLock {
+        let mut new_lock = Some(BalanceLockV1 {
             id,
             amount,
             until,
@@ -1054,7 +1054,7 @@ where
             .into_iter()
             .filter_map(|l| {
                 if l.id == id {
-                    new_lock.take().map(|nl| BalanceLock {
+                    new_lock.take().map(|nl| BalanceLockV1 {
                         id: l.id,
                         amount: l.amount.max(nl.amount),
                         until: l.until.max(nl.until),
