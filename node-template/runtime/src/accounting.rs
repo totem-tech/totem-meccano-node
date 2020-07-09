@@ -178,7 +178,7 @@ impl<T: Trait> Module<T> {
         <GlobalLedger<T>>::mutate(&a, |v| *v += c);
         
         Self::deposit_event(RawEvent::LegderUpdate(o, a, c, posting_index));
-        
+    
         Ok(())
     }
 }
