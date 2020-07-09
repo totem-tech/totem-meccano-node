@@ -177,8 +177,9 @@ impl<T: Trait> Module<T> {
         <PostingDetail<T>>::insert(&posting_key, detail);
         <GlobalLedger<T>>::mutate(&a, |v| *v += c);
         
-        Self::deposit_event(RawEvent::LegderUpdate(o, a, c, posting_index));
-        
+        // Removed due to event VEC overflow error. To Revisit later. 
+        // Self::deposit_event(RawEvent::LegderUpdate(o, a, c, posting_index));
+    
         Ok(())
     }
 }

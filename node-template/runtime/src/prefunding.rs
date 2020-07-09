@@ -197,7 +197,8 @@ impl<T: Trait> Module<T> {
             // Lock the amount from the sender and set deadline
             T::Currency::set_lock(Self::get_prefunding_id(h), &s, converted_amount, d, WithdrawReason::Reserve.into());
             
-            Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
+            // Removed due to event VEC overflow error
+            // Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
             
             Ok(())
             
@@ -259,7 +260,8 @@ impl<T: Trait> Module<T> {
         <ReferenceStatus<T>>::insert(&h, s); // This sets the status but does not remove the hash
         <OwnerPrefundingHashList<T>>::mutate(&o, |owner_prefunding_hash_list| owner_prefunding_hash_list.retain(|e| e != &h));
         // Issue event
-        Self::deposit_event(RawEvent::PrefundingCancelled(o, h));
+        // Removed due to event VEC overflow error
+        // Self::deposit_event(RawEvent::PrefundingCancelled(o, h));
         Ok(())
     }
     /// unlock & pay beneficiary with funds transfer and account updates (settlement of invoice)
@@ -422,7 +424,8 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         Self::set_ref_status(prefunding_hash, 1)?; // Submitted, Locked by sender.
         
         // Issue event
-        Self::deposit_event(RawEvent::PrefundingCompleted(who));
+        // Removed due to event VEC overflow error
+        // Self::deposit_event(RawEvent::PrefundingCompleted(who));
         
         Ok(())
     }
@@ -500,7 +503,8 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         <ReferenceStatus<T>>::insert(&h, new_status);
         
         // Issue Event
-        Self::deposit_event(RawEvent::InvoiceIssued(h));
+        // Removed due to event VEC overflow error
+        // Self::deposit_event(RawEvent::InvoiceIssued(h));
         Ok(())
     }
     // Settles invoice by unlocking funds and updates various relevant accounts and pays prefunded amount
@@ -618,7 +622,8 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         // Unlock, tansfer funds and mark hash as settled in full
         Self::unlock_funds_for_beneficiary(beneficiary.clone(), h.clone())?;
         
-        Self::deposit_event(RawEvent::InvoiceSettled(h));
+        // Removed due to event VEC overflow error
+        // Self::deposit_event(RawEvent::InvoiceSettled(h));
         Ok(())
     }
     /// check owner (of hash) - if anything fails then returns false
