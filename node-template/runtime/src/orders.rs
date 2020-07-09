@@ -211,10 +211,6 @@ decl_module! {
                             return Err("Could not find this reference!");
                         },
                     }
-                    
-                    
-                    
-                    
                     Ok(())
                 }
             }
@@ -414,7 +410,7 @@ decl_module! {
                 <Status<T>>::remove(&h);
                 <Status<T>>::insert(&h, s);
                 
-                // Self::deposit_event(RawEvent::OrderStatusUpdate(h, s));
+                Self::deposit_event(RawEvent::OrderStatusUpdate(h, s));
                 
                 Ok(())
                 
@@ -617,7 +613,7 @@ decl_module! {
                 }
                 <Status<T>>::remove(&h);
                 <Status<T>>::insert(&h, s);
-                // Self::deposit_event(RawEvent::OrderCompleted(h));
+                Self::deposit_event(RawEvent::OrderCompleted(h));
                 Ok(())
             }
             /// Used by the buyer to accept or reject (TODO) the invoice that was raised by the seller.
@@ -637,7 +633,7 @@ decl_module! {
                                     6 => {
                                         // Invoice Accepted. Now pay-up!.
                                         <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::settle_prefunded_invoice(o.clone(), h)?;
-                                        // Self::deposit_event(RawEvent::InvoicePayed(h));
+                                        Self::deposit_event(RawEvent::InvoicePayed(h));
                                     },
                                     _ => {
                                         // All other states are not allowed

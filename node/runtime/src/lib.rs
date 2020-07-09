@@ -68,16 +68,6 @@ mod projects;
 mod timekeeping;
 mod archive;
 
-// /// Runtime version.
-// pub const VERSION: RuntimeVersion = RuntimeVersion {
-// 	spec_name: create_runtime_str!("node"),
-// 	impl_name: create_runtime_str!("substrate-node"),
-// 	authoring_version: 10,
-// 	spec_version: 60,
-// 	impl_version: 62,
-// 	apis: RUNTIME_API_VERSIONS,
-// };
-
 /// This is the Totem runtime version.
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// node runtime name // fork risk, on change
@@ -89,7 +79,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 5,
     // incremental changes
-	impl_version: 5,
+	impl_version: 6,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -310,12 +300,6 @@ impl archive::Trait for Runtime {
     type Event = Event;
 }
 
-// impl totem::Trait for Runtime {
-//     type Event = Event;
-//     type Currency = balances::Module<Self>;
-//     type Conversions = ConversionHandler;
-// }
-
 impl accounting::Trait for Runtime {
     type Event = Event;
 }
@@ -363,7 +347,6 @@ construct_runtime!(
 		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
 		BonsaiModule: bonsai::{Module, Call, Storage, Event<T>},
 		ArchiveModule: archive::{Module, Call, Event<T>},
-		// TotemModule: totem::{Module, Call, Storage, Event<T>},
 		AccountingModule: accounting::{Module, Storage, Event<T>},
 		OrdersModule: orders::{Module, Call, Storage, Event<T>},
         PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
