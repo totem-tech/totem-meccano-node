@@ -253,7 +253,6 @@ decl_event!(
         LegderUpdate(AccountId, Account, AccountBalance, u128),
         ErrorOverflow(Account),
         ErrorGlobalOverflow(),
-        ErrorInsufficientFunds(AccountId),
         ErrorInError(AccountId),
     }
 );

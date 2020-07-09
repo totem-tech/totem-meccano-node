@@ -202,7 +202,7 @@ impl<T: Trait> Module<T> {
             Ok(())
             
         } else {
-            Self::deposit_event(RawEvent::ErrorInsufficientFunds(s, prefund_amount, minimum_amount, current_balance));
+            Self::deposit_event(RawEvent::ErrorInsufficientPreFunds(s, prefund_amount, minimum_amount, current_balance));
             return Err("Not enough funds to prefund");
         }
     }
@@ -769,7 +769,7 @@ decl_event!(
         InvoiceSettled(Hash),
         ErrorOverflow(Account),
         ErrorGlobalOverflow(),
-        ErrorInsufficientFunds(AccountId, u128, u128, u128),
+        ErrorInsufficientPreFunds(AccountId, u128, u128, u128),
         ErrorInError(AccountId),
         ErrorNotAllowed(Hash),
         ErrorNotApproved(Hash),
