@@ -148,9 +148,9 @@ decl_module! {
             )?;
             Ok(())
         }
-        fn testVecTuple(origin, _order_items: Vec<ItemDetailsStruct>) -> Result {
+        fn test_vec_tuple(origin, _order_items: Vec<ItemDetailsStruct>) -> Result {
             let _ = ensure_signed(origin)?;
-            Self::deposit_event(RawEvent::Test(_order_items));
+            // Self::deposit_event(RawEvent::Test(_order_items));
             Ok(())
         }
         /// Change Simple Prefunded Service Order.
@@ -680,7 +680,7 @@ decl_module! {
             AccountBalance = AccountBalanceOf<T>
             {
                 // Positive Messages
-                Test(Vec<ItemDetailsStruct>),
+                // Test(Vec<ItemDetailsStruct>),
                 OrderCreated(AccountId, AccountId, Hash),
                 OrderCreatedForApproval(AccountId, AccountId, Hash),
                 OrderStatusUpdate(Hash, ApprovalStatus),
@@ -705,12 +705,12 @@ decl_module! {
                 ErrorNotImplmented(),
                 
                 // External Positive Messages - Prefunding & Accounting
-                PrefundingDeposit(AccountId, i128, BlockNumber),
-                PrefundingCancelled(AccountId, Hash),
-                PrefundingLockSet(AccountId, Hash),
-                PrefundingCompleted(AccountId),                
-                InvoiceIssued(Hash),
-                LegderUpdate(AccountId, u64, i128, u128),
+                // PrefundingDeposit(AccountId, i128, BlockNumber),
+                // PrefundingCancelled(AccountId, Hash),
+                // PrefundingLockSet(AccountId, Hash),
+                // PrefundingCompleted(AccountId),                
+                // InvoiceIssued(Hash),
+                // LegderUpdate(AccountId, u64, i128, u128),
                 
                 // Error Messages - Prefunding & Accounting
                 ErrorLockNotAllowed(Hash),
