@@ -177,7 +177,7 @@ decl_module! {
                 fn change_approval(origin, h: T::Hash, s: ApprovalStatus) -> Result {
                     let who = ensure_signed(origin)?;
                     Self::change_approval_state(who.clone(), h, s)?;
-                    Self::deposit_event(RawEvent::InvoicePayed(h));
+                    Self::deposit_event(RawEvent::InvoiceSettled(h));
 
                     Ok(())
                 }
@@ -193,7 +193,7 @@ decl_module! {
                                 // This is the buyer 
                                 //TODO if the order us passed as an arg it doesn't need to be read again
                                 Self::accept_prefunded_invoice(who.clone(), h, s)?;
-                                Self::deposit_event(RawEvent::InvoicePayed(h));
+                                Self::deposit_event(RawEvent::InvoiceSettled(h));
                                 
                             } else if who == order.1 {
                                 // This is the seller
@@ -576,7 +576,7 @@ decl_module! {
                                         <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.0,h)?;
                                     },
                                     _ => {
-                                        Self::deposit_event(RawEvent::ErrorNotAllowed(h,s));
+                                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h,s));
                                         return Err("Order status is not allowed!");
                                     },
                                 }
@@ -590,18 +590,18 @@ decl_module! {
                                         <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::send_simple_invoice(f.clone(), order.0.clone(), amount, h)?;
                                     },
                                     _ => {
-                                        Self::deposit_event(RawEvent::ErrorNotAllowed(h,s));
+                                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h,s));
                                         return Err("Order status is not allowed!");
                                     },
                                 }
                                 
                             },
                             2 | 5  => {
-                                Self::deposit_event(RawEvent::ErrorNotAllowed(h, s));
+                                Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h, s));
                                 return Err("The order has a status that cannot be changed!");
                             },
                             _ => {
-                                Self::deposit_event(RawEvent::ErrorNotAllowed(h, s));
+                                Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h, s));
                                 return Err("The order has an unkown state!");
                             },
                         }
@@ -633,11 +633,11 @@ decl_module! {
                                     6 => {
                                         // Invoice Accepted. Now pay-up!.
                                         <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::settle_prefunded_invoice(o.clone(), h)?;
-                                        Self::deposit_event(RawEvent::InvoicePayed(h));
+                                        Self::deposit_event(RawEvent::InvoiceSettled(h));
                                     },
                                     _ => {
                                         // All other states are not allowed
-                                        Self::deposit_event(RawEvent::ErrorNotAllowed(h, s));
+                                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h, s));
                                         return Err("The order has an unkown state!");
                                     },
                                 }
@@ -675,11 +675,14 @@ decl_module! {
             Hash = <T as system::Trait>::Hash,
             AccountBalance = AccountBalanceOf<T>
             {
+                // Positive Messages
+                Test(Vec<ItemDetailsStruct>),
                 OrderCreated(AccountId, AccountId, Hash),
                 OrderCreatedForApproval(AccountId, AccountId, Hash),
                 OrderStatusUpdate(Hash, ApprovalStatus),
                 OrderCompleted(Hash),
-                InvoicePayed(Hash),
+                InvoiceSettled(Hash),
+                // Error Messages      
                 ErrorNotApprover(AccountId, Hash),
                 ErrorHashExists(Hash),
                 ErrorCannotBeBoth(AccountId),
@@ -690,11 +693,35 @@ decl_module! {
                 ErrorApprStatus(Hash),
                 ErrorApproved(Hash),
                 ErrorRefNotFound(Hash),
-                ErrorNotAllowed(Hash, OrderStatus),
+                ErrorStatusNotAllowed(Hash, OrderStatus),
                 ErrorFulfiller(Hash),
                 ErrorAmount(AccountBalance),
                 ErrorShortDeadline(BlockNumber, BlockNumber),
                 ErrorShortDueDate(BlockNumber, BlockNumber),
                 ErrorNotImplmented(),
+                
+                // External Positive Messages - Prefunding & Accounting
+                PrefundingDeposit(AccountId, i128, BlockNumber),
+                PrefundingCancelled(AccountId, Hash),
+                PrefundingLockSet(AccountId, Hash),
+                PrefundingCompleted(AccountId),                
+                InvoiceIssued(Hash),
+                LegderUpdate(AccountId, u64, i128, u128),
+                
+                // Error Messages - Prefunding & Accounting
+                ErrorLockNotAllowed(Hash),
+                ErrorOverflow(u64),
+                ErrorGlobalOverflow(),
+                ErrorInsufficientFunds(AccountId, u128, u128, u128),
+                ErrorInError(AccountId),
+                ErrorNotAllowed(Hash),
+                ErrorNotApproved(Hash),
+                ErrorDeadlineInPlay(AccountId, Hash),
+                ErrorFundsInPlay(AccountId),
+                ErrorNotOwner(AccountId, Hash),
+                ErrorHashDoesNotExist(Hash),
+                ErrorReleaseState(Hash),
+                ErrorGettingPrefundData(Hash),
+                ErrorTransfer(AccountId, AccountId),
             }
         );
