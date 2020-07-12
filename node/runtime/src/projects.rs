@@ -246,6 +246,8 @@ decl_event!(
     pub enum Event<T>
     where
         AccountId = <T as system::Trait>::AccountId,
+        ProjectHash = Hash,
+        ProjectStatus = u16
     {
         ProjectRegistered(ProjectHash, AccountId),
         ProjectDeleted(ProjectHash, AccountId, AccountId, ProjectStatus),

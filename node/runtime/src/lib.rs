@@ -64,6 +64,7 @@ mod prefunding_traits;
 mod orders;
 mod boxkeys;
 mod bonsai;
+mod bonsai_traits;
 mod projects;
 mod timekeeping;
 mod archive;
@@ -79,7 +80,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 5,
     // incremental changes
-	impl_version: 9,
+	impl_version: 12,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -135,13 +136,17 @@ impl Convert<bool, bool> for ConversionHandler {
 
 // Takes Vec<u8> encoded hash and converts for as a LockIdentifier type
 impl Convert<Vec<u8>, [u8;8]> for ConversionHandler {
-    fn convert(x: Vec<u8>) -> [u8;8] { 
-        let mut y: [u8;8] = [0;8];
+	fn convert(x: Vec<u8>) -> [u8;8] { 
+		let mut y: [u8;8] = [0;8];
         for z in 0..8 {
-            y[z] = x[z].into();
+			y[z] = x[z].into();
         };
         return y;
     }
+}
+// Used to convert hashes 
+impl Convert<Hash, Hash> for ConversionHandler {
+	fn convert(x: Hash) -> Hash { x }
 }
 
 pub struct CurrencyToVoteHandler;
@@ -294,6 +299,7 @@ impl boxkeys::Trait for Runtime {
 
 impl bonsai::Trait for Runtime {
     type Event = Event;
+	type Conversions = ConversionHandler;
 }
 
 impl archive::Trait for Runtime {
@@ -316,6 +322,7 @@ impl orders::Trait for Runtime {
     type Conversions = ConversionHandler;
     type Accounting = AccountingModule;
     type Prefunding = PrefundingModule;
+    type Bonsai = BonsaiModule;
 }
 
 construct_runtime!(

@@ -66,7 +66,7 @@
 
 use parity_codec::{Decode, Encode};
 use substrate_primitives::{ed25519, H256};
-use node_primitives::Hash;
+// use node_primitives::Hash;
 use rstd::prelude::*;
 use runtime_primitives::traits::Verify;
 use support::{decl_event, decl_module, decl_storage, StorageMap, dispatch::Result, ensure};
