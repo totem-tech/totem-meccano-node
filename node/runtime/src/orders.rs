@@ -707,6 +707,8 @@ decl_event!(
     BlockNumber = <T as system::Trait>::BlockNumber,
     Hash = <T as system::Trait>::Hash,
     AccountBalance = AccountBalanceOf<T>,
+    OrderStatus = u16,
+    ApprovalStatus = u16,
     {
         // Positive Messages
         OrderCreated(AccountId, AccountId, Hash),

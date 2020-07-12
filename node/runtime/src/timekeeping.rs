@@ -45,7 +45,7 @@ use system::ensure_signed;
 use parity_codec::{Decode, Encode};
 use runtime_primitives::traits::Hash;
 use node_primitives::Hash as TimeReferenceHash;
-use substrate_primitives::{convert_hash};
+use substrate_primitives::{convert_hash, H256};
 use rstd::prelude::*;
 
 // Totem crates
@@ -928,6 +928,8 @@ decl_event!(
     where
     AccountId = <T as system::Trait>::AccountId,
     // Hash = <T as system::Trait>::Hash
+    AcceptAssignedStatus = bool,
+    ProjectHashRef = H256,
     {
         SubmitedTimeRecord(TimeHash),
         NotifyProjectWorker(AccountId, ProjectHashRef),

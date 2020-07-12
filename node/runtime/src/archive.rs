@@ -92,6 +92,7 @@ decl_event!(
     where
         AccountId = <T as system::Trait>::AccountId,
         Archival = bool,
+        RecordType = u16,
     {
         RecordArchived(RecordType, AccountId, Hash, Archival),
     }
