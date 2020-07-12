@@ -119,7 +119,7 @@ decl_module! {
                     let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(token);
                     Self::insert_record(key_hash.clone(), token_hash.clone())?;
                     
-                    Self::deposit_event(RawEvent::Bonsai(record_type, key_hash, token_hash));
+                    // Self::deposit_event(RawEvent::Bonsai(record_type, key_hash, token_hash));
                 },
                 Err(e) => {
                     return Err(e);
