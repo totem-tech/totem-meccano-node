@@ -48,7 +48,6 @@
 //! * The completed work is then approved by the buyer (or disputed or rejected). An approval triggers the release of prefunds and 
 //! the invoice is marked as settled in the accounts for both parties
 
-
 use support::{
     decl_event, 
     decl_module, 
@@ -527,12 +526,6 @@ impl<T: Trait> Module<T> {
                     }
                     dl = deadline;
                 }
-                // match order.7 {
-                //     deadline_converted => (),
-                //     _ => {
-                        
-                //     }
-                // }
                 
                 let due_date_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(due_date);
 
@@ -680,7 +673,14 @@ impl<T: Trait> Module<T> {
         
         Ok(())
     }
-    fn is_order_owner(o: T::AccountId, r: T::Hash) -> Result {
+    /// This is used by any party that wants to accept a market order in whole or part. 
+    /// This is non-blocking and can accept many applicants
+    fn postulate_simple_prefunded_open_order() -> Result {
+        Ok(())
+    }
+    // Public functions
+    ///Check the owner of the hash  
+    pub fn is_order_owner(o: T::AccountId, r: T::Hash) -> Result {
         match Self::order(r) {
             Some(order) => {
                 if o == order.0 {
@@ -696,11 +696,6 @@ impl<T: Trait> Module<T> {
                 return Err("Hash does not exit!");
             },
         }
-        Ok(())
-    }
-    /// This is used by any party that wants to accept a market order in whole or part. 
-    /// This is non-blocking and can accept many applicants
-    fn postulate_simple_prefunded_open_order() -> Result {
         Ok(())
     }
 }

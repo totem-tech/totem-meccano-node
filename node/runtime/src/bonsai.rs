@@ -85,12 +85,10 @@ pub trait Trait: timekeeping::Trait + projects::Trait + system::Trait {
 }
 
 pub type RecordType = u16;
-pub type RecordHash = Hash;
-pub type DataHash = Hash;
 
 decl_storage! {
     trait Store for Module<T: Trait> as BonsaiModule {
-        IsValidRecord get(is_valid_record): map RecordHash => Option<DataHash>;
+        IsValidRecord get(is_valid_record): map Hash => Option<Hash>;
     }
 }
 
