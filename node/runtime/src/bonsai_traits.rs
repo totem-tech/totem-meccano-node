@@ -33,23 +33,8 @@
 //! You should have received a copy of the GNU General Public License
 //! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
-use parity_codec::{ Encode, Decode };
-use support::dispatch::Result;
-use runtime_primitives::traits::{ Member};
-use rstd::prelude::Vec;
+use support::{ dispatch::Result };
 
-pub trait Posting<AccountId,Hash,BlockNumber> {
-
-    type Account: Member + Copy + Eq;
-    type PostingIndex: Member + Copy + Into<u128> + Encode + Decode + Eq;
-    type AccountBalance: Member + Copy + Into<i128> + Encode + Decode + Eq;
-
-    fn handle_multiposting_amounts(
-        o: AccountId,
-        fwd: Vec<(AccountId, Self::Account, Self::AccountBalance, bool, Hash, BlockNumber, BlockNumber)>, 
-        rev: Vec<(AccountId, Self::Account, Self::AccountBalance, bool, Hash, BlockNumber, BlockNumber)>, 
-        trk: Vec<(AccountId, Self::Account, Self::AccountBalance, bool, Hash, BlockNumber, BlockNumber)>) -> Result;
-
-    fn get_pseudo_random_hash(s: AccountId, r: AccountId) -> Hash;
-
+pub trait Storing<Hash> {
+    fn claim_data(r: Hash, d: Hash) -> Result;
 }

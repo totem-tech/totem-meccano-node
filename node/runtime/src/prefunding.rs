@@ -1,19 +1,37 @@
-// Copyright 2020 Chris D'Costa
-// This file is part of Totem Live Accounting.
-// Author Chris D'Costa email: chris.dcosta@totemaccounting.com
+//!                              Næ§@@@ÑÉ©
+//!                        æ@@@@@@@@@@@@@@@@@@
+//!                    Ñ@@@@?.?@@@@@@@@@@@@@@@@@@@N
+//!                 ¶@@@@@?^%@@.=@@@@@@@@@@@@@@@@@@@@
+//!               N@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^@@@».............?@@@@@@@@@É
+//!              Ñ@@@@@@@@?^@@@@@@@@@@@@@@@@@@'?@@@@@@@@Ñ
+//!              @@@@@@@@@?^@@@»..............»@@@@@@@@@@
+//!              @@@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@@@
+//!              @@@@@@@@@?^ë@@&.@@@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^´@@@o.%@@@@@@@@@@@@@@@@@@@@©
+//!                @@@@@@@?.´@@@@@ë.........*.±@@@@@@@æ
+//!                 @@@@@@@@?´.I@@@@@@@@@@@@@@.&@@@@@N
+//!                  N@@@@@@@@@@ë.*=????????=?@@@@@Ñ
+//!                    @@@@@@@@@@@@@@@@@@@@@@@@@@@¶
+//!                        É@@@@@@@@@@@@@@@@Ñ¶
+//!                             Næ§@@@ÑÉ©
 
-// Totem is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+//! Copyright 2020 Chris D'Costa
+//! This file is part of Totem Live Accounting.
+//! Author Chris D'Costa email: chris.dcosta@totemaccounting.com
 
-// Totem is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//! Totem is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
 
-// You should have received a copy of the GNU General Public License
-// along with Totem.  If not, see <http://www.gnu.org/licenses/>.
+//! Totem is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//! GNU General Public License for more details.
+
+//! You should have received a copy of the GNU General Public License
+//! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 
 //********************************************************//
@@ -59,6 +77,7 @@ type CurrencyBalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Tr
 // Module Types
 pub type UnLocked = bool; // 0=Unlocked(false) 1=Locked(true)
 pub type Status = u16; // Generic Status for whatever the HashReference refers to
+pub type ComparisonAmounts = u128; // Used for comparisons
 
 pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
@@ -186,10 +205,10 @@ impl<T: Trait> Module<T> {
         
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
         // Ensure that the funds can be subtracted from sender's balance without causing the account to be destroyed by the existential deposit 
-        let min_balance: u128 =  1618u128;
-        let current_balance: u128 = <T::Conversions as Convert<CurrencyBalanceOf<T>, u128>>::convert(T::Currency::free_balance(&s));
-        let prefund_amount: u128 = <T::Conversions as Convert<AccountBalanceOf<T>, u128>>::convert(c.clone());
-        let minimum_amount: u128 = min_balance + prefund_amount;        
+        let min_balance: ComparisonAmounts =  1618u128;
+        let current_balance: ComparisonAmounts = <T::Conversions as Convert<CurrencyBalanceOf<T>, u128>>::convert(T::Currency::free_balance(&s));
+        let prefund_amount: ComparisonAmounts = <T::Conversions as Convert<AccountBalanceOf<T>, u128>>::convert(c.clone());
+        let minimum_amount: ComparisonAmounts = min_balance + prefund_amount;        
         
         if current_balance >= minimum_amount {
             let converted_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(c.clone());
@@ -197,7 +216,7 @@ impl<T: Trait> Module<T> {
             // Lock the amount from the sender and set deadline
             T::Currency::set_lock(Self::get_prefunding_id(h), &s, converted_amount, d, WithdrawReason::Reserve.into());
             
-            // Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
+            Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
             
             Ok(())
             
@@ -259,7 +278,7 @@ impl<T: Trait> Module<T> {
         <ReferenceStatus<T>>::insert(&h, s); // This sets the status but does not remove the hash
         <OwnerPrefundingHashList<T>>::mutate(&o, |owner_prefunding_hash_list| owner_prefunding_hash_list.retain(|e| e != &h));
         // Issue event
-        // Self::deposit_event(RawEvent::PrefundingCancelled(o, h));
+        Self::deposit_event(RawEvent::PrefundingCancelled(o, h));
         Ok(())
     }
     /// unlock & pay beneficiary with funds transfer and account updates (settlement of invoice)
@@ -422,7 +441,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         Self::set_ref_status(prefunding_hash, 1)?; // Submitted, Locked by sender.
         
         // Issue event
-        // Self::deposit_event(RawEvent::PrefundingCompleted(who));
+        Self::deposit_event(RawEvent::PrefundingCompleted(who));
         
         Ok(())
     }
@@ -618,7 +637,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         // Unlock, tansfer funds and mark hash as settled in full
         Self::unlock_funds_for_beneficiary(beneficiary.clone(), h.clone())?;
         
-        // Self::deposit_event(RawEvent::InvoiceSettled(h));
+        Self::deposit_event(RawEvent::InvoiceSettled(h));
         Ok(())
     }
     /// check owner (of hash) - if anything fails then returns false
@@ -679,7 +698,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         <PrefundingHashOwner<T>>::insert(&h, change);
         
         // Issue event
-        // Self::deposit_event(RawEvent::PrefundingLockSet(o, h));
+        Self::deposit_event(RawEvent::PrefundingLockSet(o, h));
         
         Ok(())
         
@@ -758,6 +777,7 @@ decl_event!(
     Hash = <T as system::Trait>::Hash,
     Account = u64,
     AccountBalance = i128,
+    ComparisonAmounts = u128,
     {
         PrefundingDeposit(AccountId, AccountBalance, BlockNumber),
         PrefundingCancelled(AccountId, Hash),
@@ -768,7 +788,7 @@ decl_event!(
         InvoiceSettled(Hash),
         ErrorOverflow(Account),
         ErrorGlobalOverflow(),
-        ErrorInsufficientPreFunds(AccountId, u128, u128, u128),
+        ErrorInsufficientPreFunds(AccountId, ComparisonAmounts, ComparisonAmounts, ComparisonAmounts),
         ErrorInError(AccountId),
         ErrorNotAllowed(Hash),
         ErrorNotApproved(Hash),

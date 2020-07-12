@@ -1,19 +1,37 @@
-// Copyright 2020 Chris D'Costa
-// This file is part of Totem Live Accounting.
-// Author Chris D'Costa email: chris.dcosta@totemaccounting.com
+//!                              Næ§@@@ÑÉ©
+//!                        æ@@@@@@@@@@@@@@@@@@
+//!                    Ñ@@@@?.?@@@@@@@@@@@@@@@@@@@N
+//!                 ¶@@@@@?^%@@.=@@@@@@@@@@@@@@@@@@@@
+//!               N@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^@@@».............?@@@@@@@@@É
+//!              Ñ@@@@@@@@?^@@@@@@@@@@@@@@@@@@'?@@@@@@@@Ñ
+//!              @@@@@@@@@?^@@@»..............»@@@@@@@@@@
+//!              @@@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@@@
+//!              @@@@@@@@@?^ë@@&.@@@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^´@@@o.%@@@@@@@@@@@@@@@@@@@@©
+//!                @@@@@@@?.´@@@@@ë.........*.±@@@@@@@æ
+//!                 @@@@@@@@?´.I@@@@@@@@@@@@@@.&@@@@@N
+//!                  N@@@@@@@@@@ë.*=????????=?@@@@@Ñ
+//!                    @@@@@@@@@@@@@@@@@@@@@@@@@@@¶
+//!                        É@@@@@@@@@@@@@@@@Ñ¶
+//!                             Næ§@@@ÑÉ©
 
-// Totem is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+//! Copyright 2020 Chris D'Costa
+//! This file is part of Totem Live Accounting.
+//! Author Chris D'Costa email: chris.dcosta@totemaccounting.com
 
-// Totem is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//! Totem is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
 
-// You should have received a copy of the GNU General Public License
-// along with Totem.  If not, see <http://www.gnu.org/licenses/>.
+//! Totem is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//! GNU General Public License for more details.
+
+//! You should have received a copy of the GNU General Public License
+//! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 /// The purpose of this module is to provide a decentralised authority for data storage
 /// In Totem we require an off-chain searchable database that may end up containing billions of records. 
@@ -50,27 +68,27 @@
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap};
 use node_primitives::Hash;
 use substrate_primitives::H256;
-// use system::ensure_signed;
 use system::{self, ensure_signed};
 use rstd::prelude::*;
+use runtime_primitives::traits::{  Convert };
 
 // Totem crates
 use crate::timekeeping;
 use crate::projects;
-
-// pub trait Trait: system::Trait {()};
+use crate::bonsai_traits::{ Storing };
 
 pub trait Trait: timekeeping::Trait + projects::Trait + system::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+    type Conversions: 
+    Convert<Self::Hash, H256> +
+    Convert<H256, Self::Hash>;
 }
 
 pub type RecordType = u16;
-pub type RecordHash = Hash;
-pub type DataHash = Hash;
 
 decl_storage! {
     trait Store for Module<T: Trait> as BonsaiModule {
-        IsValidRecord get(is_valid_record): map RecordHash => Option<DataHash>;
+        IsValidRecord get(is_valid_record): map Hash => Option<Hash>;
     }
 }
 
@@ -85,66 +103,95 @@ decl_module! {
         /// * 3000 Activities (previously Projects)
         /// * 4000 Timekeeping
         /// * 5000 Orders
-        
+        /// 
         fn update_record(
             origin,
             record_type: RecordType, 
-            key: RecordHash,
-            token: DataHash 
+            key: H256,
+            token: H256 
         ) -> Result {
             // check transaction signed
             let who = ensure_signed(origin)?;
-            let event_type = record_type.clone();
-
-            // check which type of record
-            // then check that the supplied hash is owned by the signer of the transaction
-            match record_type {
-                3000 => {
-                    match <projects::Module<T>>::check_project_owner(who.clone(), key.clone()) {
-                        true => (), // Do nothing
-                        false => {
-                            
-                            Self::deposit_event(RawEvent::RecordOwnerError(who, key, token));
-                            return Err("You cannot add a record you do not own");
-                        },
-                    }
-                },
-                4000 => {
+            
+            match Self::check_remote_ownership(who.clone(), key.clone(), token.clone(), record_type.clone()) {
+                Ok(_) => {
+                    let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(key);
+                    let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(token);
+                    Self::insert_record(key_hash.clone(), token_hash.clone())?;
                     
-                    // Convert from H256 to [u8; 32]. Might need dereferencing in other contexts
-                    // let key_copy2: T::Hash  = key.clone();
-                    
-                    match <timekeeping::Module<T>>::check_time_record_owner(who.clone(), key.clone()) {
-                        true => (), // Do nothing
-                        false => {
-                            Self::deposit_event(RawEvent::RecordOwnerError(who, key, token));
-                            return Err("You cannot add a record you do not own");
-                        },
-                    }
+                    // Self::deposit_event(RawEvent::Bonsai(record_type, key_hash, token_hash));
                 },
-                _ => {
-                    Self::deposit_event(RawEvent::UnknownRecordType(event_type));
-                    return Err("Unknown or unimplemented record type. Cannot store record");
+                Err(e) => {
+                    return Err(e);
                 },
-            };
-            
-            // TODO implement fee payment mechanism
-            // take the payment for the transaction
-            // send the payment to the storage treasury
-            
-            if <IsValidRecord<T>>::exists(key) {
-                // remove store the token. This overwrites any existing hash.
-                <IsValidRecord<T>>::remove(key.clone());
-                // Self::new_account(dest, new_to_balance);
-            };
-
-            <IsValidRecord<T>>::insert(key.clone(), token.clone());
-
-            // issue event
-            Self::deposit_event(RawEvent::SuccessfullyAdded(event_type, key, token));
-            
+            }
             Ok(())
         }
+    }
+}
+
+impl<T: Trait> Module<T> {
+    
+    fn check_remote_ownership(o: T::AccountId, k: H256, t: H256, e: RecordType) -> Result {
+        // check which type of record
+        // then check that the supplied hash is owned by the signer of the transaction
+        match e {
+            3000 => {
+                match <projects::Module<T>>::check_project_owner(o.clone(), k.clone()) {
+                    true => (), // Do nothing
+                    false => {
+                        let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
+                        let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(t);
+                        
+                        Self::deposit_event(RawEvent::ErrorRecordOwner(o, key_hash, token_hash));
+                        return Err("You cannot add a record you do not own");
+                    },
+                }
+            },
+            4000 => {
+                match <timekeeping::Module<T>>::check_time_record_owner(o.clone(), k.clone()) {
+                    true => (), // Do nothing
+                    false => {
+                        let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
+                        let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(t);
+                        
+                        Self::deposit_event(RawEvent::ErrorRecordOwner(o, key_hash, token_hash));
+                        return Err("You cannot add a record you do not own");
+                    },
+                }
+            },
+            5000 => {
+                unimplemented!();
+            }
+            _ => {
+                Self::deposit_event(RawEvent::ErrorUnknownType(e));
+                return Err("Unknown or unimplemented record type. Cannot store record");
+            },
+        };
+        
+        Ok(())
+    }
+    
+    fn insert_record(k: T::Hash, t: T::Hash) -> Result {
+        // TODO implement fee payment mechanism (currently just transaction fee)
+        let key_h256: H256 = <T::Conversions as Convert<T::Hash, H256>>::convert(k);
+        let token_h256: H256 = <T::Conversions as Convert<T::Hash, H256>>::convert(t);
+        
+        if <IsValidRecord<T>>::exists(key_h256) {
+            // remove store the token. This overwrites any existing hash.
+            <IsValidRecord<T>>::remove(key_h256.clone());
+        };
+        
+        <IsValidRecord<T>>::insert(key_h256, token_h256);
+        
+        Ok(())
+    }
+}
+
+impl<T: Trait> Storing<T::Hash> for Module<T> {
+    fn claim_data(r: T::Hash, d: T::Hash) -> Result {
+        Self::insert_record(r, d)?;
+        Ok(())
     }
 }
 
@@ -152,9 +199,11 @@ decl_event!(
     pub enum Event<T>
     where
     AccountId = <T as system::Trait>::AccountId,
+    Hash = <T as system::Trait>::Hash,
+    RecordType = u16,
     {
-        SuccessfullyAdded(RecordType, Hash, Hash),
-        RecordOwnerError(AccountId, Hash, Hash),
-        UnknownRecordType(RecordType),
+        Bonsai(RecordType, Hash, Hash),
+        ErrorRecordOwner(AccountId, Hash, Hash),
+        ErrorUnknownType(RecordType),
     }
 );

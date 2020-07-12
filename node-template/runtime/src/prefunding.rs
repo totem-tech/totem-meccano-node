@@ -59,6 +59,7 @@ type CurrencyBalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Tr
 // Module Types
 pub type UnLocked = bool; // 0=Unlocked(false) 1=Locked(true)
 pub type Status = u16; // Generic Status for whatever the HashReference refers to
+pub type ComparisonAmounts = u128; // Used for comparisons
 
 pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
@@ -186,10 +187,10 @@ impl<T: Trait> Module<T> {
         
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
         // Ensure that the funds can be subtracted from sender's balance without causing the account to be destroyed by the existential deposit 
-        let min_balance: u128 =  1618u128;
-        let current_balance: u128 = <T::Conversions as Convert<CurrencyBalanceOf<T>, u128>>::convert(T::Currency::free_balance(&s));
-        let prefund_amount: u128 = <T::Conversions as Convert<AccountBalanceOf<T>, u128>>::convert(c.clone());
-        let minimum_amount: u128 = min_balance + prefund_amount;        
+        let min_balance: ComparisonAmounts =  1618u128;
+        let current_balance: ComparisonAmounts = <T::Conversions as Convert<CurrencyBalanceOf<T>, u128>>::convert(T::Currency::free_balance(&s));
+        let prefund_amount: ComparisonAmounts = <T::Conversions as Convert<AccountBalanceOf<T>, u128>>::convert(c.clone());
+        let minimum_amount: ComparisonAmounts = min_balance + prefund_amount;        
         
         if current_balance >= minimum_amount {
             let converted_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(c.clone());
@@ -758,6 +759,7 @@ decl_event!(
     Hash = <T as system::Trait>::Hash,
     Account = u64,
     AccountBalance = i128,
+    ComparisonAmounts = u128,
     {
         LegderUpdate(AccountId, Account, AccountBalance),
         PrefundingDeposit(AccountId, AccountBalance, BlockNumber),
@@ -769,7 +771,7 @@ decl_event!(
         InvoiceSettled(Hash),
         ErrorOverflow(Account),
         ErrorGlobalOverflow(),
-        ErrorInsufficientPreFunds(AccountId, u128, u128, u128),
+        ErrorInsufficientPreFunds(AccountId, ComparisonAmounts, ComparisonAmounts, ComparisonAmounts),
         ErrorInError(AccountId),
         ErrorNotAllowed(Hash),
         ErrorNotApproved(Hash),

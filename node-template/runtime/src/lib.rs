@@ -77,20 +77,20 @@ pub type BlockNumber = u64;
 pub type Nonce = u64;
 
 // mod totem;
-mod accounting_traits;
-mod accounting;
-mod prefunding;
-mod prefunding_traits;
-mod orders;
-mod boxkeys;
-mod projects;
-mod timekeeping;
-mod archive;
+// mod accounting_traits;
+// mod accounting;
+// mod prefunding;
+// mod prefunding_traits;
+// mod orders;
+// mod boxkeys;
+// mod projects;
+// mod timekeeping;
+// mod archive;
 
 // Test Traits
-mod marketplace;
-mod reputation_trait;
-mod simple_feedback;
+// mod marketplace;
+// mod reputation_trait;
+// mod simple_feedback;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -139,7 +139,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // spec version // fork risk, on change
     spec_version: 5,
     // incremental changes
-    impl_version: 8,
+    impl_version: 12,
     apis: RUNTIME_API_VERSIONS,
 };
 
@@ -282,52 +282,48 @@ impl sudo::Trait for Runtime {
     type Proposal = Call;
 }
 
-impl projects::Trait for Runtime {
-    type Event = Event;
-}
-
-impl timekeeping::Trait for Runtime {
-    type Event = Event;
-}
-
-impl boxkeys::Trait for Runtime {
-    type Event = Event;
-}
-
-impl archive::Trait for Runtime {
-    type Event = Event;
-}
-
-// impl totem::Trait for Runtime {
+// impl projects::Trait for Runtime {
 //     type Event = Event;
 // }
 
-impl accounting::Trait for Runtime {
-    type Event = Event;
-}
+// impl timekeeping::Trait for Runtime {
+//     type Event = Event;
+// }
 
-impl prefunding::Trait for Runtime {
-    type Event = Event;
-    type Currency = balances::Module<Self>;
-    type Conversions = ConversionHandler;
-    type Accounting = AccountingModule;
-}
+// impl boxkeys::Trait for Runtime {
+//     type Event = Event;
+// }
 
-impl orders::Trait for Runtime {
-    type Event = Event;
-    type Conversions = ConversionHandler;
-    type Accounting = AccountingModule;
-    type Prefunding = PrefundingModule;
-}
+// impl archive::Trait for Runtime {
+//     type Event = Event;
+// }
 
-impl marketplace::Trait for Runtime {
-	type ReputationSystem = SimpleFeedback;
-	type Event = Event;
-}
+// impl accounting::Trait for Runtime {
+//     type Event = Event;
+// }
 
-impl simple_feedback::Trait for Runtime {
-	type Event = Event;
-}
+// impl prefunding::Trait for Runtime {
+//     type Event = Event;
+//     type Currency = balances::Module<Self>;
+//     type Conversions = ConversionHandler;
+//     type Accounting = AccountingModule;
+// }
+
+// impl orders::Trait for Runtime {
+//     type Event = Event;
+//     type Conversions = ConversionHandler;
+//     type Accounting = AccountingModule;
+//     type Prefunding = PrefundingModule;
+// }
+
+// impl marketplace::Trait for Runtime {
+// 	type ReputationSystem = SimpleFeedback;
+// 	type Event = Event;
+// }
+
+// impl simple_feedback::Trait for Runtime {
+// 	type Event = Event;
+// }
 
 construct_runtime!(
 	pub enum Runtime with Log(InternalLog: DigestItem<Hash, AuthorityId, AuthoritySignature>) where
@@ -342,16 +338,15 @@ construct_runtime!(
 		Indices: indices,
 		Balances: balances,
 		Sudo: sudo,
-		ProjectModule: projects::{Module, Call, Storage, Event<T>},
-		TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
-		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
-		ArchiveModule: archive::{Module, Call, Event<T>},
-		// TotemModule: totem::{Module, Call, Storage, Event<T>},
-		AccountingModule: accounting::{Module, Storage, Event<T>},
-		OrdersModule: orders::{Module, Call, Storage, Event<T>},
-        PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
-        Marketplace: marketplace::{Module, Call, Storage, Event<T>},
-		SimpleFeedback: simple_feedback::{Module, Storage, Event<T>},
+		// ProjectModule: projects::{Module, Call, Storage, Event<T>},
+		// TimekeepingModule: timekeeping::{Module, Call, Storage, Event<T>},
+		// BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
+		// ArchiveModule: archive::{Module, Call, Event<T>},
+		// AccountingModule: accounting::{Module, Storage, Event<T>},
+		// OrdersModule: orders::{Module, Call, Storage, Event<T>},
+        // PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
+        // Marketplace: marketplace::{Module, Call, Storage, Event<T>},
+		// SimpleFeedback: simple_feedback::{Module, Storage, Event<T>},
 	}
 );
 

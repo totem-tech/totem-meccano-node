@@ -1,19 +1,37 @@
-// Copyright 2019 Chris D'Costa
-// This file is part of Totem Live Accounting.
-// Author Chris D'Costa email: chris.dcosta@totemaccounting.com
+//!                              Næ§@@@ÑÉ©
+//!                        æ@@@@@@@@@@@@@@@@@@
+//!                    Ñ@@@@?.?@@@@@@@@@@@@@@@@@@@N
+//!                 ¶@@@@@?^%@@.=@@@@@@@@@@@@@@@@@@@@
+//!               N@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^@@@».............?@@@@@@@@@É
+//!              Ñ@@@@@@@@?^@@@@@@@@@@@@@@@@@@'?@@@@@@@@Ñ
+//!              @@@@@@@@@?^@@@»..............»@@@@@@@@@@
+//!              @@@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@@@
+//!              @@@@@@@@@?^ë@@&.@@@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^´@@@o.%@@@@@@@@@@@@@@@@@@@@©
+//!                @@@@@@@?.´@@@@@ë.........*.±@@@@@@@æ
+//!                 @@@@@@@@?´.I@@@@@@@@@@@@@@.&@@@@@N
+//!                  N@@@@@@@@@@ë.*=????????=?@@@@@Ñ
+//!                    @@@@@@@@@@@@@@@@@@@@@@@@@@@¶
+//!                        É@@@@@@@@@@@@@@@@Ñ¶
+//!                             Næ§@@@ÑÉ©
 
-// Totem is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+//! Copyright 2020 Chris D'Costa
+//! This file is part of Totem Live Accounting.
+//! Author Chris D'Costa email: chris.dcosta@totemaccounting.com
 
-// Totem is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//! Totem is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
 
-// You should have received a copy of the GNU General Public License
-// along with Totem.  If not, see <http://www.gnu.org/licenses/>.
+//! Totem is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//! GNU General Public License for more details.
+
+//! You should have received a copy of the GNU General Public License
+//! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 use support::{
     decl_event, 
@@ -27,7 +45,7 @@ use system::ensure_signed;
 use parity_codec::{Decode, Encode};
 use runtime_primitives::traits::Hash;
 use node_primitives::Hash as TimeReferenceHash;
-use substrate_primitives::{convert_hash};
+use substrate_primitives::{convert_hash, H256};
 use rstd::prelude::*;
 
 // Totem crates
@@ -910,6 +928,8 @@ decl_event!(
     where
     AccountId = <T as system::Trait>::AccountId,
     // Hash = <T as system::Trait>::Hash
+    AcceptAssignedStatus = bool,
+    ProjectHashRef = H256,
     {
         SubmitedTimeRecord(TimeHash),
         NotifyProjectWorker(AccountId, ProjectHashRef),

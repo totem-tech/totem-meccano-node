@@ -1,18 +1,37 @@
-// Copyright 2018-2019 Parity Technologies (UK) Ltd.
-// This file is part of Substrate.
+//!                              Næ§@@@ÑÉ©
+//!                        æ@@@@@@@@@@@@@@@@@@
+//!                    Ñ@@@@?.?@@@@@@@@@@@@@@@@@@@N
+//!                 ¶@@@@@?^%@@.=@@@@@@@@@@@@@@@@@@@@
+//!               N@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^@@@».............?@@@@@@@@@É
+//!              Ñ@@@@@@@@?^@@@@@@@@@@@@@@@@@@'?@@@@@@@@Ñ
+//!              @@@@@@@@@?^@@@»..............»@@@@@@@@@@
+//!              @@@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@@@
+//!              @@@@@@@@@?^ë@@&.@@@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^´@@@o.%@@@@@@@@@@@@@@@@@@@@©
+//!                @@@@@@@?.´@@@@@ë.........*.±@@@@@@@æ
+//!                 @@@@@@@@?´.I@@@@@@@@@@@@@@.&@@@@@N
+//!                  N@@@@@@@@@@ë.*=????????=?@@@@@Ñ
+//!                    @@@@@@@@@@@@@@@@@@@@@@@@@@@¶
+//!                        É@@@@@@@@@@@@@@@@Ñ¶
+//!                             Næ§@@@ÑÉ©
 
-// Substrate is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+//! Copyright 2020 Chris D'Costa
+//! This file is part of Totem Live Accounting.
+//! Author Chris D'Costa email: chris.dcosta@totemaccounting.com
 
-// Substrate is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//! Totem is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
 
-// You should have received a copy of the GNU General Public License
-// along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
+//! Totem is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//! GNU General Public License for more details.
+
+//! You should have received a copy of the GNU General Public License
+//! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 //! The Substrate runtime. This can be compiled with ``#[no_std]`, ready for Wasm.
 
@@ -64,6 +83,7 @@ mod prefunding_traits;
 mod orders;
 mod boxkeys;
 mod bonsai;
+mod bonsai_traits;
 mod projects;
 mod timekeeping;
 mod archive;
@@ -79,7 +99,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 5,
     // incremental changes
-	impl_version: 9,
+	impl_version: 17,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -135,13 +155,17 @@ impl Convert<bool, bool> for ConversionHandler {
 
 // Takes Vec<u8> encoded hash and converts for as a LockIdentifier type
 impl Convert<Vec<u8>, [u8;8]> for ConversionHandler {
-    fn convert(x: Vec<u8>) -> [u8;8] { 
-        let mut y: [u8;8] = [0;8];
+	fn convert(x: Vec<u8>) -> [u8;8] { 
+		let mut y: [u8;8] = [0;8];
         for z in 0..8 {
-            y[z] = x[z].into();
+			y[z] = x[z].into();
         };
         return y;
     }
+}
+// Used to convert hashes 
+impl Convert<Hash, Hash> for ConversionHandler {
+	fn convert(x: Hash) -> Hash { x }
 }
 
 pub struct CurrencyToVoteHandler;
@@ -294,6 +318,7 @@ impl boxkeys::Trait for Runtime {
 
 impl bonsai::Trait for Runtime {
     type Event = Event;
+	type Conversions = ConversionHandler;
 }
 
 impl archive::Trait for Runtime {
@@ -316,6 +341,7 @@ impl orders::Trait for Runtime {
     type Conversions = ConversionHandler;
     type Accounting = AccountingModule;
     type Prefunding = PrefundingModule;
+    type Bonsai = BonsaiModule;
 }
 
 construct_runtime!(
