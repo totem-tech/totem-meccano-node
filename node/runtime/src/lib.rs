@@ -1,18 +1,37 @@
-// Copyright 2018-2019 Parity Technologies (UK) Ltd.
-// This file is part of Substrate.
+//!                              Næ§@@@ÑÉ©
+//!                        æ@@@@@@@@@@@@@@@@@@
+//!                    Ñ@@@@?.?@@@@@@@@@@@@@@@@@@@N
+//!                 ¶@@@@@?^%@@.=@@@@@@@@@@@@@@@@@@@@
+//!               N@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^@@@».............?@@@@@@@@@É
+//!              Ñ@@@@@@@@?^@@@@@@@@@@@@@@@@@@'?@@@@@@@@Ñ
+//!              @@@@@@@@@?^@@@»..............»@@@@@@@@@@
+//!              @@@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@@@
+//!              @@@@@@@@@?^ë@@&.@@@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^´@@@o.%@@@@@@@@@@@@@@@@@@@@©
+//!                @@@@@@@?.´@@@@@ë.........*.±@@@@@@@æ
+//!                 @@@@@@@@?´.I@@@@@@@@@@@@@@.&@@@@@N
+//!                  N@@@@@@@@@@ë.*=????????=?@@@@@Ñ
+//!                    @@@@@@@@@@@@@@@@@@@@@@@@@@@¶
+//!                        É@@@@@@@@@@@@@@@@Ñ¶
+//!                             Næ§@@@ÑÉ©
 
-// Substrate is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+//! Copyright 2020 Chris D'Costa
+//! This file is part of Totem Live Accounting.
+//! Author Chris D'Costa email: chris.dcosta@totemaccounting.com
 
-// Substrate is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//! Totem is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
 
-// You should have received a copy of the GNU General Public License
-// along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
+//! Totem is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//! GNU General Public License for more details.
+
+//! You should have received a copy of the GNU General Public License
+//! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 //! The Substrate runtime. This can be compiled with ``#[no_std]`, ready for Wasm.
 
@@ -80,7 +99,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 5,
     // incremental changes
-	impl_version: 12,
+	impl_version: 13,
 	apis: RUNTIME_API_VERSIONS,
 };
 

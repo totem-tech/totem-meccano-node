@@ -1,34 +1,53 @@
-// Copyright 2020 Chris D'Costa
-// This file is part of Totem Live Accounting.
-// Author Chris D'Costa email: chris.dcosta@totemaccounting.com
+//!                              Næ§@@@ÑÉ©
+//!                        æ@@@@@@@@@@@@@@@@@@
+//!                    Ñ@@@@?.?@@@@@@@@@@@@@@@@@@@N
+//!                 ¶@@@@@?^%@@.=@@@@@@@@@@@@@@@@@@@@
+//!               N@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^@@@».............?@@@@@@@@@É
+//!              Ñ@@@@@@@@?^@@@@@@@@@@@@@@@@@@'?@@@@@@@@Ñ
+//!              @@@@@@@@@?^@@@»..............»@@@@@@@@@@
+//!              @@@@@@@@@?^@@@»^@@@@@@@@@@@@@@@@@@@@@@@@
+//!              @@@@@@@@@?^ë@@&.@@@@@@@@@@@@@@@@@@@@@@@@
+//!               @@@@@@@@?^´@@@o.%@@@@@@@@@@@@@@@@@@@@©
+//!                @@@@@@@?.´@@@@@ë.........*.±@@@@@@@æ
+//!                 @@@@@@@@?´.I@@@@@@@@@@@@@@.&@@@@@N
+//!                  N@@@@@@@@@@ë.*=????????=?@@@@@Ñ
+//!                    @@@@@@@@@@@@@@@@@@@@@@@@@@@¶
+//!                        É@@@@@@@@@@@@@@@@Ñ¶
+//!                             Næ§@@@ÑÉ©
 
-// Totem is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+//! Copyright 2020 Chris D'Costa
+//! This file is part of Totem Live Accounting.
+//! Author Chris D'Costa email: chris.dcosta@totemaccounting.com
 
-// Totem is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//! Totem is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
 
-// You should have received a copy of the GNU General Public License
-// along with Totem.  If not, see <http://www.gnu.org/licenses/>.
+//! Totem is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//! GNU General Public License for more details.
+
+//! You should have received a copy of the GNU General Public License
+//! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 
-//********************************************************//
-// This is the Totem Orders Module 
-//********************************************************//
+//! # This is the Totem Orders Module 
+//!
+//! ## Overview
+//!
+//! The orders module supports creation of purchase orders and tasks and other types of market order.
+//! A basic workflow is as follows:
+//! * In general orders are assigned to a partner that the ordering identity already knows and is required to be accepted by that party to become active.
+//! * Orders can be made without already knowing the seller - these are called market orders
+//! * The order can be prefunded by calling into the prefunding module, which updates the accounting ledgers.
+//! * Once the order is accepted, the work must begin, and once completed, the vendor sets the state to completed.
+//! * The completion state also generates the invoice, and relevant accounting postings for both the buyer and the seller.
+//! * The completed work is then approved by the buyer (or disputed or rejected). An approval triggers the release of prefunds and 
+//! the invoice is marked as settled in the accounts for both parties
 
-// The orders module supports creation of purchase orders and tasks and other types of market order.
-// A basic workflow is as follows:
-// * In general orders are assigned to a partner that the ordering identity already knows and is required to be accepted by that party to become active.
-// * Orders can be made without already knowing the seller - these are called market orders
-// * The order can be prefunded by calling into the prefunding module, which updates the accounting ledgers.
-// * Once the order is accepted, the work must begin, and once completed, the vendor sets the state to completed.
-// * The completion state also generates the invoice, and relevant accounting postings for both the buyer and the seller.
-// * The completed work is then approved by the buyer (or disputed or rejected). An approval triggers the release of prefunds and 
-// the invoice is marked as settled in the accounts for both parties
 
 use support::{
     decl_event, 
@@ -486,62 +505,47 @@ impl<T: Trait> Module<T> {
                 }
                 f = fulfiller;
 
-                // match order.1.clone() {
-                //     fulfiller => (),
-                //     commander => {
-                //         Self::deposit_event(RawEvent::ErrorFulfiller(reference));
-                //         return Err("Not allowed to fulfill your own order!");
-                //     },
-                //     _ => f = fulfiller,
-                // }
-
-                // apply a new amount
-                // This also indicates a change to the items
-                // TODO this should be replaced with a more thorough sanity check of the item changes                        
-                match order.4 {
-                    amount => (),
-                    _ => {
-                        let amount_converted: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
-                        // check that the amount is greater than zero
-                        if amount_converted > 0i128 {
-                            a = amount;
-                        } else {
-                            Self::deposit_event(RawEvent::ErrorAmount(amount));
-                            return Err("Amount cannot be less than zero!");
-                        }
+                if a != amount {
+                    let amount_converted: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
+                    if amount_converted < 0i128 {
+                        Self::deposit_event(RawEvent::ErrorAmount(amount));
+                        return Err("Amount cannot be less than zero!");
                     }
+                    a = amount;
                 }
+
                 let current_block_converted: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(current_block);
                 let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline);
-                match order.7 {
-                    deadline_converted => (),
-                    _ => {
-                        // NEED TO CHECK THAT THE DEADLINE IS SENSIBLE!!!!
-                        // 48 hours is the minimum deadline 
-                        let min_deadline: u64 = current_block_converted + 11520u64;
-                        
-                        if deadline < min_deadline {
-                            Self::deposit_event(RawEvent::ErrorShortDeadline(current_block, deadline_converted));
-                            return Err("Deadline is too short!");
-                        }
-                        dl = deadline;
+                if dl != deadline {
+                    // TODO This may be unusable/unworkable needs trying out
+                    // 48 hours is the minimum deadline
+                    // every time there is a change the deadline gets pushed back by 48 hours byond the current block 
+                    let min_deadline: u64 = current_block_converted + 11520u64;
+                    if deadline < min_deadline {
+                        Self::deposit_event(RawEvent::ErrorShortDeadline(current_block, deadline_converted));
+                        return Err("Deadline is too short!");
                     }
+                    dl = deadline;
                 }
+                // match order.7 {
+                //     deadline_converted => (),
+                //     _ => {
+                        
+                //     }
+                // }
                 
                 let due_date_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(due_date);
-                match order.8 {
-                    due_date_converted => (),
-                    _ => {
-                        let minimum_due_date: u64 = current_block_converted + 11760u64;
-                        // due date must be at least 1 hours after deadline (TODO - Validate! as this is a guess)
-                        if due_date < minimum_due_date {
-                            Self::deposit_event(RawEvent::ErrorShortDueDate(current_block, due_date_converted));
-                            return Err("Due Date is too short!");
-                        }
-                        dd = due_date;
+
+                if dd != due_date {
+                    // due date must be at least 1 hours after deadline (TODO - Validate! as this is a guess)
+                    // This is basically adding 49 hours to the current block
+                    let minimum_due_date: u64 = current_block_converted + 11760u64;
+                    if due_date < minimum_due_date {
+                        Self::deposit_event(RawEvent::ErrorShortDueDate(current_block, due_date_converted));
+                        return Err("Due Date is too short!");
                     }
-                }
-                
+                    dd = due_date;
+                }    
                 // Create Order sub header
                 // order_sub_hdr: (buy_or_sell, converted_amount, open_closed, order_type, deadline, due_date)
                 let converted_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
@@ -551,7 +555,7 @@ impl<T: Trait> Module<T> {
                 Self::set_order_approval(order.0, order.1, order.2, reference, sub, order_items, status)?;
                 
                 // prefunding can only be cancelled if deadline has passed, otherwise the prefunding remains as a deposit
-                // TODO we could use the cancel prefunding function to do this, but also we need to check exchange rates
+                // TODO we could use the cancel prefunding function to do this, but also we need to check exchange rates so that the correct amount is returned
                 
             },
             None => return Err("Error getting order details"),
@@ -710,7 +714,6 @@ decl_event!(
     AccountBalance = AccountBalanceOf<T>,
     {
         // Positive Messages
-        // Test(Vec<ItemDetailsStruct>),
         OrderCreated(AccountId, AccountId, Hash),
         OrderCreatedForApproval(AccountId, AccountId, Hash),
         OrderStatusUpdate(Hash, ApprovalStatus),
@@ -734,28 +737,5 @@ decl_event!(
         ErrorShortDueDate(BlockNumber, BlockNumber),
         ErrorNotImplmented(),
         ErrorNotOwner(AccountId, Hash),
-        
-        // External Positive Messages - Prefunding & Accounting
-        // PrefundingDeposit(AccountId, i128, BlockNumber),
-        // PrefundingCancelled(AccountId, Hash),
-        // PrefundingLockSet(AccountId, Hash),
-        // PrefundingCompleted(AccountId),                
-        // InvoiceIssued(Hash),
-        // LegderUpdate(AccountId, u64, i128, u128),
-        
-        // Error Messages - Prefunding & Accounting
-        ErrorLockNotAllowed(Hash),
-        ErrorOverflow(u64),
-        ErrorGlobalOverflow(),
-        ErrorInsufficientFunds(AccountId, u128, u128, u128),
-        ErrorInError(AccountId),
-        ErrorNotAllowed(Hash),
-        ErrorNotApproved(Hash),
-        ErrorDeadlineInPlay(AccountId, Hash),
-        ErrorFundsInPlay(AccountId),
-        ErrorHashDoesNotExist(Hash),
-        ErrorReleaseState(Hash),
-        ErrorGettingPrefundData(Hash),
-        ErrorTransfer(AccountId, AccountId),
     }
 );
