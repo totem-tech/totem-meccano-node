@@ -81,11 +81,14 @@ mod accounting;
 mod prefunding;
 mod prefunding_traits;
 mod orders;
+mod orders_traits;
 mod boxkeys;
 mod bonsai;
 mod bonsai_traits;
 mod projects;
+mod projects_traits;
 mod timekeeping;
+mod timekeeping_traits;
 mod archive;
 
 /// This is the Totem runtime version.
@@ -97,9 +100,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 5,
+	spec_version: 6,
     // incremental changes
-	impl_version: 17,
+	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -306,10 +309,15 @@ impl finality_tracker::Trait for Runtime {
 // Totem impl
 impl projects::Trait for Runtime {
 	type Event = Event;
+	// type Accounting = AccountingModule;
+	// type Bonsai = BonsaiModule;
 }
 
 impl timekeeping::Trait for Runtime {
 	type Event = Event;
+	type Project = ProjectModule;
+	// type Accounting = AccountingModule;
+	// type Bonsai = BonsaiModule;
 }
 
 impl boxkeys::Trait for Runtime {
@@ -318,6 +326,8 @@ impl boxkeys::Trait for Runtime {
 
 impl bonsai::Trait for Runtime {
     type Event = Event;
+	type Orders = OrdersModule;
+	type Timekeeping = TimekeepingModule;
 	type Conversions = ConversionHandler;
 }
 

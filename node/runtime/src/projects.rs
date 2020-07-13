@@ -38,10 +38,10 @@ use parity_codec::{Decode, Encode};
 use rstd::prelude::*;
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, ensure, StorageMap};
 use system::{self, ensure_signed};
+use substrate_primitives::{convert_hash};
 
-pub trait Trait: system::Trait {
-    type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
-}
+// Totem traits
+use crate::projects_traits::{ Validating };
 
 pub type ProjectHash = Hash; // Reference supplied externally
 pub type ProjectStatus = u16; // Reference supplied externally
@@ -52,6 +52,10 @@ pub struct DeletedProject<AccountId, ProjectStatus> {
     pub owned_by: AccountId,
     pub deleted_by: AccountId,
     pub status: ProjectStatus,
+}
+
+pub trait Trait: system::Trait {
+    type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
 decl_storage! {
@@ -274,6 +278,28 @@ decl_event!(
         ProjectChanged(ProjectHash, AccountId, ProjectStatus),
     }
 );
+
+impl<T: Trait> Validating<T::AccountId,T::Hash> for Module<T> {
+    fn is_project_owner(o: T::AccountId, d: T::Hash) -> bool {
+        // set default return value
+        let mut valid: bool = false;
+        let project_hash: ProjectHash = convert_hash(&d); // Conversion from T::Hash to Hash
+        
+        // check ownership of project
+        match Self::project_hash_owner(project_hash) {
+            Some(owner) => {
+                if o == owner {
+                    valid = true;
+                } else {
+                    return valid;
+                }
+            },
+            None => return valid,
+        }
+        
+        return valid;
+    }
+}
 
 // functions that are called externally to check values internal to this module.
 impl<T: Trait> Module<T> {

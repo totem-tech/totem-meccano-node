@@ -67,6 +67,7 @@ use node_primitives::Hash; // Use only in full node
 use crate::accounting_traits::{ Posting };
 use crate::prefunding_traits::{ Encumbrance };
 use crate::bonsai_traits::{ Storing };
+use crate::orders_traits::{ Validating };
 
 // Totem Trait Types
 // type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
@@ -178,7 +179,7 @@ decl_module! {
         ) -> Result {
             let who = ensure_signed(origin)?;
             // check owner of this record
-
+            
             Self::change_simple_prefunded_order(
                 who.clone(), 
                 approver.clone(),
@@ -503,7 +504,7 @@ impl<T: Trait> Module<T> {
                     return Err("Not allowed to fulfill your own order!");
                 }
                 f = fulfiller;
-
+                
                 if a != amount {
                     let amount_converted: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
                     if amount_converted < 0i128 {
@@ -512,7 +513,7 @@ impl<T: Trait> Module<T> {
                     }
                     a = amount;
                 }
-
+                
                 let current_block_converted: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(current_block);
                 let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline);
                 if dl != deadline {
@@ -528,7 +529,7 @@ impl<T: Trait> Module<T> {
                 }
                 
                 let due_date_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(due_date);
-
+                
                 if dd != due_date {
                     // due date must be at least 1 hours after deadline (TODO - Validate! as this is a guess)
                     // This is basically adding 49 hours to the current block
@@ -678,9 +679,12 @@ impl<T: Trait> Module<T> {
     fn postulate_simple_prefunded_open_order() -> Result {
         Ok(())
     }
-    // Public functions
+    
+}
+
+impl<T: Trait> Validating<T::AccountId, T::Hash> for Module<T> {
     ///Check the owner of the hash  
-    pub fn is_order_owner(o: T::AccountId, r: T::Hash) -> Result {
+    fn is_order_owner(o: T::AccountId, r: T::Hash) -> Result {
         match Self::order(r) {
             Some(order) => {
                 if o == order.0 {
@@ -688,7 +692,7 @@ impl<T: Trait> Module<T> {
                 } else {
                     Self::deposit_event(RawEvent::ErrorNotOwner(o,r));
                     return Err("You ae not the owner!");
-
+                    
                 }
             },
             None => {

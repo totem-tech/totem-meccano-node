@@ -43,20 +43,25 @@ use support::{
 };
 use system::ensure_signed;
 use parity_codec::{Decode, Encode};
-use runtime_primitives::traits::Hash;
-use node_primitives::Hash as TimeReferenceHash;
+use runtime_primitives::traits::*;
+// use node_primitives::Hash as TimeReferenceHash;
+use node_primitives::Hash;
 use substrate_primitives::{convert_hash, H256};
 use rstd::prelude::*;
 
 // Totem crates
 use crate::projects;
+use crate::timekeeping_traits::{ Validating };
+use crate::projects_traits::{ Validating as ProjectValidating};
 
 pub trait Trait: projects::Trait + system::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+    type Project: ProjectValidating<Self::AccountId,Self::Hash>; 
 }
 
 // from Projects module
-pub type ProjectHashRef = projects::ProjectHash;
+// pub type ProjectHashRef = projects::ProjectHash;
+pub type ProjectHashRef = Hash;
 
 pub type NumberOfBreaks = u16; // Number of pauses of the timer
 pub type NumberOfBlocks = u64; // Quantity of blocks determines the passage of time
@@ -69,7 +74,7 @@ pub type ReasonCode = u16; // Reason for status change (TODO codes to be defined
 pub type ReasonCodeType = u16; // Category of reason code (TODO categories to be defined)
                                // pub type ReasonCodeText = Vec<u8>; // Reason for status change in text (not on chain!)
 pub type BanStatus = bool; // Ban status (default is false)
-pub type TimeHash = TimeReferenceHash; // 
+pub type TimeHash = Hash; // 
 
 // Tuple for reason code changes
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Default)]
@@ -899,7 +904,8 @@ impl<T: Trait> Module<T> {
         }; 
         
         // Attempt match on project owner to archive their own record.
-        match <projects::Module<T>>::check_project_owner(who.clone(), old_time_record.project_hash) {
+        // match <projects::Module<T>>::check_project_owner(who.clone(), old_time_record.project_hash) {
+        match <<T as Trait>::Project as ProjectValidating<T::AccountId, T::Hash>>::is_project_owner(who.clone(), old_time_record.project_hash) {
             true => Self::set_project_time_archive(time_record_key, old_time_record.project_hash, archive)?,
             false => (), // this is not the project owner - you do not need to archive the record or throw an error as nothiing was updated.
         }
@@ -907,20 +913,28 @@ impl<T: Trait> Module<T> {
         Ok(())
     
     }
+}
 
-    pub fn check_time_record_owner(owner: T::AccountId, time_hash: TimeHash) -> bool {
+impl<T: Trait> Validating<T::AccountId,T::Hash> for Module<T> {
+    fn is_time_record_owner(o: T::AccountId, d: T::Hash) -> bool {
         // set default return value
         let mut valid: bool = false;
-
+        let time_hash: TimeHash = convert_hash(&d); // Conversion from T::Hash to Hash
+        
         // check ownership of project
-            match Self::time_hash_owner(time_hash) {
-                Some(owner) => valid = true,
-                None => return valid,
-            }
-
+        match Self::time_hash_owner(time_hash) {
+            Some(owner) => {
+                if o == owner {
+                    valid = true;
+                } else {
+                    return valid;
+                }
+            },
+            None => return valid,
+        }
+        
         return valid;
     }
-    
 }
 
 decl_event!(
