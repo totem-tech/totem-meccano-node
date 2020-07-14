@@ -33,17 +33,14 @@
 //! You should have received a copy of the GNU General Public License
 //! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
-use node_primitives::Hash;
 use parity_codec::{Decode, Encode};
 use rstd::prelude::*;
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, ensure, StorageMap};
 use system::{self, ensure_signed};
 
-pub trait Trait: system::Trait {
-    type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
-}
+// Totem traits
+use crate::projects_traits::{ Validating };
 
-pub type ProjectHash = Hash; // Reference supplied externally
 pub type ProjectStatus = u16; // Reference supplied externally
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode)]
@@ -54,12 +51,16 @@ pub struct DeletedProject<AccountId, ProjectStatus> {
     pub status: ProjectStatus,
 }
 
+pub trait Trait: system::Trait {
+    type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+}
+
 decl_storage! {
     trait Store for Module<T: Trait> as ProjectModule {
-        ProjectHashStatus get(project_hash_status): map ProjectHash => Option<ProjectStatus>;
-        DeletedProjects get(deleted_project): map ProjectHash => Vec<DeletedProject<T::AccountId, ProjectStatus>>;
-        ProjectHashOwner get(project_hash_owner): map ProjectHash => Option<T::AccountId>;
-        OwnerProjectsList get(owner_projects_list): map T::AccountId => Vec<ProjectHash>;
+        ProjectHashStatus get(project_hash_status): map T::Hash => Option<ProjectStatus>;
+        DeletedProjects get(deleted_project): map T::Hash => Vec<DeletedProject<T::AccountId, ProjectStatus>>;
+        ProjectHashOwner get(project_hash_owner): map T::Hash => Option<T::AccountId>;
+        OwnerProjectsList get(owner_projects_list): map T::AccountId => Vec<T::Hash>;
     }
 }
 
@@ -67,21 +68,21 @@ decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
 
-        fn add_new_project(origin, project_hash: ProjectHash) -> Result {
+        fn add_new_project(origin, project_hash: T::Hash) -> Result {
 
             // Check that the project does not exist
-            ensure!(!<ProjectHashStatus<T>>::exists(&project_hash), "The project already exists!");
+            ensure!(!<ProjectHashStatus<T>>::exists(project_hash.clone()), "The project already exists!");
 
             // Check that the project was not deleted already
-            ensure!(!<DeletedProjects<T>>::exists(&project_hash), "The project was already deleted!");
+            ensure!(!<DeletedProjects<T>>::exists(project_hash.clone()), "The project was already deleted!");
 
             // proceed to store project
             let who = ensure_signed(origin)?;
             let project_status: ProjectStatus = 0;
 
             // TODO limit nr of Projects per Account.
-            <ProjectHashStatus<T>>::insert(&project_hash, &project_status);
-            <ProjectHashOwner<T>>::insert(&project_hash, &who);
+            <ProjectHashStatus<T>>::insert(project_hash.clone(), &project_status);
+            <ProjectHashOwner<T>>::insert(project_hash.clone(), &who);
             <OwnerProjectsList<T>>::mutate(&who, |owner_projects_list| owner_projects_list.push(project_hash.clone()));
 
             Self::deposit_event(RawEvent::ProjectRegistered(project_hash, who));
@@ -89,11 +90,11 @@ decl_module! {
             Ok(())
         }
 
-        fn remove_project(origin, project_hash: ProjectHash) -> Result {
-            ensure!(<ProjectHashStatus<T>>::exists(&project_hash), "The project does not exist!");
+        fn remove_project(origin, project_hash: T::Hash) -> Result {
+            ensure!(<ProjectHashStatus<T>>::exists(project_hash.clone()), "The project does not exist!");
 
             // get project by hash
-            let project_owner: T::AccountId = Self::project_hash_owner(&project_hash).ok_or("Error fetching project owner")?;
+            let project_owner: T::AccountId = Self::project_hash_owner(project_hash.clone()).ok_or("Error fetching project owner")?;
 
             // check transaction is signed.
             let changer: T::AccountId = ensure_signed(origin)?;
@@ -114,24 +115,24 @@ decl_module! {
             <OwnerProjectsList<T>>::mutate(&project_owner, |owner_projects_list| owner_projects_list.retain(|h| h != &project_hash));
 
             // remove project from owner
-            <ProjectHashOwner<T>>::remove(&project_hash);
+            <ProjectHashOwner<T>>::remove(project_hash.clone());
 
             // remove status record
-            <ProjectHashStatus<T>>::remove(&project_hash);
+            <ProjectHashStatus<T>>::remove(project_hash.clone());
 
             // record the fact of deletion by whom
-            <DeletedProjects<T>>::mutate(&project_hash, |deleted_project| deleted_project.push(deleted_project_struct));
+            <DeletedProjects<T>>::mutate(project_hash.clone(), |deleted_project| deleted_project.push(deleted_project_struct));
 
             Self::deposit_event(RawEvent::ProjectDeleted(project_hash, project_owner, changer, 999));
 
             Ok(())
         }
 
-        fn reassign_project(origin, new_owner: T::AccountId, project_hash: ProjectHash) -> Result {
-            ensure!(<ProjectHashStatus<T>>::exists(&project_hash), "The project does not exist!");
+        fn reassign_project(origin, new_owner: T::AccountId, project_hash: T::Hash) -> Result {
+            ensure!(<ProjectHashStatus<T>>::exists(project_hash.clone()), "The project does not exist!");
 
             // get project owner from hash
-            let project_owner: T::AccountId = Self::project_hash_owner(&project_hash).ok_or("Error fetching project owner")?;
+            let project_owner: T::AccountId = Self::project_hash_owner(project_hash.clone()).ok_or("Error fetching project owner")?;
 
             let changer: T::AccountId = ensure_signed(origin)?;
             let changed_by: T::AccountId = changer.clone();
@@ -144,7 +145,7 @@ decl_module! {
             <OwnerProjectsList<T>>::mutate(&project_owner, |owner_projects_list| owner_projects_list.retain(|h| h != &project_hash));
 
             // Set new owner for hash
-            <ProjectHashOwner<T>>::insert(&project_hash, &new_owner);
+            <ProjectHashOwner<T>>::insert(project_hash.clone(), &new_owner);
             <OwnerProjectsList<T>>::mutate(&new_owner, |owner_projects_list| owner_projects_list.push(project_hash));
 
             Self::deposit_event(RawEvent::ProjectReassigned(project_hash, new_owner, changed_by));
@@ -153,63 +154,62 @@ decl_module! {
 
         }
 
-        fn close_project(origin, project_hash: ProjectHash) -> Result {
-            ensure!(<ProjectHashStatus<T>>::exists(&project_hash), "The project does not exist!");
+        fn close_project(origin, project_hash: T::Hash) -> Result {
+            ensure!(<ProjectHashStatus<T>>::exists(project_hash.clone()), "The project does not exist!");
 
             let changer = ensure_signed(origin)?;
 
            // get project owner by hash
-            let project_owner: T::AccountId = Self::project_hash_owner(&project_hash).ok_or("Error fetching project owner")?;
+            let project_owner: T::AccountId = Self::project_hash_owner(project_hash.clone()).ok_or("Error fetching project owner")?;
 
             // TODO Implement a sudo for cleaning data in cases where owner is lost
             // Otherwise onlu the owner can change the data
             ensure!(project_owner == changer, "You cannot close a project you do not own");
             let project_status: ProjectStatus = 500;
-            <ProjectHashStatus<T>>::insert(&project_hash, &project_status);
+            <ProjectHashStatus<T>>::insert(project_hash.clone(), &project_status);
 
             Self::deposit_event(RawEvent::ProjectChanged(project_hash, changer, project_status));
 
             Ok(())
         }
 
-        fn reopen_project(origin, project_hash: ProjectHash) -> Result {
+        fn reopen_project(origin, project_hash: T::Hash) -> Result {
             // Can only reopen a project that is in status "closed"
-            let project_status: ProjectStatus = match Self::project_hash_status(&project_hash) {
+            let project_status: ProjectStatus = match Self::project_hash_status(project_hash.clone()) {
                 Some(500) => 100,
                 _ => return Err("Project has the wrong status to be changed"),
                 // None => return Err("Project has no status"),
             };
-            // ensure!(<ProjectHashStatus<T>>::exists(&project_hash), "The project has no status!");
 
             let changer = ensure_signed(origin)?;
 
             // get project owner by hash
-            let project_owner: T::AccountId = Self::project_hash_owner(&project_hash).ok_or("Error fetching project owner")?;
+            let project_owner: T::AccountId = Self::project_hash_owner(project_hash.clone()).ok_or("Error fetching project owner")?;
 
             // TODO Implement a sudo for cleaning data in cases where owner is lost
             // Otherwise only the owner can change the data
             ensure!(project_owner == changer, "You cannot change a project you do not own");
 
-            <ProjectHashStatus<T>>::insert(&project_hash, &project_status);
+            <ProjectHashStatus<T>>::insert(project_hash.clone(), &project_status);
 
             Self::deposit_event(RawEvent::ProjectChanged(project_hash, changer, project_status));
 
             Ok(())
         }
 
-        fn set_status_project(origin, project_hash: ProjectHash, project_status: ProjectStatus) -> Result {
-            ensure!(<ProjectHashStatus<T>>::exists(&project_hash), "The project does not exist!");
+        fn set_status_project(origin, project_hash: T::Hash, project_status: ProjectStatus) -> Result {
+            ensure!(<ProjectHashStatus<T>>::exists(project_hash.clone()), "The project does not exist!");
 
             let changer = ensure_signed(origin)?;
 
             // get project owner by hash
-            let project_owner: T::AccountId = Self::project_hash_owner(&project_hash).ok_or("Error fetching project owner")?;
+            let project_owner: T::AccountId = Self::project_hash_owner(project_hash.clone()).ok_or("Error fetching project owner")?;
 
             // TODO Implement a sudo for cleaning data in cases where owner is lost
             // Otherwise only the owner can change the data
             ensure!(project_owner == changer, "You cannot change a project you do not own");
 
-            let current_project_status = Self::project_hash_status(&project_hash).ok_or("Error fetching project status")?;
+            let current_project_status = Self::project_hash_status(project_hash.clone()).ok_or("Error fetching project status")?;
             // let proposed_project_status: ProjectStatus = project_status.clone();
             let proposed_project_status = project_status.clone();
 
@@ -251,7 +251,7 @@ decl_module! {
 
             let allowed_project_status: ProjectStatus =  proposed_project_status.into();
 
-            <ProjectHashStatus<T>>::insert(&project_hash, &allowed_project_status);
+            <ProjectHashStatus<T>>::insert(project_hash.clone(), &allowed_project_status);
 
             Self::deposit_event(RawEvent::ProjectChanged(project_hash, changer, allowed_project_status));
 
@@ -265,26 +265,50 @@ decl_event!(
     pub enum Event<T>
     where
         AccountId = <T as system::Trait>::AccountId,
-        ProjectHash = Hash,
-        ProjectStatus = u16
+        Hash = <T as system::Trait>::Hash,
+        ProjectStatus = u16,
     {
-        ProjectRegistered(ProjectHash, AccountId),
-        ProjectDeleted(ProjectHash, AccountId, AccountId, ProjectStatus),
-        ProjectReassigned(ProjectHash, AccountId, AccountId),
-        ProjectChanged(ProjectHash, AccountId, ProjectStatus),
+        ProjectRegistered(Hash, AccountId),
+        ProjectDeleted(Hash, AccountId, AccountId, ProjectStatus),
+        ProjectReassigned(Hash, AccountId, AccountId),
+        ProjectChanged(Hash, AccountId, ProjectStatus),
     }
 );
 
-// functions that are called externally to check values internal to this module.
-impl<T: Trait> Module<T> {
-    pub fn check_owner_valid_project(owner: T::AccountId, project_hash: ProjectHash) -> bool {
+impl<T: Trait> Validating<T::AccountId,T::Hash> for Module<T> {
+    fn is_project_owner(o: T::AccountId, h: T::Hash) -> bool {
+        // set default return value
+        let mut valid: bool = false;
+        
+        // check ownership of project
+        match Self::project_hash_owner(h.clone()) {
+            Some(owner) => {
+                if o == owner {
+                    valid = true;
+                } else {
+                    return valid;
+                }
+            },
+            None => return valid,
+        }
+        
+        return valid;
+    }
+
+    fn is_owner_and_project_valid(o: T::AccountId, h: T::Hash) -> bool {
         // set default return value
         let mut valid: bool = false;
 
         // check validity of project
-        if let true = Self::check_valid_project(project_hash.clone()) {
-            match Self::project_hash_owner(project_hash) {
-                Some(owner) => valid = true,
+        if let true = Self::is_project_valid(h.clone()) {
+            match Self::project_hash_owner(h.clone()) {
+                Some(owner) => {
+                    if o == owner {
+                        valid = true;
+                    } else {
+                        return valid;
+                    }
+                },
                 None => return valid,
             }
         }
@@ -292,28 +316,14 @@ impl<T: Trait> Module<T> {
         return valid;
     }
 
-    pub fn check_project_owner(owner: T::AccountId, project_hash: ProjectHash) -> bool {
-        // set default return value
-        let mut valid: bool = false;
-
-        // check ownership of project
-            match Self::project_hash_owner(project_hash) {
-                Some(owner) => valid = true,
-                None => return valid,
-            }
-
-        return valid;
-    }
-
-    pub fn check_valid_project(project_hash: ProjectHash) -> bool {
+    fn is_project_valid(h: T::Hash) -> bool {
         // set default return value
         let mut valid: bool = false;
 
         // check that the status of the project exists and is open or reopened.
-        match Self::project_hash_status(&project_hash) {
+        match Self::project_hash_status(h.clone()) {
             Some(0) | Some(100) => valid = true,
             _ => return valid,
-            // None => return valid,
         }
 
         return valid;

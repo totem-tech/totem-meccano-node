@@ -66,19 +66,23 @@
 
 // use parity_codec::{Decode, Encode};
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap};
-use node_primitives::Hash;
+// use node_primitives::Hash;
 use substrate_primitives::H256;
 use system::{self, ensure_signed};
 use rstd::prelude::*;
-use runtime_primitives::traits::{  Convert };
+use runtime_primitives::traits::{ Convert };
 
 // Totem crates
-use crate::timekeeping;
-use crate::projects;
 use crate::bonsai_traits::{ Storing };
+use crate::orders_traits::{ Validating as OrderValidating};
+use crate::timekeeping_traits::{ Validating as TimeValidating};
+use crate::projects_traits::{ Validating as ProjectValidating};
 
-pub trait Trait: timekeeping::Trait + projects::Trait + system::Trait {
+pub trait Trait: system::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+    type Orders: OrderValidating<Self::AccountId,Self::Hash>;
+    type Timekeeping: TimeValidating<Self::AccountId,Self::Hash>;
+    type Projects: ProjectValidating<Self::AccountId,Self::Hash>;
     type Conversions: 
     Convert<Self::Hash, H256> +
     Convert<H256, Self::Hash>;
@@ -88,7 +92,7 @@ pub type RecordType = u16;
 
 decl_storage! {
     trait Store for Module<T: Trait> as BonsaiModule {
-        IsValidRecord get(is_valid_record): map Hash => Option<Hash>;
+        IsValidRecord get(is_valid_record): map T::Hash => Option<T::Hash>;
     }
 }
 
@@ -107,17 +111,17 @@ decl_module! {
         fn update_record(
             origin,
             record_type: RecordType, 
-            key: H256,
-            token: H256 
+            key: T::Hash,
+            token: T::Hash 
         ) -> Result {
             // check transaction signed
             let who = ensure_signed(origin)?;
             
             match Self::check_remote_ownership(who.clone(), key.clone(), token.clone(), record_type.clone()) {
                 Ok(_) => {
-                    let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(key);
-                    let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(token);
-                    Self::insert_record(key_hash.clone(), token_hash.clone())?;
+                    // let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(key);
+                    // let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(token);
+                    Self::insert_record(key.clone(), token.clone())?;
                     
                     // Self::deposit_event(RawEvent::Bonsai(record_type, key_hash, token_hash));
                 },
@@ -132,37 +136,29 @@ decl_module! {
 
 impl<T: Trait> Module<T> {
     
-    fn check_remote_ownership(o: T::AccountId, k: H256, t: H256, e: RecordType) -> Result {
+    fn check_remote_ownership(o: T::AccountId, k: T::Hash, t: T::Hash, e: RecordType) -> Result {
         // check which type of record
         // then check that the supplied hash is owned by the signer of the transaction
         match e {
             3000 => {
-                match <projects::Module<T>>::check_project_owner(o.clone(), k.clone()) {
-                    true => (), // Do nothing
-                    false => {
-                        let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
-                        let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(t);
-                        
-                        Self::deposit_event(RawEvent::ErrorRecordOwner(o, key_hash, token_hash));
-                        return Err("You cannot add a record you do not own");
-                    },
+                if let false = <<T as Trait>::Projects as ProjectValidating<T::AccountId, T::Hash>>::is_project_owner(o.clone(), k.clone()) {
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                    return Err("You cannot add a record you do not own");
                 }
             },
             4000 => {
-                match <timekeeping::Module<T>>::check_time_record_owner(o.clone(), k.clone()) {
-                    true => (), // Do nothing
-                    false => {
-                        let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
-                        let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(t);
-                        
-                        Self::deposit_event(RawEvent::ErrorRecordOwner(o, key_hash, token_hash));
-                        return Err("You cannot add a record you do not own");
-                    },
+                if let false = <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::is_time_record_owner(o.clone(), k.clone()) {
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                    return Err("You cannot add a record you do not own");
                 }
             },
             5000 => {
-                unimplemented!();
-            }
+                // let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
+                if let false = <<T as Trait>::Orders as OrderValidating<T::AccountId, T::Hash>>::is_order_owner(o.clone(), k.clone()) {
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                    return Err("You cannot add a record you do not own");
+                }
+            } 
             _ => {
                 Self::deposit_event(RawEvent::ErrorUnknownType(e));
                 return Err("Unknown or unimplemented record type. Cannot store record");
@@ -174,15 +170,15 @@ impl<T: Trait> Module<T> {
     
     fn insert_record(k: T::Hash, t: T::Hash) -> Result {
         // TODO implement fee payment mechanism (currently just transaction fee)
-        let key_h256: H256 = <T::Conversions as Convert<T::Hash, H256>>::convert(k);
-        let token_h256: H256 = <T::Conversions as Convert<T::Hash, H256>>::convert(t);
+        // let key_h256: H256 = <T::Conversions as Convert<T::Hash, H256>>::convert(k);
+        // let token_h256: H256 = <T::Conversions as Convert<T::Hash, H256>>::convert(t);
         
-        if <IsValidRecord<T>>::exists(key_h256) {
+        if <IsValidRecord<T>>::exists(k) {
             // remove store the token. This overwrites any existing hash.
-            <IsValidRecord<T>>::remove(key_h256.clone());
+            <IsValidRecord<T>>::remove(k.clone());
         };
         
-        <IsValidRecord<T>>::insert(key_h256, token_h256);
+        <IsValidRecord<T>>::insert(k, t);
         
         Ok(())
     }

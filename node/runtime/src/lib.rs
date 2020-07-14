@@ -76,17 +76,20 @@ extern crate sodalite;
 
 // Totem Runtime Modules
 // mod totem;
-mod accounting_traits;
 mod accounting;
-mod prefunding;
-mod prefunding_traits;
-mod orders;
-mod boxkeys;
+mod accounting_traits;
+mod archive;
 mod bonsai;
 mod bonsai_traits;
+mod boxkeys;
+mod orders;
+mod orders_traits;
+mod prefunding;
+mod prefunding_traits;
 mod projects;
+mod projects_traits;
 mod timekeeping;
-mod archive;
+mod timekeeping_traits;
 
 /// This is the Totem runtime version.
 pub const VERSION: RuntimeVersion = RuntimeVersion {
@@ -97,9 +100,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 5,
+	spec_version: 6,
     // incremental changes
-	impl_version: 17,
+	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -310,19 +313,24 @@ impl projects::Trait for Runtime {
 
 impl timekeeping::Trait for Runtime {
 	type Event = Event;
+	type Projects = ProjectModule;
 }
 
 impl boxkeys::Trait for Runtime {
-    type Event = Event;
+	type Event = Event;
 }
 
 impl bonsai::Trait for Runtime {
-    type Event = Event;
+	type Event = Event;
+	type Orders = OrdersModule;
+	type Projects = ProjectModule;
+	type Timekeeping = TimekeepingModule;
 	type Conversions = ConversionHandler;
 }
 
 impl archive::Trait for Runtime {
-    type Event = Event;
+	type Event = Event;
+	type Timekeeping = TimekeepingModule;
 }
 
 impl accounting::Trait for Runtime {

@@ -67,6 +67,7 @@ use node_primitives::Hash; // Use only in full node
 use crate::accounting_traits::{ Posting };
 use crate::prefunding_traits::{ Encumbrance };
 use crate::bonsai_traits::{ Storing };
+use crate::orders_traits::{ Validating };
 
 // Totem Trait Types
 // type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
@@ -178,7 +179,7 @@ decl_module! {
         ) -> Result {
             let who = ensure_signed(origin)?;
             // check owner of this record
-
+            
             Self::change_simple_prefunded_order(
                 who.clone(), 
                 approver.clone(),
@@ -298,7 +299,6 @@ impl<T: Trait> Module<T> {
         // check or set the approver status
         if Self::set_init_appr_state(commander.clone(), approver.clone(), order_hash) {
             let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline);
-            let due_date_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(due_date);
             // approval status has been set to approved, continue.
             
             // Set prefunding first. It does not matter if later the process fails, as this is locking funds for the commander
@@ -490,8 +490,6 @@ impl<T: Trait> Module<T> {
         match Self::order(&reference) {
             Some(order) => {
                 // check that at least one of these has changed:
-                let mut f: T::AccountId = order.1.clone();
-                let mut a: AccountBalanceOf<T> = order.4;
                 let mut dl: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(order.7);
                 let mut dd: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(order.8);
                 
@@ -502,17 +500,15 @@ impl<T: Trait> Module<T> {
                     Self::deposit_event(RawEvent::ErrorFulfiller(reference));
                     return Err("Not allowed to fulfill your own order!");
                 }
-                f = fulfiller;
-
-                if a != amount {
+                
+                if order.4 != amount {
                     let amount_converted: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
                     if amount_converted < 0i128 {
                         Self::deposit_event(RawEvent::ErrorAmount(amount));
                         return Err("Amount cannot be less than zero!");
                     }
-                    a = amount;
                 }
-
+                
                 let current_block_converted: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(current_block);
                 let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline);
                 if dl != deadline {
@@ -528,7 +524,7 @@ impl<T: Trait> Module<T> {
                 }
                 
                 let due_date_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(due_date);
-
+                
                 if dd != due_date {
                     // due date must be at least 1 hours after deadline (TODO - Validate! as this is a guess)
                     // This is basically adding 49 hours to the current block
@@ -540,12 +536,11 @@ impl<T: Trait> Module<T> {
                     dd = due_date;
                 }    
                 // Create Order sub header
-                // order_sub_hdr: (buy_or_sell, converted_amount, open_closed, order_type, deadline, due_date)
                 let converted_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
                 let sub:OrderSubHeader = (order.3, converted_amount, order.5, order.6, dl, dd); 
                 let status: OrderStatus = 0;
                 
-                Self::set_order_approval(order.0, order.1, order.2, reference, sub, order_items, status)?;
+                Self::set_order_approval(order.0, fulfiller, approver, reference, sub, order_items, status)?;
                 
                 // prefunding can only be cancelled if deadline has passed, otherwise the prefunding remains as a deposit
                 // TODO we could use the cancel prefunding function to do this, but also we need to check exchange rates so that the correct amount is returned
@@ -633,7 +628,7 @@ impl<T: Trait> Module<T> {
     fn accept_prefunded_invoice(o: T::AccountId, h: T::Hash, s: OrderStatus) -> Result {
         // check that this is the fulfiller
         match Self::order(&h) {
-            Some(order) => {
+            Some(_) => {
                 // check the currenct status
                 match Self::status(&h).unwrap() {
                     5 => {
@@ -678,25 +673,24 @@ impl<T: Trait> Module<T> {
     fn postulate_simple_prefunded_open_order() -> Result {
         Ok(())
     }
-    // Public functions
+    
+}
+
+impl<T: Trait> Validating<T::AccountId, T::Hash> for Module<T> {
     ///Check the owner of the hash  
-    pub fn is_order_owner(o: T::AccountId, r: T::Hash) -> Result {
+    fn is_order_owner(o: T::AccountId, r: T::Hash) -> bool {
+        let mut answer: bool = false;
         match Self::order(r) {
             Some(order) => {
                 if o == order.0 {
-                    ();
-                } else {
-                    Self::deposit_event(RawEvent::ErrorNotOwner(o,r));
-                    return Err("You ae not the owner!");
-
+                    answer = true;
                 }
             },
             None => {
-                Self::deposit_event(RawEvent::ErrorHashExists(r));
-                return Err("Hash does not exit!");
+                (); // error
             },
         }
-        Ok(())
+        return answer;
     }
 }
 
