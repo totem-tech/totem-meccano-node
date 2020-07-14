@@ -66,24 +66,23 @@
 
 // use parity_codec::{Decode, Encode};
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap};
-use node_primitives::Hash;
+// use node_primitives::Hash;
 use substrate_primitives::H256;
 use system::{self, ensure_signed};
 use rstd::prelude::*;
-use runtime_primitives::traits::{  Convert };
+use runtime_primitives::traits::{ Convert };
 
 // Totem crates
-// use crate::timekeeping;
-use crate::projects;
-use crate::orders;
 use crate::bonsai_traits::{ Storing };
 use crate::orders_traits::{ Validating as OrderValidating};
 use crate::timekeeping_traits::{ Validating as TimeValidating};
+use crate::projects_traits::{ Validating as ProjectValidating};
 
-pub trait Trait: projects::Trait + system::Trait {
+pub trait Trait: system::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
     type Orders: OrderValidating<Self::AccountId,Self::Hash>;
     type Timekeeping: TimeValidating<Self::AccountId,Self::Hash>;
+    type Projects: ProjectValidating<Self::AccountId,Self::Hash>;
     type Conversions: 
     Convert<Self::Hash, H256> +
     Convert<H256, Self::Hash>;
@@ -142,41 +141,22 @@ impl<T: Trait> Module<T> {
         // then check that the supplied hash is owned by the signer of the transaction
         match e {
             3000 => {
-                unimplemented!();
-                // match <projects::Module<T>>::check_project_owner(o.clone(), k.clone()) {
-                //     true => (), // Do nothing
-                //     false => {
-                //         let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
-                //         let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(t);
-                        
-                //         Self::deposit_event(RawEvent::ErrorRecordOwner(o, key_hash, token_hash));
-                //         return Err("You cannot add a record you do not own");
-                //     },
-                // }
+                if let false = <<T as Trait>::Projects as ProjectValidating<T::AccountId, T::Hash>>::is_project_owner(o.clone(), k.clone()) {
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                    return Err("You cannot add a record you do not own");
+                }
             },
             4000 => {
-                // match <timekeeping::Module<T>>::check_time_record_owner(o.clone(), k.clone()) {
-                match <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::is_time_record_owner(o.clone(), k.clone()) {
-                    true => (), // Do nothing
-                    false => {
-                        // let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
-                        // let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(t);
-                        
-                        Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
-                        return Err("You cannot add a record you do not own");
-                    },
+                if let false = <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::is_time_record_owner(o.clone(), k.clone()) {
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                    return Err("You cannot add a record you do not own");
                 }
             },
             5000 => {
                 // let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
-                match <<T as Trait>::Orders as OrderValidating<T::AccountId, T::Hash>>::is_order_owner(o.clone(), k.clone()) {
-                    Ok(_) => (), // Do nothing
-                    Err(e) => {
-                        // let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(t);
-                        
-                        Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
-                        return Err("You cannot add a record you do not own");
-                    },
+                if let false = <<T as Trait>::Orders as OrderValidating<T::AccountId, T::Hash>>::is_order_owner(o.clone(), k.clone()) {
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                    return Err("You cannot add a record you do not own");
                 }
             } 
             _ => {

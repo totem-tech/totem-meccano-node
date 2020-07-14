@@ -33,8 +33,8 @@
 //! You should have received a copy of the GNU General Public License
 //! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
-use support::{ dispatch::Result };
+// use support::{ dispatch::Result };
 
 pub trait Validating<AccountId, Hash> {
-    fn is_order_owner(o: AccountId, r: Hash) -> Result;
+    fn is_order_owner(o: AccountId, r: Hash) -> bool;
 }

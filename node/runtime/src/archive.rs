@@ -36,13 +36,14 @@
 use support::{decl_event, decl_module, dispatch::Result};
 use system::ensure_signed;
 use rstd::prelude::*;
-use node_primitives::Hash;
 
 // Totem crates
-use crate::timekeeping;
+use crate::timekeeping_traits::{ Validating as TimeValidating};
 
-pub trait Trait: timekeeping::Trait + system::Trait {
+pub trait Trait: system::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+    type Timekeeping: TimeValidating<Self::AccountId,Self::Hash>;
+
 }
 
 pub type RecordType = u16;
@@ -56,7 +57,7 @@ decl_module! {
         /// 2000
         /// 3000 Activities (previously Projects)
         /// 4000 Timekeeping
-        /// 5000
+        /// 5000 Orders
         /// 6000
         /// 7000
         /// 8000
@@ -64,7 +65,7 @@ decl_module! {
         fn archive_record(
             origin,
             record_type: RecordType, 
-            record_hash: Hash, 
+            record_hash: T::Hash, 
             archive: bool
         ) -> Result {
             // check signed
@@ -74,14 +75,13 @@ decl_module! {
             match record_type {
                 4000 => {
                     // module specific archive handling
-                    <timekeeping::Module<T>>::validate_and_archive(who.clone(), record_hash, archive)?;
-
-                    // issue event
-                    Self::deposit_event(RawEvent::RecordArchived(4000, who, record_hash, archive));
+                    if let true = <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::validate_and_archive(who.clone(), record_hash, archive) {
+                        // issue event
+                        Self::deposit_event(RawEvent::RecordArchived(4000, who, record_hash, archive));
+                    }
                 },
                 _ => return Err("Unknown or unimplemented record type. Cannot archive record"),
             }
-
             Ok(())
         }
     }
@@ -91,6 +91,7 @@ decl_event!(
     pub enum Event<T>
     where
         AccountId = <T as system::Trait>::AccountId,
+        Hash = <T as system::Trait>::Hash,
         Archival = bool,
         RecordType = u16,
     {

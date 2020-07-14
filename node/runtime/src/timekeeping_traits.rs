@@ -36,5 +36,6 @@
 // use support::{ dispatch::Result };
 
 pub trait Validating<AccountId, Hash> {
-    fn is_time_record_owner(o: AccountId, r: Hash) -> bool;
+    fn is_time_record_owner(o: AccountId, h: Hash) -> bool;
+    fn validate_and_archive(o: AccountId, h: Hash, a: bool) -> bool;
 }

@@ -37,4 +37,6 @@
 
 pub trait Validating<AccountId, Hash> {
     fn is_project_owner(o: AccountId, h: Hash) -> bool;
+    fn is_owner_and_project_valid(o: AccountId, h: Hash) -> bool;
+    fn is_project_valid(h: Hash) -> bool;
 }
