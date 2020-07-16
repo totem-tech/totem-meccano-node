@@ -42,13 +42,13 @@ pub trait Posting<AccountId,Hash,BlockNumber> {
 
     type Account: Member + Copy + Eq;
     type PostingIndex: Member + Copy + Into<u128> + Encode + Decode + Eq;
-    type AccountBalance: Member + Copy + Into<i128> + Encode + Decode + Eq;
+    type LedgerBalance: Member + Copy + Into<i128> + Encode + Decode + Eq;
 
     fn handle_multiposting_amounts(
         o: AccountId,
-        fwd: Vec<(AccountId, Self::Account, Self::AccountBalance, bool, Hash, BlockNumber, BlockNumber)>, 
-        rev: Vec<(AccountId, Self::Account, Self::AccountBalance, bool, Hash, BlockNumber, BlockNumber)>, 
-        trk: Vec<(AccountId, Self::Account, Self::AccountBalance, bool, Hash, BlockNumber, BlockNumber)>) -> Result;
+        fwd: Vec<(AccountId, Self::Account, Self::LedgerBalance, bool, Hash, BlockNumber, BlockNumber)>, 
+        rev: Vec<(AccountId, Self::Account, Self::LedgerBalance, bool, Hash, BlockNumber, BlockNumber)>, 
+        trk: Vec<(AccountId, Self::Account, Self::LedgerBalance, bool, Hash, BlockNumber, BlockNumber)>) -> Result;
 
     fn get_pseudo_random_hash(s: AccountId, r: AccountId) -> Hash;
 
