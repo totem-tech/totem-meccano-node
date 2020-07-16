@@ -932,6 +932,7 @@ decl_event!(
     AccountId = <T as system::Trait>::AccountId,
     Hash = <T as system::Trait>::Hash,
     AcceptAssignedStatus = bool,
+    NumberOfBlocks = u64,
     {
         SubmitedTimeRecord(Hash),
         NotifyProjectWorker(AccountId, Hash),

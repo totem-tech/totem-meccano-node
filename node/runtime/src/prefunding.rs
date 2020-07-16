@@ -201,7 +201,7 @@ impl<T: Trait> Module<T> {
             return Err("This hash already exists!");
         }
 
-        let event_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(c.clone());
+        // let event_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(c.clone());
         
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
         // Ensure that the funds can be subtracted from sender's balance without causing the account to be destroyed by the existential deposit 
@@ -216,7 +216,8 @@ impl<T: Trait> Module<T> {
             // Lock the amount from the sender and set deadline
             T::Currency::set_lock(Self::get_prefunding_id(h), &s, converted_amount, d, WithdrawReason::Reserve.into());
             
-            Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
+            // Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
+            Self::deposit_event(RawEvent::PrefundingDeposit(s, c, d));
             
             Ok(())
             
@@ -776,7 +777,8 @@ decl_event!(
     BlockNumber = <T as system::Trait>::BlockNumber,
     Hash = <T as system::Trait>::Hash,
     Account = u64,
-    AccountBalance = i128,
+    // AccountBalance = i128,
+    AccountBalance = AccountBalanceOf<T>,
     ComparisonAmounts = u128,
     {
         PrefundingDeposit(AccountId, AccountBalance, BlockNumber),

@@ -97,7 +97,7 @@
             type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
         }
         
-        type AccountBalance = i128; // Balance on an account can be negative - needs to be larger than the 
+        type LedgerBalance = i128; // Balance on an account can be negative - needs to be larger than the 
         type Account = u64; // General ledger account number
         type Indicator = bool; // 0=Debit(false) 1=Credit(true) Note: Debit and Credit balances are account specific - see chart of accounts
         type PostingIndex = u128; // The index number for identifying the posting to ledgers
@@ -111,13 +111,13 @@
                 // Convenience list of Accounts used by an identity. Useful for UI read performance
                 AccountsById get(accounts_by_id): map T::AccountId => Vec<Account>;
                 // Accounting Balances 
-                BalanceByLedger get(balance_by_ledger): map (T::AccountId, Account) => AccountBalance;
+                BalanceByLedger get(balance_by_ledger): map (T::AccountId, Account) => LedgerBalance;
                 // Detail of the accounting posting (for Audit)
-                PostingDetail get(posting_detail): map (T::AccountId, Account, u128) => Option<(T::BlockNumber,AccountBalance,Indicator,T::Hash, T::BlockNumber)>;
+                PostingDetail get(posting_detail): map (T::AccountId, Account, u128) => Option<(T::BlockNumber,LedgerBalance,Indicator,T::Hash, T::BlockNumber)>;
                 // yay! Totem!
-                GlobalLedger get(global_ledger): map Account => AccountBalance;
+                GlobalLedger get(global_ledger): map Account => LedgerBalance;
                 // Address to book the sales tax to and the tax jurisdiction (Experimental, may be deprecated in future) 
-                TaxesByJurisdiction get(taxes_by_jurisdiction): map (T::AccountId, T::AccountId) => AccountBalance;
+                TaxesByJurisdiction get(taxes_by_jurisdiction): map (T::AccountId, T::AccountId) => LedgerBalance;
                 
                 // TODO
                 // Quantities Accounting
@@ -139,7 +139,7 @@
             /// equal to the single debit in accounts receivable, but only one posting needs to be made to that account, and two posting for the others.
             /// The Totem Accounting Recipes are constructed using this simple function.
             /// The second Blocknumber is for re-targeting the entry in the accounts, i.e. for adjustments prior to or after the current period (generally accruals).
-            fn post_amounts((o, a, c, d, h, b, t): (T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)) -> Result {
+            fn post_amounts((o, a, c, d, h, b, t): (T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)) -> Result {
                 let mut posting_index: PostingIndex = 0; 
                 
                 if <PostingNumber<T>>::exists() {
@@ -152,8 +152,8 @@
                         },
                     }
                 }
-                let zero: AccountBalance = 0;
-                let ab: AccountBalance = c.abs();        
+                let zero: LedgerBalance = 0;
+                let ab: LedgerBalance = c.abs();        
                 let balance_key = (o.clone(), a);
                 let posting_key = (o.clone(), a, posting_index);
                 let detail = (b, ab, d, h, t);
@@ -213,7 +213,7 @@
         impl<T: Trait> Posting<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
             
             type Account = Account;
-            type AccountBalance = AccountBalance;
+            type LedgerBalance = LedgerBalance;
             type PostingIndex = PostingIndex;
             
             /// The Totem Accounting Recipes are constructed using this function which handles posting to multiple accounts.
@@ -225,9 +225,9 @@
             fn handle_multiposting_amounts(
                 // o: <T as system::Trait>::AccountId,
                 o: T::AccountId,
-                fwd: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
-                rev: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
-                trk: Vec<(T::AccountId, Account, AccountBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>) -> Result {
+                fwd: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
+                rev: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
+                trk: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>) -> Result {
                     
                     let reversal_keys = rev.clone();
                     let mut track_rev_keys = trk.clone();
@@ -278,10 +278,10 @@
                 where
                 AccountId = <T as system::Trait>::AccountId,
                 Account = u64,
-                AccountBalance = i128,
+                LedgerBalance = i128,
                 PostingIndex = u128,
                 {
-                    LegderUpdate(AccountId, Account, AccountBalance, PostingIndex),
+                    LegderUpdate(AccountId, Account, LedgerBalance, PostingIndex),
                     ErrorOverflow(Account),
                     ErrorGlobalOverflow(),
                     ErrorInError(AccountId),
