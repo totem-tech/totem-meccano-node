@@ -248,12 +248,16 @@ impl<T: Trait> Module<T> {
         // If the approver is the same as the commander then it is approved by default & update accordingly
         // If the approver is not the commander, then update but also set the status to pending approval. 
         // You should gracefully exit after this function call in this case.
+        let mut approved: bool = false;
         let mut status: ApprovalStatus = 0;
-        if c == a { status = 1 };
+        if c == a { 
+            status = 1;
+            approved = true; 
+        };
         <Approver<T>>::mutate(&a, |approver| approver.push(h.clone()));
         <Approved<T>>::insert(h, status);
         
-        true
+        approved
     }
     
     /// API Open an order for a specific AccountId and prefund it. This is equivalent to an encumbrance. 
@@ -503,7 +507,7 @@ impl<T: Trait> Module<T> {
                 if order.4 != amount {
                     let amount_converted: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount);
                     if amount_converted < 0i128 {
-                        Self::deposit_event(RawEvent::ErrorAmount(amount));
+                        Self::deposit_event(RawEvent::ErrorAmount(amount_converted));
                         return Err("Amount cannot be less than zero!");
                     }
                 }
@@ -699,7 +703,8 @@ decl_event!(
     AccountId = <T as system::Trait>::AccountId,
     BlockNumber = <T as system::Trait>::BlockNumber,
     Hash = <T as system::Trait>::Hash,
-    AccountBalance = AccountBalanceOf<T>,
+    AccountBalance = i128,
+    // AccountBalance = AccountBalanceOf<T>,
     OrderStatus = u16,
     ApprovalStatus = u16,
     {
