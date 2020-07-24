@@ -1,6 +1,6 @@
 = Totem Blockchain Runtime(s)
 :Author: Totem developers
-:Revision: 0.0.1
+:Revision: 0.0.2
 :toc:
 :sectnums:
 
@@ -20,30 +20,32 @@
 
 Totem Live Accounting  is built on the idea that accounting ledgers should be able to communicate directly with each other, anywhere in the world, in real-time.
 
-To achieve we are in the process of developing a custom built blockchain runtime on a peer-to-peer network, coupled with a full set of account posting recipes to create - what we believe to be  - one of the first fully decentralised products for business and consumers anywhere.
+To achieve this we are in the process of developing a custom built blockchain runtime and a peer-to-peer network, coupled with a full set of account posting recipes to create - what we believe to be  - one of the first fully decentralised non-finance products for business and consumers anywhere.
 
 
-You can think of it like a globally available, dedicated public network for accounting data with a modern, intuitive, usable app front-end.
+You can think of Totem like a globally available, dedicated public network for accounting data with a modern, intuitive, usable front-end app.
 
-Technically speaking, Totem is delivering a fully functional accounting ledger attached to a blockchain identity. 
+Technically speaking, Totem is delivering a fully functional accounting ledger attached to every blockchain wallet on its network. 
 
-Having said this, it is a *_gross under-representation_* of the greater project goals which are outlined elsewhere on the interwebs.
+Having said that, it is however, a *_gross under-representation_* of the greater project goals which are outlined elsewhere on the interwebs.
 
 === Why is this important?
 
-The communication flow in accounting and book-keeping is completely broken. Your email inbox is spammed full of accounting information like, invoices, Uber receipts, flight expenses, online orders, and there is no direct connection between those accounting documents to either the payment, the reasons for the transaction or, crucially, your accounting system. 
+The communication flow in accounting and book-keeping is completely broken. Your email inbox is spammed full of accounting information like, invoices, Uber receipts, flight expenses, online orders, and there is no direct connection between those accounting documents the payment, the reasons for the transaction or, crucially, _your_ accounting system. 
 
 Whichever way you try to manage this, it boils down to manual effort to  gather and send the information to your accountant, who re-encodes it _again_ and carries out much manual effort to reconcile it to business activities, payments, bank statements. 
 
-Businesses large and small suffer equally with this same problem, *_because there is no common accounting protocol_* on which to reconnect the pieces. 
-
-Enter Totem; stage left. We think as it is 2020, we should fix this.
+Businesses large and small suffer equally with this same problem, *_because there is no common accounting protocol_* on which to reconnect the pieces and this is the heart of the problem to be solved.
 
 === What we are working towards...
 
-In our view, when an invoice is created at (for example) Uber, it should _automatically_ appear in your accounts. But we go one step further... this mechanism should not be dependent on a centrally controlled accounting software company, who will inevitably sell you licences (and your data) just to provide this facility. This mechanism should be open to all, completely independent of  accounting software vendors, and continue to operate, peer-to-peer, at all times, forever. 
+In our view, when an invoice is created at (for example) Uber, it should _automatically_ appear in your accounts. It should appear in the correct expense reporting, and it should already be flagged as settled, and the appropriate entries from your payment card, bank card should already have been made.
 
-This is the problem that Totem is solving. Once you see this ability in action, _"much new thing possible"_.
+Sounds obvious right? It hasn't been done before because there was no good peer-to-peer mechanism to build such a protocol for handling these postings. A blockchain solves this because by definition it is about communicating information peer-to-peer. 
+
+At Totem, we go one step further... this mechanism should not be dependent on a centrally controlled accounting software company, who will inevitably sell you licences and sell your data! This mechanism should be open to all, completely independent of  accounting software vendors, and continue to operate, peer-to-peer, at all times, forever. Even when Totem no longer needs to exist.
+
+This is the problem that Totem has solved. Once you see this ability in action, _"much new thing possible"_.
 
 === Story so far
 
@@ -76,28 +78,31 @@ We have been building out the full scale version ever since and Totem can alread
 
 == Application Architecture
 
-There are several key components to the Totem Architecture which are as follows:
+There are several key features of the Totem Architecture which are as follows:
 
 * the blockchain runtimes, accounting recipes, and on-chain storage, 
+* full homomorphic encryption (FHE) for debit and credit entries, ensuring nobody (not even the blockchain itself) can see your  accounting figures.
 * the Totem BOXKEYS on-chain public key registry, 
 * the Totem BONSAI on-chain pre-authentication for off-chain distributed NoSQL databases,
 * the off-chain distributed NoSQL storage (using the Totem BONSAI protocol of course), 
 * the off-chain global shared datasets (companies, products, places), 
+* encrypted storage on- and off-chain,
 * the front-end UI service, 
-* the p2p encrypted communication channel, 
+* the p2p encrypted communication channels, 
+* socially recoverable identities,
 * the 'transactions' faucet,
 
-This architecture is designed in this way to allow businesses to participate in the global live network, but they can also run their own private networks should they wish to do this.
+Most of the components are designed to allow businesses to participate in the global live accounting network, but they can also run their own private networks should they wish to do this, and still benefit from being able to communicate with other companies and exchange account posting information.
 
-Whilst much of this is established in an early form, we are on course to complete it in the next year.
+Whilst much of this is established in an early form, we are on course to complete development sometime in 2021, you can view the progress on our live network https://totem.live[Totem Live Accounting]
 
 === Privacy
 
-The Totem Network will have privacy as a default for all self-managed identities. The BOXKEYS is a key building-block in that process. 
+The Totem Network will have privacy by default for all self-managed identities. The BOXKEYS is a key building-block in that process. 
 
 As the development progresses we will be introducing fully encrypted storage and end-to-end communication (hence the reason for developing BOXKEYS and BONSAI) to maintain data security and privacy for everyone using self-managed identities on any Totem network. 
 
-In the longer term we will be using Full Homomorphic Encryption (FHE) for obvious reasons.
+In the longer term we will be using Fully Homomorphic Encryption (FHE) for obvious reasons.
 
 == Totem Meccano
 
@@ -107,15 +112,13 @@ The purpose of this network is to begin wider engagement with the blockchain com
 
 You can already test and use much of the core communication and storage technology as well as the first modules which have already been built, including: 
 
-* Identities, 
-* Partners, 
-* Activities, 
-* Teams, 
-* Timekeeping 
+* Identities,
+* Partners,
+* Activities,
+* Teams,
+* Timekeeping,
 * Transfers, 
 * BOXKEY Server,
-
-...in our Totem Live webapp https://totem.live[here]. 
 
 There is also a bleeding edge (read "sometimes broken") live development network https://dev.totem.live[here]. If you are a developer, you can see our entire group of developments at various build stages https://gitlab.com/totem-tech[here].
 

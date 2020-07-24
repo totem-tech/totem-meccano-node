@@ -144,7 +144,7 @@ decl_module! {
             deadline: u64, // prefunding acceptance deadline 
             due_date: u64, // due date is the future delivery date (in blocks) 
             order_items: OrderItem, // for simple items there will only be one item, item number is accessed by its position in Vec 
-            data_hash: T::Hash // Bonsai data Hash
+            bonsai_token: T::Hash // Bonsai data Hash
         ) -> Result {
             let who = ensure_signed(origin)?;
             let amount: AccountBalanceOf<T> = <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(total_amount);
@@ -159,7 +159,7 @@ decl_module! {
                 deadline,
                 due_date,
                 order_items,
-                data_hash
+                bonsai_token
             )?;
             Ok(())
         }
@@ -173,8 +173,8 @@ decl_module! {
             deadline: u64, 
             due_date: u64, 
             order_items: OrderItem,
-            reference: T::Hash, 
-            data_hash: T::Hash 
+            record_id: T::Hash, 
+            bonsai_token: T::Hash 
         ) -> Result {
             let who = ensure_signed(origin)?;
             // check owner of this record
@@ -187,8 +187,8 @@ decl_module! {
                 deadline,
                 due_date,
                 order_items,
-                reference,
-                data_hash
+                record_id,
+                bonsai_token
             )?;
             Ok(())
         }
@@ -277,7 +277,7 @@ impl<T: Trait> Module<T> {
         deadline: u64, // prefunding acceptance deadline 
         due_date: u64, // due date is the future delivery date (in blocks) 
         order_items: OrderItem, // for simple items there will only be one item, item number is accessed by its position in Vec 
-        data_hash: T::Hash
+        bonsai_token: T::Hash
     ) -> Result {
         
         // Generate Hash for order
@@ -324,7 +324,7 @@ impl<T: Trait> Module<T> {
         }
         
         // claim hash in Bonsai
-        <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(order_hash, data_hash)?;
+        <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(order_hash, bonsai_token)?;
         
         Ok(())
     }
@@ -452,7 +452,7 @@ impl<T: Trait> Module<T> {
         due_date: u64, 
         order_items: OrderItem,
         reference: T::Hash,
-        data_hash: T::Hash
+        bonsai_token: T::Hash
     ) -> Result {
         // Check that the hash exist
         // check that the Order state is 0 or 2 (submitted or rejected)
@@ -553,7 +553,7 @@ impl<T: Trait> Module<T> {
         }
         
         // change hash in Bonsai
-        <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(reference, data_hash)?;
+        <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(reference, bonsai_token)?;
         
         Ok(())
     }

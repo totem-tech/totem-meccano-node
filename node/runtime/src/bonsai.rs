@@ -112,18 +112,14 @@ decl_module! {
             origin,
             record_type: RecordType, 
             key: T::Hash,
-            token: T::Hash 
+            bonsai_token: T::Hash 
         ) -> Result {
             // check transaction signed
             let who = ensure_signed(origin)?;
             
-            match Self::check_remote_ownership(who.clone(), key.clone(), token.clone(), record_type.clone()) {
+            match Self::check_remote_ownership(who.clone(), key.clone(), bonsai_token.clone(), record_type.clone()) {
                 Ok(_) => {
-                    // let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(key);
-                    // let token_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(token);
-                    Self::insert_record(key.clone(), token.clone())?;
-                    
-                    // Self::deposit_event(RawEvent::Bonsai(record_type, key_hash, token_hash));
+                    Self::insert_record(key.clone(), bonsai_token.clone())?;
                 },
                 Err(e) => {
                     return Err(e);
@@ -170,9 +166,6 @@ impl<T: Trait> Module<T> {
     
     fn insert_record(k: T::Hash, t: T::Hash) -> Result {
         // TODO implement fee payment mechanism (currently just transaction fee)
-        // let key_h256: H256 = <T::Conversions as Convert<T::Hash, H256>>::convert(k);
-        // let token_h256: H256 = <T::Conversions as Convert<T::Hash, H256>>::convert(t);
-        
         if <IsValidRecord<T>>::exists(k) {
             // remove store the token. This overwrites any existing hash.
             <IsValidRecord<T>>::remove(k.clone());

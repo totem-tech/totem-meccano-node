@@ -65,7 +65,7 @@ decl_module! {
         fn archive_record(
             origin,
             record_type: RecordType, 
-            record_hash: T::Hash, 
+            bonsai_token: T::Hash, 
             archive: bool
         ) -> Result {
             // check signed
@@ -75,9 +75,9 @@ decl_module! {
             match record_type {
                 4000 => {
                     // module specific archive handling
-                    if let true = <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::validate_and_archive(who.clone(), record_hash, archive) {
+                    if let true = <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::validate_and_archive(who.clone(), bonsai_token, archive) {
                         // issue event
-                        Self::deposit_event(RawEvent::RecordArchived(4000, who, record_hash, archive));
+                        Self::deposit_event(RawEvent::RecordArchived(4000, who, bonsai_token, archive));
                     }
                 },
                 _ => return Err("Unknown or unimplemented record type. Cannot archive record"),
