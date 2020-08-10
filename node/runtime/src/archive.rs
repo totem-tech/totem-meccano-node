@@ -34,8 +34,11 @@
 //! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 use support::{decl_event, decl_module, dispatch::Result};
+// use frame_support::{decl_event, decl_module, dispatch::Result}; //v2
 use system::ensure_signed;
+// use frame_system::ensure_signed; //v2
 use rstd::prelude::*;
+// use sp_std::prelude::*; //v2
 
 // Totem crates
 use crate::timekeeping_traits::{ Validating as TimeValidating};

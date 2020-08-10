@@ -64,27 +64,28 @@
 /// (effectively rejecting the attempt to store the data), and if it does match then store the data using the reference hash as the key
 /// 3. in the event that an reference hash already exists, the data-hash obtained from the blockchain is always king. Provided it matches, overwrite exiting data.
 
-// use parity_codec::{Decode, Encode};
+use parity_codec::{Encode};
 use support::{decl_event, decl_module, decl_storage, dispatch::Result, StorageMap};
-// use node_primitives::Hash;
 use substrate_primitives::H256;
 use system::{self, ensure_signed};
 use rstd::prelude::*;
-use runtime_primitives::traits::{ Convert };
+use runtime_primitives::traits::{Hash, Convert};
 
 // Totem crates
 use crate::bonsai_traits::{ Storing };
-use crate::orders_traits::{ Validating as OrderValidating};
-use crate::timekeeping_traits::{ Validating as TimeValidating};
-use crate::projects_traits::{ Validating as ProjectValidating};
+// use crate::orders_traits::{Validating as OrderValidating};
+use crate::timekeeping_traits::{Validating as TimeValidating};
+use crate::projects_traits::{Validating as ProjectValidating};
 
 pub trait Trait: system::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
-    type Orders: OrderValidating<Self::AccountId,Self::Hash>;
+    // type Orders: OrderValidating<Self::AccountId,Self::Hash>;
     type Timekeeping: TimeValidating<Self::AccountId,Self::Hash>;
     type Projects: ProjectValidating<Self::AccountId,Self::Hash>;
     type Conversions: 
     Convert<Self::Hash, H256> +
+    Convert<Self::BlockNumber, u64> +
+    Convert<u64, Self::BlockNumber> +
     Convert<H256, Self::Hash>;
 }
 
@@ -92,7 +93,13 @@ pub type RecordType = u16;
 
 decl_storage! {
     trait Store for Module<T: Trait> as BonsaiModule {
-        IsValidRecord get(is_valid_record): map T::Hash => Option<T::Hash>;
+        // Bonsai Storage
+        IsValidRecord get(is_valid_record): map T::Hash => Option<T::Hash>; 
+        
+        // Hacky workaround for inability of RPC to query transaction by hash
+        IsStarted get(is_started): map T::Hash => Option<T::BlockNumber>; // maps to current block number allows interrogation of errors
+        IsSuccessful get(is_successful): map T::Hash => Option<T::BlockNumber>; // future block number beyond which the Hash should deleted
+        TxList get(tx_list):  map T::Hash => Vec<T::Hash>; // Tracking to ensure that we can perform housekeeping on finalization of block 
     }
 }
 
@@ -100,7 +107,6 @@ decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
         
-        ///
         /// This function stores a record hash for BONSAI 2FA for couchDB
         ///
         /// Record types are the same as the Archive Record Types
@@ -127,39 +133,73 @@ decl_module! {
             }
             Ok(())
         }
+        
+        fn on_finalize() {
+            let current_block: T::BlockNumber = <system::Module<T>>::block_number();
+            // Get all hashes
+            let default_bytes = b"nobody can save fiat currency now";
+            let list_key: T::Hash = T::Hashing::hash(default_bytes.encode().as_slice());
+            if <TxList<T>>::exists(&list_key) {
+                let hashes: Vec<T::Hash> = Self::tx_list(&list_key);
+                // check which storage the hashes come from and hashes that are old
+                for i in hashes {
+                    let key: T::Hash = i.clone();
+                    match Self::is_started(&key) {
+                        Some(block) => {
+                            let mut target_block: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(block);
+                            target_block = target_block + 172800u64; 
+                            let target_deletion_block: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(target_block);
+                            // cleanup 30 Days from when the transaction started, but did not complete
+                            if current_block >= target_deletion_block {
+                                <IsStarted<T>>::remove(&i);
+                            }
+                        },
+                        None => {
+                            match Self::is_successful(&key) {
+                                Some(block) => {
+                                    if current_block >= block {
+                                        <IsSuccessful<T>>::remove(&i);
+                                    }       
+                                },
+                                None => (),
+                            }
+                        },
+                    }
+                    <TxList<T>>::mutate(&list_key, |tx_list| tx_list.retain(|v| {v != &i}));
+                }
+            }
+        }
     }
 }
 
 impl<T: Trait> Module<T> {
-    
     fn check_remote_ownership(o: T::AccountId, k: T::Hash, t: T::Hash, e: RecordType) -> Result {
         // check which type of record
         // then check that the supplied hash is owned by the signer of the transaction
         match e {
             3000 => {
                 if let false = <<T as Trait>::Projects as ProjectValidating<T::AccountId, T::Hash>>::is_project_owner(o.clone(), k.clone()) {
-                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(t));
                     return Err("You cannot add a record you do not own");
                 }
             },
             4000 => {
                 if let false = <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::is_time_record_owner(o.clone(), k.clone()) {
-                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(t));
                     return Err("You cannot add a record you do not own");
                 }
             },
             5000 => {
-                // let key_hash: T::Hash = <T::Conversions as Convert<H256, T::Hash>>::convert(k);
-                if let false = <<T as Trait>::Orders as OrderValidating<T::AccountId, T::Hash>>::is_order_owner(o.clone(), k.clone()) {
-                    Self::deposit_event(RawEvent::ErrorRecordOwner(o, k, t));
+                // if let false = <<T as Trait>::Orders as OrderValidating<T::AccountId, T::Hash>>::is_order_owner(o.clone(), k.clone()) {
+                    Self::deposit_event(RawEvent::ErrorRecordOwner(t));
                     return Err("You cannot add a record you do not own");
-                }
+                // }
             } 
             _ => {
-                Self::deposit_event(RawEvent::ErrorUnknownType(e));
+                Self::deposit_event(RawEvent::ErrorUnknownType(t));
                 return Err("Unknown or unimplemented record type. Cannot store record");
             },
-        };
+        }
         
         Ok(())
     }
@@ -169,10 +209,38 @@ impl<T: Trait> Module<T> {
         if <IsValidRecord<T>>::exists(k) {
             // remove store the token. This overwrites any existing hash.
             <IsValidRecord<T>>::remove(k.clone());
-        };
+        }
         
         <IsValidRecord<T>>::insert(k, t);
         
+        Ok(())
+    }
+    
+    fn insert_uuid(u: T::Hash) -> Result {
+        
+        if <IsSuccessful<T>>::exists(u) {
+            // Throw an error because the transaction already completed
+            return Err("Queued transaction already completed");
+            
+        } else if <IsStarted<T>>::exists(u) {
+            // The transaction is now completed successfully update the state change
+            // remove from started, and place in successful
+            let current_block = <system::Module<T>>::block_number();
+            let mut block: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(current_block);
+            block = block + 172800u64; // cleanup in 30 Days
+            let deletion_block: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(block);
+            <IsStarted<T>>::remove(&u);
+            <IsSuccessful<T>>::insert(u, deletion_block);
+            
+        } else {
+            // this is a new UUID just starting the transaction
+            let current_block = <system::Module<T>>::block_number();
+            let default_bytes = b"nobody can save fiat currency now";
+            let list_key: T::Hash = T::Hashing::hash(default_bytes.encode().as_slice());
+            <TxList<T>>::mutate(list_key, |tx_list| tx_list.push(u));
+            <IsStarted<T>>::insert(u, current_block);
+            
+        }
         Ok(())
     }
 }
@@ -182,17 +250,18 @@ impl<T: Trait> Storing<T::Hash> for Module<T> {
         Self::insert_record(r, d)?;
         Ok(())
     }
+    fn store_uuid(u: T::Hash) -> Result {
+        Self::insert_uuid(u)?;
+        Ok(())
+    }
 }
 
 decl_event!(
     pub enum Event<T>
     where
-    AccountId = <T as system::Trait>::AccountId,
     Hash = <T as system::Trait>::Hash,
-    RecordType = u16,
     {
-        Bonsai(RecordType, Hash, Hash),
-        ErrorRecordOwner(AccountId, Hash, Hash),
-        ErrorUnknownType(RecordType),
+        ErrorRecordOwner(Hash),
+        ErrorUnknownType(Hash),
     }
 );

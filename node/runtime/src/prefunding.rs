@@ -195,13 +195,11 @@ impl<T: Trait> Module<T> {
     fn set_prefunding(s: T::AccountId, c: AccountBalanceOf<T>, d: T::BlockNumber, h: T::Hash) -> Result {
         
         // Prepare make sure we are not taking the deposit again
-        // ensure!(!<ReferenceStatus<T>>::exists(&h), "This hash already exists!");
         if <ReferenceStatus<T>>::exists(&h) {
             Self::deposit_event(RawEvent::ErrorHashExists(h));
             return Err("This hash already exists!");
         }
-
-        let event_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(c.clone());
+        
         
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
         // Ensure that the funds can be subtracted from sender's balance without causing the account to be destroyed by the existential deposit 
@@ -215,11 +213,6 @@ impl<T: Trait> Module<T> {
             
             // Lock the amount from the sender and set deadline
             T::Currency::set_lock(Self::get_prefunding_id(h), &s, converted_amount, d, WithdrawReason::Reserve.into());
-            
-            // For some reason the UI will not decode this event properly, and it causes errors.
-            // DO NOT UNCOMMENT
-            // Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
-            // Self::deposit_event(RawEvent::PrefundingDeposit(s, c, d));
             
             Ok(())
             
@@ -345,7 +338,7 @@ impl<T: Trait> Module<T> {
                 return Err("Hash does not exist!");
             }, 
         }
-
+        
         Ok(())
     }
     // set the status for the prefunding
@@ -363,7 +356,7 @@ impl<T: Trait> Module<T> {
 impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
     
     type UnLocked = UnLocked;
-
+    
     fn prefunding_for(who: T::AccountId, recipient: T::AccountId, amount: u128, deadline: T::BlockNumber) -> Result {
         
         // As amount will always be positive, convert for use in accounting
@@ -402,10 +395,6 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         // manage the deposit
         Self::set_prefunding(who.clone(), amount_converted.clone(), deadline, prefunding_hash)?;
-        // match Self::set_prefunding(who.clone(), amount_converted.clone(), deadline, prefunding_hash) {
-        //     Ok(_) => (),
-        //     Err(e) => return Err(e),
-        // }
         
         // Deposit taken at this point. Note that if an error occurs beyond here we need to remove the locked funds.            
         
@@ -535,7 +524,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         let payer: T::AccountId;
         let beneficiary: T::AccountId;
-
+        
         match Self::get_release_state(h) {
             (true, false)  => { // submitted, but not yet accepted
                 Self::deposit_event(RawEvent::ErrorNotApproved(h));
@@ -613,7 +602,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         // export details for final payment steps
                         payer = o.clone();        
                         beneficiary = details.2.clone();        
-
+                        
                     },
                     false => {
                         Self::deposit_event(RawEvent::ErrorNotAllowed(h));

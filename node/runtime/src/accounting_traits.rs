@@ -34,9 +34,13 @@
 //! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 use parity_codec::{ Encode, Decode };
+// use codec::{ Encode, Decode }; // v2
 use support::dispatch::Result;
-use runtime_primitives::traits::{ Member};
+// use frame_support::dispatch::DispatchResult; //v2
+use runtime_primitives::traits::{ Member };
+// use sp_runtime::traits::{ Member }; // v2
 use rstd::prelude::Vec;
+// use sp_std::prelude::Vec; //v2
 
 pub trait Posting<AccountId,Hash,BlockNumber> {
 

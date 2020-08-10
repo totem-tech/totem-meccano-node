@@ -37,4 +37,5 @@ use support::{ dispatch::Result };
 
 pub trait Storing<Hash> {
     fn claim_data(r: Hash, d: Hash) -> Result;
+    fn store_uuid(u: Hash) -> Result;
 }

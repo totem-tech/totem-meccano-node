@@ -44,7 +44,7 @@ use support::{
 use system::ensure_signed;
 use parity_codec::{Decode, Encode};
 use runtime_primitives::traits::Hash;
-use node_primitives::Hash as ReferenceHash;
+// use node_primitives::Hash as ReferenceHash;
 use rstd::prelude::*;
 
 // Totem crates
