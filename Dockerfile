@@ -1,6 +1,6 @@
 FROM alpine:edge AS builder
-LABEL maintainer="chevdor@gmail.com"
-LABEL description="This is the build stage for Substrate. Here we create the binary."
+LABEL maintainer="chris.dcosta@totemaccounting.com"
+LABEL description="This is the build stage for Totem Meccano. Here we create the binary."
 
 RUN apk add build-base \
     cmake \
@@ -10,29 +10,29 @@ RUN apk add build-base \
     cargo
 
 ARG PROFILE=release
-WORKDIR /substrate
+WORKDIR /totem-substrate
 
-COPY . /substrate
+COPY . /totem-substrate
 
 RUN cargo build --$PROFILE
 
 # ===== SECOND STAGE ======
 
 FROM alpine:edge
-LABEL maintainer="chevdor@gmail.com"
-LABEL description="This is the 2nd stage: a very small image where we copy the Substrate binary."
+LABEL maintainer="chris.dcosta@totemaccounting.com"
+LABEL description="This is the 2nd stage: a very small image where we copy the Totem Meccano binary."
 ARG PROFILE=release
-COPY --from=builder /substrate/target/$PROFILE/substrate /usr/local/bin
+COPY --from=builder /totem-substrate/target/$PROFILE/totem-meccano /usr/local/bin
 
 RUN apk add --no-cache ca-certificates \
     libstdc++ \
     openssl
 
 RUN rm -rf /usr/lib/python* && \
-	mkdir -p /root/.local/share/Substrate && \
-	ln -s /root/.local/share/Substrate /data
+	mkdir -p /root/.local/share/Meccano && \
+	ln -s /root/.local/share/Meccano /data
 
-EXPOSE 30333 9933 9944
+EXPOSE 16181 9933 9944
 VOLUME ["/data"]
 
-ENTRYPOINT ["/usr/local/bin/substrate"]
+ENTRYPOINT ["/usr/local/bin/totem-meccano"]
