@@ -186,6 +186,14 @@ decl_module! {
         ) -> Result {
             let who = ensure_signed(origin)?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            // Generate Hash for order
+            let order_hash: T::Hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::get_pseudo_random_hash(who.clone(),approver.clone());
+        
+            if <Order<T>>::exists(&order_hash) {
+                Self::deposit_event(RawEvent::ErrorHashExists(order_hash));
+                return Err("The hash already exists! Try again.");
+            }
+            
             Self::set_simple_prefunded_service_order(
                 who.clone(),
                 approver.clone(),
@@ -196,10 +204,13 @@ decl_module! {
                 order_type,
                 deadline,
                 due_date,
+                order_hash.clone(),
                 order_item,
                 bonsai_token
             )?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            // issue events
+            Self::deposit_event(RawEvent::OrderCreated(tx_uid, order_hash));
             Ok(())
         }
         /// Change Simple Prefunded Service Order.
@@ -231,6 +242,8 @@ decl_module! {
                 bonsai_token
             )?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            // issue events
+            Self::deposit_event(RawEvent::OrderUpdated(tx_uid));
             Ok(())
         }
         /// Sets the approval status of an order 
@@ -239,8 +252,8 @@ decl_module! {
             let who = ensure_signed(origin)?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
             Self::change_approval_state(who.clone(), h, s, b)?;
-            Self::deposit_event(RawEvent::InvoiceSettled(h));
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            Self::deposit_event(RawEvent::InvoiceSettled(h));
             Ok(())
         }
         
@@ -312,17 +325,10 @@ impl<T: Trait> Module<T> {
         order_type: u16, // 0: personal, 1: business, extensible 
         deadline: u64, // prefunding acceptance deadline 
         due_date: u64, // due date is the future delivery date (in blocks) 
+        order_hash: T::Hash,
         order_item: OrderItem<T::Hash>, // for simple items there will only be one item, item number is accessed by its position in Vec 
         bonsai_token: T::Hash
     ) -> Result {
-        
-        // Generate Hash for order
-        let order_hash: T::Hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::get_pseudo_random_hash(commander.clone(),approver.clone());
-        
-        if <Order<T>>::exists(&order_hash) {
-            Self::deposit_event(RawEvent::ErrorHashExists(order_hash));
-            return Err("The hash already exists! Try again.");
-        }
         
         // Set order status to submitted by default 
         // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5),
@@ -414,9 +420,6 @@ impl<T: Trait> Module<T> {
         // Set details of Order
         <Order<T>>::insert(&o, h);
         <OrderItems<T>>::insert(&o, i);
-        
-        // issue events
-        Self::deposit_event(RawEvent::OrderCreated(t, o));
         
         Ok(())
     }
@@ -703,6 +706,7 @@ decl_event!(
     {
         // Positive Messages
         OrderCreated(Hash, Hash),
+        OrderUpdated(Hash),
         OrderCreatedForApproval(Hash, Hash),
         OrderStatusUpdate(Hash),
         OrderCompleted(Hash),
