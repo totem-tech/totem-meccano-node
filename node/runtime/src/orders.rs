@@ -375,16 +375,15 @@ impl<T: Trait> Module<T> {
             
             let mut vec_order_items: Vec<OrderItem<T::Hash>> = Vec::new();
             vec_order_items.push(order_item);
-
-            <Order<T>>::insert(&order_hash, order_header);
-            <OrderItems<T>>::insert(&order_hash, vec_order_items);
             
+            Self::set_order(commander, fulfiller, order_hash, order_header, vec_order_items, bonsai_token)?;
+
         } else {
             // the order is not yet approved.
             // This is NOT an error but requires further processing by the approver. Exiting gracefully.
             Self::deposit_event(RawEvent::OrderCreatedForApproval(bonsai_token, order_hash));
         }
-        
+
         // claim hash in Bonsai
         <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(order_hash, bonsai_token)?;
         
@@ -405,17 +404,17 @@ impl<T: Trait> Module<T> {
     fn set_order(
         c: T::AccountId, 
         f: T::AccountId, 
-        o: T::Hash, // order hash 
+        o: T::Hash,
         h: OrderHeader<T::AccountId>, 
         i: Vec<OrderItem<T::Hash>>,
-        t: T::Hash // bonsai token
+        t: T::Hash 
     ) -> Result {
         
         // Set hash for commander
-        <Owner<T>>::mutate(&c, |r| r.push(o.clone()));
+        <Owner<T>>::mutate(&c, |owner| owner.push(o.clone()));
         
         // Set hash for fulfiller
-        <Beneficiary<T>>::mutate(&f, |b| b.push(o.clone()));
+        <Beneficiary<T>>::mutate(&f, |beneficiary| beneficiary.push(o.clone()));
         
         // Set details of Order
         <Order<T>>::insert(&o, h);
