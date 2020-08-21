@@ -4,7 +4,7 @@ path = "node/src/main.rs"
 
 [package]
 name = "totem-meccano"
-version = "1.9.0"
+version = "1.9.1"
 authors = ["Totem Live Accounting <chris.dcosta@totemaccounting.com>"]
 build = "build.rs"
 edition = "2018"

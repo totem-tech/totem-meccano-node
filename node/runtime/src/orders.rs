@@ -65,8 +65,7 @@ use support::{
     decl_module, 
     decl_storage, 
     dispatch::Result, 
-    StorageMap,
-    StorageValue
+    StorageMap
 };
 
 use system::ensure_signed;
@@ -92,8 +91,6 @@ pub type UnLocked<T> = <<T as Trait>::Prefunding as Encumbrance<<T as system::Tr
 // Module Types
 type OrderStatus = u16; // Generic Status for whatever the HashReference refers to
 type ApprovalStatus = u16; // submitted(0), accepted(1), rejected(2)
-type LedgerBalance = i128;
-
 
 // This is the order header: contains common values for all items
 #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, Default)]
@@ -433,23 +430,40 @@ impl<T: Trait> Module<T> {
         
         // is the supplied account the approver of the hash supplied?
         let mut order_hdr: OrderHeader<T::AccountId> = Self::orders(&h).ok_or("some error")?;
-        
-        // let details: Vec<OrderItem<T::Hash>> = Self::order_items(&h);
-        
-        if a == order_hdr.fulfiller && order_hdr.order_status == 0 {
-            // check the status being proposed
-            match s {
-                1 | 2 => {
-                    // as we are changing the status to approved or rejected 
-                    order_hdr.order_status = s;                                        
-                } 
+                
+        if a == order_hdr.approver && order_hdr.order_status == 0 {
+            match order_hdr.order_status {
+                0 | 2 => {
+                    // can only change to approved (1)
+                    match s {
+                        1 => (),
+                        _ => {
+                            // All other values not allowed
+                            Self::deposit_event(RawEvent::ErrorApprStatus(h));
+                            return Err("The submitted status not allowed.");
+                        },
+                    }
+                },
+                1 => {
+                    // Can only change to 0 or 2
+                    match s {
+                        0 | 2 => (),
+                        _ => {
+                            // All other values not allowed
+                            Self::deposit_event(RawEvent::ErrorApprStatus(h));
+                            return Err("The submitted status not allowed.");
+                        },
+                    }
+                },
                 _ => {
-                    // attempted status change is not in scope
+                    // All other values not allowed
                     Self::deposit_event(RawEvent::ErrorApprStatus(h));
                     return Err("The submitted status not allowed.");
-                    
-                }, 
+                }
             }
+
+            // All tests passed, set status to whatever.
+            order_hdr.order_status = s;
             
             <Orders<T>>::insert(&h, order_hdr);
             
