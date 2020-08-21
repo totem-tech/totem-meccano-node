@@ -245,7 +245,7 @@ impl<T: Trait> Posting<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
     /// Obviously the last posting does not need a reversal for if it errors, then it was not posted in the first place.
     fn handle_multiposting_amounts(
         // o: <T as system::Trait>::AccountId,
-        o: T::AccountId,
+        // o: T::AccountId,
         fwd: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
         rev: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
         trk: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>) -> Result {
@@ -269,7 +269,7 @@ impl<T: Trait> Posting<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                                 Ok(_) => (),
                                 Err(_e) => {
                                     // This event is because there is a major system error in the reversal process
-                                    Self::deposit_event(RawEvent::ErrorInError(o));
+                                    Self::deposit_event(RawEvent::ErrorInError());
                                     return Err("System Failure in Account Posting");
                                 },
                             }
@@ -305,6 +305,6 @@ impl<T: Trait> Posting<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
             LegderUpdate(AccountId, Account, LedgerBalance, PostingIndex),
             ErrorOverflow(Account),
             ErrorGlobalOverflow(),
-            ErrorInError(AccountId),
+            ErrorInError(),
         }
     );

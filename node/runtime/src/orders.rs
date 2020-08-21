@@ -65,7 +65,8 @@ use support::{
     decl_module, 
     decl_storage, 
     dispatch::Result, 
-    StorageMap
+    StorageMap,
+    StorageValue
 };
 
 use system::ensure_signed;
@@ -91,6 +92,7 @@ pub type UnLocked<T> = <<T as Trait>::Prefunding as Encumbrance<<T as system::Tr
 // Module Types
 type OrderStatus = u16; // Generic Status for whatever the HashReference refers to
 type ApprovalStatus = u16; // submitted(0), accepted(1), rejected(2)
+type LedgerBalance = i128;
 
 
 // This is the order header: contains common values for all items
@@ -140,7 +142,7 @@ decl_storage! {
         Beneficiary get(beneficiary): map T::AccountId => Vec<T::Hash>;
         Approver get(approver): map T::AccountId => Vec<T::Hash>;
         Postulate get(postulate): map T::Hash => Vec<T::AccountId>;
-        Order get(order): map T::Hash => Option<OrderHeader<T::AccountId>>;
+        Orders get(orders): map T::Hash => Option<OrderHeader<T::AccountId>>;
         OrderItems get(order_items): map T::Hash => Vec<OrderItem<T::Hash>>;
     }
 }
@@ -185,26 +187,26 @@ decl_module! {
             tx_uid: T::Hash // Bonsai data Hash
         ) -> Result {
             let who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid.clone())?;
             // Generate Hash for order
             let order_hash: T::Hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::get_pseudo_random_hash(who.clone(),approver.clone());
         
-            if <Order<T>>::exists(&order_hash) {
+            if <Orders<T>>::exists(&order_hash) {
                 Self::deposit_event(RawEvent::ErrorHashExists(order_hash));
                 return Err("The hash already exists! Try again.");
             }
             
             Self::set_simple_prefunded_service_order(
-                who.clone(),
-                approver.clone(),
-                fulfiller.clone(),
+                who,
+                approver,
+                fulfiller,
                 buy_or_sell,
                 total_amount,
                 open_closed,
                 order_type,
                 deadline,
                 due_date,
-                order_hash.clone(),
+                order_hash,
                 order_item,
                 bonsai_token
             )?;
@@ -264,7 +266,7 @@ decl_module! {
             let who = ensure_signed(origin)?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
             // get order details and determine if the sender is the buyer or the seller
-            let order_hdr: OrderHeader<T::AccountId> = Self::order(&h).ok_or("some error")?;
+            let order_hdr: OrderHeader<T::AccountId> = Self::orders(&h).ok_or("some error")?;
             if who == order_hdr.commander {
                 // This is the buyer 
                 //TODO if the order us passed as an arg it doesn't need to be read again
@@ -321,7 +323,7 @@ impl<T: Trait> Module<T> {
         fulfiller: T::AccountId, 
         buy_or_sell: u16, // 0: buy, 1: sell, extensible
         amount: i128, // amount should be the sum of all the items untiprices * quantities
-        open_closed: bool, // 0: open(true) 1: closed(false)
+        open_closed: bool, // 0: open(false) 1: closed(true)
         order_type: u16, // 0: personal, 1: business, extensible 
         deadline: u64, // prefunding acceptance deadline 
         due_date: u64, // due date is the future delivery date (in blocks) 
@@ -334,10 +336,9 @@ impl<T: Trait> Module<T> {
         // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5),
         let order_status: OrderStatus = 0;
         let mut fulfiller_override: T::AccountId = fulfiller.clone();
+        let mut market_order: bool = false;
         match open_closed {
-            // This is an open order. No need to check the fulfiller, but will override with the commander for time being.
-            true => fulfiller_override = commander.clone(), 
-            false => {
+            true => {
                 // this is a closed order, still will need to check or set the approver status
                 // if fulfiller is the commander throw error
                 if commander == fulfiller {
@@ -345,47 +346,53 @@ impl<T: Trait> Module<T> {
                     return Err("Cannot make an order for yourself!");
                 }
             },
+            // This is an open order. No need to check the fulfiller, but will override with the commander for time being.
+            false => 
+            {
+                market_order = true;
+                fulfiller_override = commander.clone();
+            },
         }
         // check or set the approver status
-        if Self::check_approver(commander.clone(), approver.clone(), order_hash) {
+        if Self::check_approver(commander.clone(), approver.clone(), order_hash.clone()) {
             // the order is approved.
             let approval_status: ApprovalStatus = 1;
-            let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline);
+            let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline.clone());
             // approval status has been set to approved, continue.
             
             // Set prefunding first. It does not matter if later the process fails, as this is locking funds for the commander
             // The risk is that they cannot get back the funds until after the deadline, even of they want to cancel.
-            let balance_amount: u128 = <T::Conversions as Convert<i128, u128>>::convert(amount);
+            let balance_amount: u128 = <T::Conversions as Convert<i128, u128>>::convert(amount.clone());
             
             Self::set_prefunding(commander.clone(), fulfiller.clone(), balance_amount, deadline_converted)?;
             
             let order_header: OrderHeader<T::AccountId> = OrderHeader {
                 commander: commander.clone(),
                 fulfiller: fulfiller_override.clone(),
-                approver: approver.clone(),
+                approver: approver,
                 order_status: order_status,
                 approval_status: approval_status,
                 buy_or_sell: buy_or_sell,
                 amount: amount,
-                open_closed: open_closed,
+                open_closed: market_order,
                 order_type: order_type,
                 deadline: deadline,
                 due_date: due_date,
             };
             
             let mut vec_order_items: Vec<OrderItem<T::Hash>> = Vec::new();
-            vec_order_items.push(order_item);
+            vec_order_items.push(order_item.clone());
             
-            Self::set_order(commander, fulfiller, order_hash, order_header, vec_order_items, bonsai_token)?;
+            Self::set_order(commander, fulfiller, order_hash.clone(), order_header, vec_order_items)?;
 
         } else {
             // the order is not yet approved.
             // This is NOT an error but requires further processing by the approver. Exiting gracefully.
-            Self::deposit_event(RawEvent::OrderCreatedForApproval(bonsai_token, order_hash));
+            Self::deposit_event(RawEvent::OrderCreatedForApproval(bonsai_token.clone(), order_hash.clone()));
         }
 
         // claim hash in Bonsai
-        <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(order_hash, bonsai_token)?;
+        <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(order_hash.clone(), bonsai_token.clone())?;
         
         Ok(())
     }
@@ -406,8 +413,7 @@ impl<T: Trait> Module<T> {
         f: T::AccountId, 
         o: T::Hash,
         h: OrderHeader<T::AccountId>, 
-        i: Vec<OrderItem<T::Hash>>,
-        t: T::Hash 
+        i: Vec<OrderItem<T::Hash>>
     ) -> Result {
         
         // Set hash for commander
@@ -417,7 +423,7 @@ impl<T: Trait> Module<T> {
         <Beneficiary<T>>::mutate(&f, |beneficiary| beneficiary.push(o.clone()));
         
         // Set details of Order
-        <Order<T>>::insert(&o, h);
+        <Orders<T>>::insert(&o, h);
         <OrderItems<T>>::insert(&o, i);
         
         Ok(())
@@ -426,7 +432,7 @@ impl<T: Trait> Module<T> {
     fn change_approval_state(a: T::AccountId, h: T::Hash, s: ApprovalStatus, b: T::Hash) -> Result {
         
         // is the supplied account the approver of the hash supplied?
-        let mut order_hdr: OrderHeader<T::AccountId> = Self::order(&h).ok_or("some error")?;
+        let mut order_hdr: OrderHeader<T::AccountId> = Self::orders(&h).ok_or("some error")?;
         
         // let details: Vec<OrderItem<T::Hash>> = Self::order_items(&h);
         
@@ -445,7 +451,7 @@ impl<T: Trait> Module<T> {
                 }, 
             }
             
-            <Order<T>>::insert(&h, order_hdr);
+            <Orders<T>>::insert(&h, order_hdr);
             
         } else {
             Self::deposit_event(RawEvent::ErrorNotApprover(h));
@@ -472,7 +478,7 @@ impl<T: Trait> Module<T> {
     ) -> Result {
         // Check that the hash exist
         // let order_hdr: OrderHeader<T::AccountId> = Self:order_header(&reference).ok_or("some error")?;
-        let order_hdr: OrderHeader<T::AccountId> = Self::order(&reference).ok_or("some error")?;
+        let order_hdr: OrderHeader<T::AccountId> = Self::orders(&reference).ok_or("some error")?;
         
         // check that the Order state is 0 or 2 (submitted or rejected)
         // check that the approval is 0 or 2 pending approval or rejected
@@ -565,13 +571,13 @@ impl<T: Trait> Module<T> {
         let mut vec_order_items: Vec<OrderItem<T::Hash>> = Vec::new();
         vec_order_items.push(order_item);
         
-        Self::set_order(order_hdr.commander, fulfiller, reference, order_header, vec_order_items, bonsai_token)?;
+        Self::set_order(order_hdr.commander, fulfiller, reference.clone(), order_header, vec_order_items)?;
         
         // prefunding can only be cancelled if deadline has passed, otherwise the prefunding remains as a deposit
         // TODO we could use the cancel prefunding function to do this.
         
         // change hash in Bonsai
-        <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(reference, bonsai_token)?;
+        <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(reference.clone(), bonsai_token.clone())?;
         
         Ok(())
     }
@@ -631,8 +637,8 @@ impl<T: Trait> Module<T> {
         }
         order.order_status = s;
         
-        <Order<T>>::remove(&h);
-        <Order<T>>::insert(&h, order);
+        <Orders<T>>::remove(&h);
+        <Orders<T>>::insert(&h, order);
         
         Self::deposit_event(RawEvent::OrderCompleted(h));
         Ok(())
@@ -668,8 +674,8 @@ impl<T: Trait> Module<T> {
             },
         }
         order.order_status = s;
-        <Order<T>>::remove(&h);
-        <Order<T>>::insert(&h, order);
+        <Orders<T>>::remove(&h);
+        <Orders<T>>::insert(&h, order);
         
         Ok(())
     }
@@ -686,7 +692,7 @@ impl<T: Trait> Validating<T::AccountId, T::Hash> for Module<T> {
     fn is_order_owner(o: T::AccountId, r: T::Hash) -> bool {
         let mut answer: bool = false;
         
-        match Self::order(r) {
+        match Self::orders(r) {
             Some(order) => {
                 if o == order.commander {
                     answer = true;

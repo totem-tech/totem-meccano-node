@@ -95,7 +95,6 @@ decl_storage! {
     trait Store for Module<T: Trait> as BonsaiModule {
         // Bonsai Storage
         IsValidRecord get(is_valid_record): map T::Hash => Option<T::Hash>; 
-        
         // Hacky workaround for inability of RPC to query transaction by hash
         IsStarted get(is_started): map T::Hash => Option<T::BlockNumber>; // maps to current block number allows interrogation of errors
         IsSuccessful get(is_successful): map T::Hash => Option<T::BlockNumber>; // future block number beyond which the Hash should deleted
@@ -209,6 +208,8 @@ impl<T: Trait> Module<T> {
         if <IsValidRecord<T>>::exists(k) {
             // remove store the token. This overwrites any existing hash.
             <IsValidRecord<T>>::remove(k.clone());
+        } else {
+            ();
         }
         
         <IsValidRecord<T>>::insert(k, t);
@@ -223,6 +224,9 @@ impl<T: Trait> Module<T> {
             return Err("Queued transaction already completed");
             
         } else if <IsStarted<T>>::exists(u) {
+            // What happens on error or second use
+
+
             // The transaction is now completed successfully update the state change
             // remove from started, and place in successful
             let current_block = <system::Module<T>>::block_number();
@@ -247,11 +251,11 @@ impl<T: Trait> Module<T> {
 
 impl<T: Trait> Storing<T::Hash> for Module<T> {
     fn claim_data(r: T::Hash, d: T::Hash) -> Result {
-        Self::insert_record(r, d)?;
+        Self::insert_record(r.clone(), d.clone())?;
         Ok(())
     }
     fn store_uuid(u: T::Hash) -> Result {
-        Self::insert_uuid(u)?;
+        Self::insert_uuid(u.clone())?;
         Ok(())
     }
 }

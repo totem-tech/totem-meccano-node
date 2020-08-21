@@ -49,7 +49,7 @@ pub trait Posting<AccountId,Hash,BlockNumber> {
     type LedgerBalance: Member + Copy + Into<i128> + Encode + Decode + Eq;
 
     fn handle_multiposting_amounts(
-        o: AccountId,
+        // o: AccountId,
         fwd: Vec<(AccountId, Self::Account, Self::LedgerBalance, bool, Hash, BlockNumber, BlockNumber)>, 
         rev: Vec<(AccountId, Self::Account, Self::LedgerBalance, bool, Hash, BlockNumber, BlockNumber)>, 
         trk: Vec<(AccountId, Self::Account, Self::LedgerBalance, bool, Hash, BlockNumber, BlockNumber)>) -> Result;

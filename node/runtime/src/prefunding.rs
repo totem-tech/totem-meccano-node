@@ -371,7 +371,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         let current_block = <system::Module<T>>::block_number();
         
-        // Prefunding is always recorded in the same block. It cannot be posted toà another period
+        // Prefunding is always recorded in the same block. It cannot be posted to another period
         let current_block_dupe = <system::Module<T>>::block_number(); 
         
         let prefunding_hash: T::Hash = Self::get_pseudo_random_hash(who.clone(), recipient.clone());
@@ -380,7 +380,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         let currency_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(amount_converted.clone());
         
         // NEED TO CHECK THAT THE DEADLINE IS SENSIBLE!!!!
-        // 48 hours is the minimum deadline 
+        // 48 hours is the minimum deadline. This is the minimum amountof time before the money can be reclaimed
         let minimum_deadline: T::BlockNumber = current_block + <T::Conversions as Convert<u64, T::BlockNumber>>::convert(11520u64);
         
         if deadline < minimum_deadline {
@@ -388,8 +388,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
             return Err("Deadline is too short!");
         }
         
-        
-        let prefunded = (currency_amount, deadline);
+        let prefunded = (currency_amount, deadline.clone());
         
         let owners = (who.clone(), true, recipient.clone(), false);
         
@@ -406,21 +405,21 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         // Keys for posting
         let mut forward_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(10);
-        forward_keys.push((recipient.clone(), account_1, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
-        forward_keys.push((recipient.clone(), account_2, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
-        forward_keys.push((recipient.clone(), account_3, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
-        forward_keys.push((recipient.clone(), account_4, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
+        forward_keys.push((who.clone(), account_1, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
+        forward_keys.push((who.clone(), account_2, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
+        forward_keys.push((who.clone(), account_3, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
+        forward_keys.push((who.clone(), account_4, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
         
         // Reversal keys in case of errors
         let mut reversal_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
-        reversal_keys.push((recipient.clone(), account_1, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
-        reversal_keys.push((recipient.clone(), account_2, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
-        reversal_keys.push((recipient.clone(), account_3, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
-        reversal_keys.push((recipient.clone(), account_4, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
+        reversal_keys.push((who.clone(), account_1, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
+        reversal_keys.push((who.clone(), account_2, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
+        reversal_keys.push((who.clone(), account_3, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
+        reversal_keys.push((who.clone(), account_4, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
         
         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
         
-        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(who.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
         
         // Record Prefunding ownership and status
         <PrefundingHashOwner<T>>::insert(&prefunding_hash, owners); 
@@ -505,7 +504,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
         
-        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
         
         // Add status processing
         let new_status: Status = 400; // invoiced(400), can no longer be accepted, 
@@ -598,7 +597,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         
                         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
                         
-                        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+                        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
                         // export details for final payment steps
                         payer = o.clone();        
                         beneficiary = details.2.clone();        
