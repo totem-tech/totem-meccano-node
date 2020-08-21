@@ -34,8 +34,11 @@
 //! along with Totem.  If not, see <http://www.gnu.org/licenses/>.
 
 use support::{decl_event, decl_module, dispatch::Result};
+// use frame_support::{decl_event, decl_module, dispatch::Result}; //v2
 use system::ensure_signed;
+// use frame_system::ensure_signed; //v2
 use rstd::prelude::*;
+// use sp_std::prelude::*; //v2
 
 // Totem crates
 use crate::timekeeping_traits::{ Validating as TimeValidating};
@@ -65,7 +68,7 @@ decl_module! {
         fn archive_record(
             origin,
             record_type: RecordType, 
-            record_hash: T::Hash, 
+            bonsai_token: T::Hash, 
             archive: bool
         ) -> Result {
             // check signed
@@ -75,9 +78,9 @@ decl_module! {
             match record_type {
                 4000 => {
                     // module specific archive handling
-                    if let true = <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::validate_and_archive(who.clone(), record_hash, archive) {
+                    if let true = <<T as Trait>::Timekeeping as TimeValidating<T::AccountId, T::Hash>>::validate_and_archive(who.clone(), bonsai_token, archive) {
                         // issue event
-                        Self::deposit_event(RawEvent::RecordArchived(4000, who, record_hash, archive));
+                        Self::deposit_event(RawEvent::RecordArchived(4000, who, bonsai_token, archive));
                     }
                 },
                 _ => return Err("Unknown or unimplemented record type. Cannot archive record"),

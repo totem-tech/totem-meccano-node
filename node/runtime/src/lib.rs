@@ -100,7 +100,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 6,
+	spec_version: 9,
     // incremental changes
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
@@ -322,7 +322,7 @@ impl boxkeys::Trait for Runtime {
 
 impl bonsai::Trait for Runtime {
 	type Event = Event;
-	type Orders = OrdersModule;
+	// type Orders = OrdersModule;
 	type Projects = ProjectModule;
 	type Timekeeping = TimekeepingModule;
 	type Conversions = ConversionHandler;

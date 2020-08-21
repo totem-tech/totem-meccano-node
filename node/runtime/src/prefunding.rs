@@ -69,7 +69,7 @@ use crate::prefunding_traits::{ Encumbrance };
 
 // Totem Trait Types
 type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
-type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::AccountBalance;
+type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::LedgerBalance;
 
 // Other trait types
 type CurrencyBalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
@@ -195,13 +195,11 @@ impl<T: Trait> Module<T> {
     fn set_prefunding(s: T::AccountId, c: AccountBalanceOf<T>, d: T::BlockNumber, h: T::Hash) -> Result {
         
         // Prepare make sure we are not taking the deposit again
-        // ensure!(!<ReferenceStatus<T>>::exists(&h), "This hash already exists!");
         if <ReferenceStatus<T>>::exists(&h) {
             Self::deposit_event(RawEvent::ErrorHashExists(h));
             return Err("This hash already exists!");
         }
-
-        let event_amount: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(c.clone());
+        
         
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
         // Ensure that the funds can be subtracted from sender's balance without causing the account to be destroyed by the existential deposit 
@@ -215,8 +213,6 @@ impl<T: Trait> Module<T> {
             
             // Lock the amount from the sender and set deadline
             T::Currency::set_lock(Self::get_prefunding_id(h), &s, converted_amount, d, WithdrawReason::Reserve.into());
-            
-            Self::deposit_event(RawEvent::PrefundingDeposit(s, event_amount, d));
             
             Ok(())
             
@@ -342,7 +338,7 @@ impl<T: Trait> Module<T> {
                 return Err("Hash does not exist!");
             }, 
         }
-
+        
         Ok(())
     }
     // set the status for the prefunding
@@ -360,7 +356,7 @@ impl<T: Trait> Module<T> {
 impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
     
     type UnLocked = UnLocked;
-
+    
     fn prefunding_for(who: T::AccountId, recipient: T::AccountId, amount: u128, deadline: T::BlockNumber) -> Result {
         
         // As amount will always be positive, convert for use in accounting
@@ -375,7 +371,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         let current_block = <system::Module<T>>::block_number();
         
-        // Prefunding is always recorded in the same block. It cannot be posted toà another period
+        // Prefunding is always recorded in the same block. It cannot be posted to another period
         let current_block_dupe = <system::Module<T>>::block_number(); 
         
         let prefunding_hash: T::Hash = Self::get_pseudo_random_hash(who.clone(), recipient.clone());
@@ -384,7 +380,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         let currency_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(amount_converted.clone());
         
         // NEED TO CHECK THAT THE DEADLINE IS SENSIBLE!!!!
-        // 48 hours is the minimum deadline 
+        // 48 hours is the minimum deadline. This is the minimum amountof time before the money can be reclaimed
         let minimum_deadline: T::BlockNumber = current_block + <T::Conversions as Convert<u64, T::BlockNumber>>::convert(11520u64);
         
         if deadline < minimum_deadline {
@@ -392,16 +388,12 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
             return Err("Deadline is too short!");
         }
         
-        
-        let prefunded = (currency_amount, deadline);
+        let prefunded = (currency_amount, deadline.clone());
         
         let owners = (who.clone(), true, recipient.clone(), false);
         
         // manage the deposit
-        match Self::set_prefunding(who.clone(), amount_converted.clone(), deadline, prefunding_hash) {
-            Ok(_) => (),
-            Err(e) => return Err(e),
-        }
+        Self::set_prefunding(who.clone(), amount_converted.clone(), deadline, prefunding_hash)?;
         
         // Deposit taken at this point. Note that if an error occurs beyond here we need to remove the locked funds.            
         
@@ -413,21 +405,21 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         // Keys for posting
         let mut forward_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(10);
-        forward_keys.push((recipient.clone(), account_1, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
-        forward_keys.push((recipient.clone(), account_2, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
-        forward_keys.push((recipient.clone(), account_3, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
-        forward_keys.push((recipient.clone(), account_4, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
+        forward_keys.push((who.clone(), account_1, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
+        forward_keys.push((who.clone(), account_2, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
+        forward_keys.push((who.clone(), account_3, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
+        forward_keys.push((who.clone(), account_4, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
         
         // Reversal keys in case of errors
         let mut reversal_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
-        reversal_keys.push((recipient.clone(), account_1, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
-        reversal_keys.push((recipient.clone(), account_2, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
-        reversal_keys.push((recipient.clone(), account_3, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
-        reversal_keys.push((recipient.clone(), account_4, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
+        reversal_keys.push((who.clone(), account_1, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
+        reversal_keys.push((who.clone(), account_2, increase_amount, true, prefunding_hash, current_block, current_block_dupe));
+        reversal_keys.push((who.clone(), account_3, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
+        reversal_keys.push((who.clone(), account_4, decrease_amount, false, prefunding_hash, current_block, current_block_dupe));
         
         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
         
-        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(who.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
         
         // Record Prefunding ownership and status
         <PrefundingHashOwner<T>>::insert(&prefunding_hash, owners); 
@@ -512,7 +504,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
         
-        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
         
         // Add status processing
         let new_status: Status = 400; // invoiced(400), can no longer be accepted, 
@@ -531,7 +523,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         let payer: T::AccountId;
         let beneficiary: T::AccountId;
-
+        
         match Self::get_release_state(h) {
             (true, false)  => { // submitted, but not yet accepted
                 Self::deposit_event(RawEvent::ErrorNotApproved(h));
@@ -605,11 +597,11 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         
                         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
                         
-                        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(o.clone(),forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
+                        <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone())?;
                         // export details for final payment steps
                         payer = o.clone();        
                         beneficiary = details.2.clone();        
-
+                        
                     },
                     false => {
                         Self::deposit_event(RawEvent::ErrorNotAllowed(h));
@@ -777,6 +769,7 @@ decl_event!(
     Hash = <T as system::Trait>::Hash,
     Account = u64,
     AccountBalance = i128,
+    // AccountBalance = AccountBalanceOf<T>,
     ComparisonAmounts = u128,
     {
         PrefundingDeposit(AccountId, AccountBalance, BlockNumber),
