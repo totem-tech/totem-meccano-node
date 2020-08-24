@@ -650,7 +650,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         // 01, sender approves (recipient can take, or refund)
         // 00, only the recipient authorises sender to retake funds regardless of deadline.
         
-        let change: (T::AccountId, UnLocked, T::AccountId, UnLocked);     
+        let mut change: (T::AccountId, UnLocked, T::AccountId, UnLocked);     
         if sender {
             match Self::check_ref_owner(o.clone(), h) {
                 true => {
