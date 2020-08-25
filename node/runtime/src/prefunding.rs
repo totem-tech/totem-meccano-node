@@ -174,7 +174,7 @@ decl_module! {
                 Self::set_release_state(who.clone(), lock, reference, false)?;
             } else {
                 // Issue error 
-                Self::deposit_event(RawEvent::ErrorLockNotAllowed(reference));
+                Self::deposit_event(RawEvent::ErrorLockNotAllowed1(reference));
                 return Err("You are not the owner or the beneficiary");
                 
             }
@@ -321,7 +321,7 @@ impl<T: Trait> Module<T> {
                             },
                             (false, false) => {
                                 // Owner has been given permission by beneficiary to release funds
-                                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                                Self::deposit_event(RawEvent::ErrorNotAllowed1(h));
                                 return Err("Funds locked for intended purpose by both parties.")
                                 
                             },
@@ -447,7 +447,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         match Self::check_ref_beneficiary(o.clone(), h) {
             true => (),
             false => {
-                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                Self::deposit_event(RawEvent::ErrorNotAllowed2(h));
                 return Err("Not the beneficiary");
             },
         }
@@ -604,19 +604,19 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         
                     },
                     false => {
-                        Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                        Self::deposit_event(RawEvent::ErrorNotAllowed3(h));
                         return Err("Not the owner");
                     },
                 }
                 
             },
             (false, true) => { // This state is not allowed for this functions
-                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                Self::deposit_event(RawEvent::ErrorNotAllowed4(h));
                 return Err("This function should not be used for this")
             },
             (false, false) => {
                 // Owner has been given permission by beneficiary to release funds
-                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                Self::deposit_event(RawEvent::ErrorNotAllowed5(h));
                 return Err("Funds locked for intended purpose by both parties.")
                 
             },
@@ -634,13 +634,18 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
     }
     /// check owner (of hash) - if anything fails then returns false
     fn check_ref_owner(o: T::AccountId, h: T::Hash) -> bool {
+        let mut answer: bool = false;
         match Self::prefunding_hash_owner(&h) {
             Some(owners) => {
-                if Some(owners.0) == Some(o) { return true } else { () } 
+                if Some(owners.0) == Some(o) { 
+                    answer = true; 
+                } else { 
+                    (); 
+                } 
             },
             None => (),
         };
-        return false;
+        return answer;
     }
     /// Sets the release state by the owner or the beneficiary
     fn set_release_state(o: T::AccountId, o_lock: UnLocked, h: T::Hash, sender: bool) -> Result {
@@ -650,7 +655,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         // 01, sender approves (recipient can take, or refund)
         // 00, only the recipient authorises sender to retake funds regardless of deadline.
         
-        let mut change: (T::AccountId, UnLocked, T::AccountId, UnLocked);     
+        let change: (T::AccountId, UnLocked, T::AccountId, UnLocked);     
         if sender {
             match Self::check_ref_owner(o.clone(), h) {
                 true => {
@@ -659,7 +664,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                             if owners.1 != o_lock && owners.1 == false {
                                 change = (o.clone(), o_lock, owners.2, owners.3);
                             } else {
-                                Self::deposit_event(RawEvent::ErrorLockNotAllowed(h));
+                                Self::deposit_event(RawEvent::ErrorLockNotAllowed2(h));
                                 return Err("Owner does not have permission to change this value");
                             }
                         },
@@ -667,7 +672,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                     }
                 },
                 false => {
-                    Self::deposit_event(RawEvent::ErrorLockNotAllowed(h));
+                    Self::deposit_event(RawEvent::ErrorLockNotAllowed3(h));
                     return Err("Not the owner, cannot change lock");
                 },
             };
@@ -680,7 +685,8 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                     }
                 },
                 false => {
-                    Self::deposit_event(RawEvent::ErrorLockNotAllowed(h));
+                    change = Self::prefunding_hash_owner(&h).unwrap();
+                    Self::deposit_event(RawEvent::ErrorLockNotAllowed4(o, change.0, change.1, change.2, change.3));
                     return Err("Not the beneficiary, cannot change lock");
                 },
             }
@@ -697,13 +703,18 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
     }
     /// check beneficiary (of hash reference)
     fn check_ref_beneficiary(o: T::AccountId, h: T::Hash) -> bool {
+        let mut answer: bool = false;
         match Self::prefunding_hash_owner(&h) {
             Some(owners) => {
-                if Some(owners.2) == Some(o) { return true } else { () } 
+                if owners.2 == o { 
+                    answer = true;
+                } else { 
+                    (); 
+                } 
             },
             None => (),
         };
-        return false;
+        return answer;
     } 
     /// unlock for owner
     fn unlock_funds_for_owner(o: T::AccountId, h: T::Hash) -> Result {
@@ -733,7 +744,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                                 return Err("Funds locked for intended purpose by both parties.")
                             },
                             (false, true) => {
-                                Self::deposit_event(RawEvent::ErrorNotAllowed(h));
+                                Self::deposit_event(RawEvent::ErrorNotAllowed6(h));
                                 return Err("Funds locked for beneficiary.")
                             },
                             (false, false) => {
@@ -769,13 +780,19 @@ decl_event!(
     Hash = <T as system::Trait>::Hash,
     Account = u64,
     AccountBalance = i128,
-    // AccountBalance = AccountBalanceOf<T>,
     ComparisonAmounts = u128,
     {
         PrefundingDeposit(AccountId, AccountBalance, BlockNumber),
         PrefundingCancelled(AccountId, Hash),
         PrefundingLockSet(AccountId, Hash),
-        ErrorLockNotAllowed(Hash),
+        /// You are not the owner or the beneficiary
+        ErrorLockNotAllowed1(Hash),
+        /// Owner does not have permission to change this value
+        ErrorLockNotAllowed2(Hash),
+        /// Not the owner, cannot change lock
+        ErrorLockNotAllowed3(Hash),
+        /// Not the beneficiary, cannot change lock
+        ErrorLockNotAllowed4(AccountId, AccountId, bool, AccountId, bool),
         PrefundingCompleted(AccountId),
         InvoiceIssued(Hash),
         InvoiceSettled(Hash),
@@ -783,7 +800,12 @@ decl_event!(
         ErrorGlobalOverflow(),
         ErrorInsufficientPreFunds(AccountId, ComparisonAmounts, ComparisonAmounts, ComparisonAmounts),
         ErrorInError(AccountId),
-        ErrorNotAllowed(Hash),
+        ErrorNotAllowed1(Hash),
+        ErrorNotAllowed2(Hash),
+        ErrorNotAllowed3(Hash),
+        ErrorNotAllowed4(Hash),
+        ErrorNotAllowed5(Hash),
+        ErrorNotAllowed6(Hash),
         ErrorNotApproved(Hash),
         ErrorDeadlineInPlay(AccountId, Hash),
         ErrorFundsInPlay(AccountId),

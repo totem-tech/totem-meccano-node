@@ -511,11 +511,11 @@ impl<T: Trait> Module<T> {
                 };
             },
             1 => {
-                Self::deposit_event(RawEvent::ErrorOrderStatus(reference));
+                Self::deposit_event(RawEvent::ErrorOrderStatus1(reference));
                 return Err("Order already accepted - cannot change now!");
             },
             _ => {
-                Self::deposit_event(RawEvent::ErrorOrderStatus(reference));
+                Self::deposit_event(RawEvent::ErrorOrderStatus2(reference));
                 return Err("Incorrect Order Status!");
             },
         };
@@ -621,7 +621,7 @@ impl<T: Trait> Module<T> {
                         <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.commander.clone(),h)?;
                     },
                     _ => {
-                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed1(h));
                         return Err("Order status is not allowed!");
                     },
                 }
@@ -634,18 +634,18 @@ impl<T: Trait> Module<T> {
                         <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::send_simple_invoice(f.clone(), order.commander.clone(), order.amount, h)?;
                     },
                     _ => {
-                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed2(h));
                         return Err("Order status is not allowed!");
                     },
                 }
                 
             },
             2 | 5  => {
-                Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                Self::deposit_event(RawEvent::ErrorStatusNotAllowed3(h));
                 return Err("The order has a status that cannot be changed!");
             },
             _ => {
-                Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                Self::deposit_event(RawEvent::ErrorStatusNotAllowed4(h));
                 return Err("The order has an unkown state!");
             },
         }
@@ -666,7 +666,8 @@ impl<T: Trait> Module<T> {
                 match s {
                     3 => {
                         // Invoice is disputed. TODO provide the ability to change the invoice and resubmit
-                        Self::deposit_event(RawEvent::ErrorNotImplmented(h));
+                        Self::deposit_event(RawEvent::ErrorNotImplmented1(h));
+ 
                         return Err("TODO!");
                     },
                     6 => {
@@ -676,14 +677,14 @@ impl<T: Trait> Module<T> {
                     },
                     _ => {
                         // All other states are not allowed
-                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed5(h));
                         return Err("The order has an unkown state!");
                     },
                 }
                 // Update the status in this module
             },
             _ => {
-                Self::deposit_event(RawEvent::ErrorOrderStatus(h));
+                Self::deposit_event(RawEvent::ErrorOrderStatus3(h));
                 return Err("The order has an unkown state!");
             },
         }
@@ -723,30 +724,49 @@ decl_event!(
     pub enum Event<T> where
     Hash = <T as system::Trait>::Hash,
     {
-        // Positive Messages
         OrderCreated(Hash, Hash),
         OrderUpdated(Hash),
         OrderCreatedForApproval(Hash, Hash),
         OrderStatusUpdate(Hash),
         OrderCompleted(Hash),
         InvoiceSettled(Hash),
-        // Error Messages      
+        /// Cannot change an order that you are not the approver of
         ErrorNotApprover(Hash),
+        /// This hash already exists! Try again.
         ErrorHashExists(Hash),
+        /// Cannot make an order for yourself!
         ErrorCannotBeBoth(Hash),
-        ErrorNotFulfiller(Hash),
-        ErrorNotCommander(Hash),
+        /// You should not be doing this!
         ErrorURNobody(Hash),
-        ErrorOrderStatus(Hash),
+        /// Order already accepted - cannot change now!
+        ErrorOrderStatus1(Hash),
+        /// Incorrect Order Status!
+        ErrorOrderStatus2(Hash),
+        /// The order has an unkown state!
+        ErrorOrderStatus3(Hash),
+        /// The submitted status not allowed.
         ErrorApprStatus(Hash),
+        /// Already approved!
         ErrorApproved(Hash),
-        ErrorRefNotFound(Hash),
-        ErrorStatusNotAllowed(Hash),
+        /// Order status is not allowed!
+        ErrorStatusNotAllowed1(Hash),
+        /// Order already accepted. Order status is not allowed!
+        ErrorStatusNotAllowed2(Hash),
+        /// The order has a status that cannot be changed!
+        ErrorStatusNotAllowed3(Hash),
+        /// The order has an unkown state!
+        ErrorStatusNotAllowed4(Hash),
+        /// The order has an unkown state!
+        ErrorStatusNotAllowed5(Hash),
+        /// Not allowed to fulfill your own order!
         ErrorFulfiller(Hash),
+        /// Amount cannot be less than zero!
         ErrorAmount(Hash),
+        /// Deadline is too short! 48 hours is minimum deadline.
         ErrorShortDeadline(Hash),
+        /// Due date must be at least 1 hour after deadline
         ErrorShortDueDate(Hash),
-        ErrorNotImplmented(Hash),
-        ErrorNotOwner(Hash),
+        /// This situation is not implemented yet: Invoice is disputed
+        ErrorNotImplmented1(Hash),
     }
 );
