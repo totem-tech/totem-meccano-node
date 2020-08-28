@@ -73,7 +73,7 @@ use runtime_primitives::traits::{Hash, Convert};
 
 // Totem crates
 use crate::bonsai_traits::{ Storing };
-// use crate::orders_traits::{Validating as OrderValidating};
+use crate::orders_traits::{Validating as OrderValidating};
 use crate::timekeeping_traits::{Validating as TimeValidating};
 use crate::projects_traits::{Validating as ProjectValidating};
 
@@ -82,6 +82,7 @@ pub trait Trait: system::Trait {
     // type Orders: OrderValidating<Self::AccountId,Self::Hash>;
     type Timekeeping: TimeValidating<Self::AccountId,Self::Hash>;
     type Projects: ProjectValidating<Self::AccountId,Self::Hash>;
+    type Orders: OrderValidating<Self::AccountId,Self::Hash>;
     type Conversions: 
     Convert<Self::Hash, H256> +
     Convert<Self::BlockNumber, u64> +
@@ -189,10 +190,10 @@ impl<T: Trait> Module<T> {
                 }
             },
             5000 => {
-                // if let false = <<T as Trait>::Orders as OrderValidating<T::AccountId, T::Hash>>::is_order_owner(o.clone(), k.clone()) {
+                if let false = <<T as Trait>::Orders as OrderValidating<T::AccountId, T::Hash>>::is_order_party(o.clone(), k.clone()) {
                     Self::deposit_event(RawEvent::ErrorRecordOwner(t));
                     return Err("You cannot add a record you do not own");
-                // }
+                }
             } 
             _ => {
                 Self::deposit_event(RawEvent::ErrorUnknownType(t));
@@ -205,7 +206,7 @@ impl<T: Trait> Module<T> {
     
     fn insert_record(k: T::Hash, t: T::Hash) -> Result {
         // TODO implement fee payment mechanism (currently just transaction fee)
-        if <IsValidRecord<T>>::exists(k) {
+        if <IsValidRecord<T>>::exists(&k) {
             // remove store the token. This overwrites any existing hash.
             <IsValidRecord<T>>::remove(k.clone());
         } else {
@@ -219,11 +220,11 @@ impl<T: Trait> Module<T> {
     
     fn insert_uuid(u: T::Hash) -> Result {
         
-        if <IsSuccessful<T>>::exists(u) {
+        if <IsSuccessful<T>>::exists(&u) {
             // Throw an error because the transaction already completed
             return Err("Queued transaction already completed");
             
-        } else if <IsStarted<T>>::exists(u) {
+        } else if <IsStarted<T>>::exists(&u) {
             // What happens on error or second use
 
 

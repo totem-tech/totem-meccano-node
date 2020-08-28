@@ -36,5 +36,5 @@
 // use support::{ dispatch::Result };
 
 pub trait Validating<AccountId, Hash> {
-    fn is_order_owner(o: AccountId, r: Hash) -> bool;
+    fn is_order_party(o: AccountId, r: Hash) -> bool;
 }
