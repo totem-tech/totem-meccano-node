@@ -392,11 +392,10 @@ impl<T: Trait> Module<T> {
                 Ok(_) => (),
                 Err(_e) => {
                     // Error from setting prefunding "somewhere" ;)
-                    Self::deposit_event(RawEvent::ErrorInPrefunding(uid));
+                    Self::deposit_event(RawEvent::ErrorInPrefunding1(uid));
                     return Err("Error in Prefunding Module");
                 },
             }
-            
             
             let order_header: OrderHeader<T::AccountId> = OrderHeader {
                 commander: commander.clone(),
@@ -436,7 +435,13 @@ impl<T: Trait> Module<T> {
         d: T::BlockNumber, 
         u: T::Hash
     ) -> Result {
-        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), a, d, u)?;
+        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), a, d, u) {
+            Ok(_) => (),
+            Err(_e) => {
+
+            },
+        }
+        
         Ok(())
     }
     
@@ -644,17 +649,45 @@ impl<T: Trait> Module<T> {
                         // Order Accepted
                         // Update the prefunding status (confirm locked funds)
                         let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(true);
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false,uid)?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false,uid) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding2(uid))
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                     },
                     2 => {
                         // order rejected
                         let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(false);
                         // set release state for releasing funds for fulfiller.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false,uid.clone())?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false,uid.clone()) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding3(uid))
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                         // set release state for releasing funds for commander.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.commander.clone(),lock,h,true,uid.clone())?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.commander.clone(),lock,h,true,uid.clone()) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding4(uid))
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                         // now release the funds lock
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.commander.clone(),h, uid.clone())?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.commander.clone(),h, uid.clone()) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding5(uid))
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                     },
                     _ => {
                         Self::deposit_event(RawEvent::ErrorStatusNotAllowed1(uid));
@@ -667,7 +700,14 @@ impl<T: Trait> Module<T> {
                 match s {
                     5 => {
                         // Order Completed. Now we are going to issue the invoice.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::send_simple_invoice(f.clone(), order.commander.clone(), order.amount, h, uid)?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::send_simple_invoice(f.clone(), order.commander.clone(), order.amount, h, uid) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding6(uid))
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                     },
                     _ => {
                         Self::deposit_event(RawEvent::ErrorStatusNotAllowed2(uid));
@@ -708,7 +748,14 @@ impl<T: Trait> Module<T> {
                     },
                     6 => {
                         // Invoice Accepted. Now pay-up!.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::settle_prefunded_invoice(o.clone(), h, uid)?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::settle_prefunded_invoice(o.clone(), h, uid) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding7(uid))
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                         Self::deposit_event(RawEvent::InvoiceSettled(uid));
                     },
                     _ => {
@@ -811,7 +858,19 @@ decl_event!(
         ErrorGettingOrder(Hash),
         /// Error setting prefunding state
         ErrorSetPrefundState(Hash),
-        /// Error from prefunding module
-        ErrorInPrefunding(Hash),
+        /// Error from prefunding module - in check approver
+        ErrorInPrefunding1(Hash),
+        /// Error in Processing Order Acceptance status 
+        ErrorInPrefunding2(Hash),
+        /// Error in rejecting order setting release state for fulfiller
+        ErrorInPrefunding3(Hash),
+        /// Error in rejecting order adjusting commander settings
+        ErrorInPrefunding4(Hash),
+        /// Error in rejecting order releasing commander lock
+        ErrorInPrefunding5(Hash),
+        /// Error in prefunding module to send invoice
+        ErrorInPrefunding6(Hash),
+        /// Error in prefunding settling invoice
+        ErrorInPrefunding7(Hash),
     }
 );
