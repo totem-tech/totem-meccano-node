@@ -438,7 +438,8 @@ impl<T: Trait> Module<T> {
         match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), a, d, u) {
             Ok(_) => (),
             Err(_e) => {
-
+                Self::deposit_event(RawEvent::ErrorInPrefunding8(u));
+                return Err("Error in prefunding");
             },
         }
         
@@ -872,5 +873,7 @@ decl_event!(
         ErrorInPrefunding6(Hash),
         /// Error in prefunding settling invoice
         ErrorInPrefunding7(Hash),
+        /// Error setting the first prefunding request
+        ErrorInPrefunding8(Hash),
     }
 );
