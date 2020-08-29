@@ -742,6 +742,8 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         Some(owner) => {
                             change.0 = owner.0.clone(); 
                             change.1 = owner.1;
+                            change.2 = owner.2.clone();
+                            change.3 = o_lock;
                         },
                         None => {
                             Self::deposit_event(RawEvent::ErrorHashDoesNotExist(uid));
@@ -760,6 +762,8 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                     match Self::prefunding_hash_owner(&h) {
                         Some(owners) => {
                             if owners.1 != o_lock && owners.1 == false {
+                                change.0 = owners.0.clone();
+                                change.1 = o_lock;
                                 change.2 = owners.2.clone();
                                 change.3 = owners.3.clone();
                             } else {
