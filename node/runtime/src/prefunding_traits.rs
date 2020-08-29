@@ -40,7 +40,7 @@ pub trait Encumbrance<AccountId,Hash,BlockNumber> {
     
     type UnLocked: Member + Copy;
 
-    fn prefunding_for(who: AccountId, recipient: AccountId, amount: u128, deadline: BlockNumber, uid: Hash) -> Result;
+    fn prefunding_for(who: AccountId, recipient: AccountId, amount: u128, deadline: BlockNumber, ref_hash: Hash, uid: Hash) -> Result;
     fn send_simple_invoice(o: AccountId, p: AccountId, n: i128, h: Hash, uid: Hash) -> Result;
     fn settle_prefunded_invoice(o: AccountId, h: Hash, uid: Hash) -> Result;
     fn set_release_state(o: AccountId, o_lock: Self::UnLocked, h: Hash, sender: bool, uid: Hash) -> Result;

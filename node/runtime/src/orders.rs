@@ -263,7 +263,6 @@ decl_module! {
             // <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;            
             Ok(())
         }
-        
         /// Can be used by buyer or seller
         /// Buyer - Used by the buyer to accept or reject (TODO) the invoice that was raised by the seller.
         /// Seller - Used to accept, reject or invoice the order. 
@@ -333,7 +332,6 @@ impl<T: Trait> Module<T> {
         
         approved
     }
-    
     /// API Open an order for a specific AccountId and prefund it. This is equivalent to an encumbrance. 
     /// The amount is the functional currency and conversions are not necessary at this stage of accounting. 
     /// The UI therefore handles presentation or reporting currency translations at spot rate 
@@ -388,7 +386,7 @@ impl<T: Trait> Module<T> {
             // The risk is that they cannot get back the funds until after the deadline, even of they want to cancel.
             let balance_amount: u128 = <T::Conversions as Convert<i128, u128>>::convert(amount.clone());
             
-            match Self::set_prefunding(commander.clone(), fulfiller.clone(), balance_amount, deadline_converted, uid) {
+            match Self::set_prefunding(commander.clone(), fulfiller.clone(), balance_amount, deadline_converted, order_hash.clone(), uid) {
                 Ok(_) => (),
                 Err(_e) => {
                     // Error from setting prefunding "somewhere" ;)
@@ -432,10 +430,11 @@ impl<T: Trait> Module<T> {
         c: T::AccountId, 
         f: T::AccountId, 
         a: u128, 
-        d: T::BlockNumber, 
+        d: T::BlockNumber,
+        o: T::Hash,
         u: T::Hash
     ) -> Result {
-        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), a, d, u) {
+        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), a, d, o.clone(), u) {
             Ok(_) => (),
             Err(_e) => {
                 Self::deposit_event(RawEvent::ErrorInPrefunding8(u));
@@ -783,7 +782,6 @@ impl<T: Trait> Module<T> {
     fn postulate_simple_prefunded_open_order() -> Result {
         Ok(())
     }
-    
 }
 
 impl<T: Trait> Validating<T::AccountId, T::Hash> for Module<T> {
