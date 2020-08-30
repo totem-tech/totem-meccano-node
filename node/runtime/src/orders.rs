@@ -162,7 +162,7 @@ decl_module! {
             bonsai_token: T::Hash, 
             tx_uid: T::Hash
         ) -> Result {
-            let who = ensure_signed(origin)?;
+            let _who = ensure_signed(origin)?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
             Ok(())
@@ -187,7 +187,7 @@ decl_module! {
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid.clone())?;
             // Generate Hash for order
             let order_hash: T::Hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::get_pseudo_random_hash(who.clone(),approver.clone());
-        
+            
             if <Orders<T>>::exists(&order_hash) {
                 Self::deposit_event(RawEvent::ErrorHashExists(order_hash));
                 return Err("The hash already exists! Try again.");
@@ -205,7 +205,8 @@ decl_module! {
                 due_date,
                 order_hash,
                 order_item,
-                bonsai_token
+                bonsai_token,
+                tx_uid
             )?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
             // issue events
@@ -256,29 +257,53 @@ decl_module! {
             Ok(())
         }
         
+        fn handle_spfso_test(origin, h: T::Hash, s: OrderStatus, tx_uid: T::Hash) -> Result {
+            let _who = ensure_signed(origin)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid.clone())?;
+            // <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;            
+            Ok(())
+        }
         /// Can be used by buyer or seller
         /// Buyer - Used by the buyer to accept or reject (TODO) the invoice that was raised by the seller.
         /// Seller - Used to accept, reject or invoice the order. 
         fn handle_spfso(origin, h: T::Hash, s: OrderStatus, tx_uid: T::Hash) -> Result {
             let who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid.clone())?;
             // get order details and determine if the sender is the buyer or the seller
-            let order_hdr: OrderHeader<T::AccountId> = Self::orders(&h).ok_or("some error")?;
-            if who == order_hdr.commander {
+            let order_hdr: OrderHeader<T::AccountId>;
+            match Self::orders(&h) {
+                Some(order) => order_hdr = order,
+                None => {
+                    Self::deposit_event(RawEvent::ErrorGettingOrder(tx_uid));
+                    return Err("Unable to fetch order with this reference.");
+                },
+            };
+            let commander: T::AccountId = order_hdr.commander.clone(); 
+            let fulfiller: T::AccountId = order_hdr.fulfiller.clone();
+            
+            if who == commander {
                 // This is the buyer 
                 //TODO if the order us passed as an arg it doesn't need to be read again
-                Self::accept_prefunded_invoice(who.clone(), h, s, order_hdr)?;
-                Self::deposit_event(RawEvent::InvoiceSettled(h));
+                Self::accept_prefunded_invoice(who.clone(), h.clone(), s, order_hdr.clone(), tx_uid)?;
+                Self::deposit_event(RawEvent::InvoiceSettled(tx_uid));
                 
-            } else if who == order_hdr.fulfiller {
+            } else if who == fulfiller {
                 // This is the seller
                 //TODO if the order us passed as an arg it doesn't need to be read again
-                Self::set_state_simple_prefunded_closed_order(who.clone(), h, s, order_hdr)?;
-                
+                match Self::set_state_simple_prefunded_closed_order(who.clone(), h.clone(), s, order_hdr.clone(), tx_uid) {
+                    Ok(_) => {
+                        ();
+                    },
+                    Err(_e) => {
+                        Self::deposit_event(RawEvent::ErrorSetPrefundState(tx_uid));
+                        return Err("Error setting prefunding state");
+                    },
+                }
             } else {
                 // this is an error
                 Self::deposit_event(RawEvent::ErrorURNobody(tx_uid));
                 return Err("You should not be doing this!");
+                
             }
             
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
@@ -307,7 +332,6 @@ impl<T: Trait> Module<T> {
         
         approved
     }
-    
     /// API Open an order for a specific AccountId and prefund it. This is equivalent to an encumbrance. 
     /// The amount is the functional currency and conversions are not necessary at this stage of accounting. 
     /// The UI therefore handles presentation or reporting currency translations at spot rate 
@@ -326,7 +350,8 @@ impl<T: Trait> Module<T> {
         due_date: u64, // due date is the future delivery date (in blocks) 
         order_hash: T::Hash,
         order_item: OrderItem<T::Hash>, // for simple items there will only be one item, item number is accessed by its position in Vec 
-        bonsai_token: T::Hash
+        bonsai_token: T::Hash,
+        uid: T::Hash
     ) -> Result {
         
         // Set order status to submitted by default 
@@ -361,7 +386,14 @@ impl<T: Trait> Module<T> {
             // The risk is that they cannot get back the funds until after the deadline, even of they want to cancel.
             let balance_amount: u128 = <T::Conversions as Convert<i128, u128>>::convert(amount.clone());
             
-            Self::set_prefunding(commander.clone(), fulfiller.clone(), balance_amount, deadline_converted)?;
+            match Self::set_prefunding(commander.clone(), fulfiller.clone(), balance_amount, deadline_converted, order_hash.clone(), uid) {
+                Ok(_) => (),
+                Err(_e) => {
+                    // Error from setting prefunding "somewhere" ;)
+                    Self::deposit_event(RawEvent::ErrorInPrefunding1(uid));
+                    return Err("Error in Prefunding Module");
+                },
+            }
             
             let order_header: OrderHeader<T::AccountId> = OrderHeader {
                 commander: commander.clone(),
@@ -381,13 +413,13 @@ impl<T: Trait> Module<T> {
             vec_order_items.push(order_item.clone());
             
             Self::set_order(commander, fulfiller, order_hash.clone(), order_header, vec_order_items)?;
-
+            
         } else {
             // the order is not yet approved.
             // This is NOT an error but requires further processing by the approver. Exiting gracefully.
             Self::deposit_event(RawEvent::OrderCreatedForApproval(bonsai_token.clone(), order_hash.clone()));
         }
-
+        
         // claim hash in Bonsai
         <<T as Trait>::Bonsai as Storing<T::Hash>>::claim_data(order_hash.clone(), bonsai_token.clone())?;
         
@@ -398,9 +430,18 @@ impl<T: Trait> Module<T> {
         c: T::AccountId, 
         f: T::AccountId, 
         a: u128, 
-        d: T::BlockNumber
+        d: T::BlockNumber,
+        o: T::Hash,
+        u: T::Hash
     ) -> Result {
-        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), a, d)?;
+        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), a, d, o.clone(), u) {
+            Ok(_) => (),
+            Err(_e) => {
+                Self::deposit_event(RawEvent::ErrorInPrefunding8(u));
+                return Err("Error in prefunding");
+            },
+        }
+        
         Ok(())
     }
     
@@ -430,7 +471,7 @@ impl<T: Trait> Module<T> {
         
         // is the supplied account the approver of the hash supplied?
         let mut order_hdr: OrderHeader<T::AccountId> = Self::orders(&h).ok_or("some error")?;
-                
+        
         if a == order_hdr.approver && order_hdr.order_status == 0 {
             match order_hdr.order_status {
                 0 | 2 => {
@@ -461,7 +502,7 @@ impl<T: Trait> Module<T> {
                     return Err("The submitted status not allowed.");
                 }
             }
-
+            
             // All tests passed, set status to whatever.
             order_hdr.order_status = s;
             
@@ -511,11 +552,11 @@ impl<T: Trait> Module<T> {
                 };
             },
             1 => {
-                Self::deposit_event(RawEvent::ErrorOrderStatus(reference));
+                Self::deposit_event(RawEvent::ErrorOrderStatus1(reference));
                 return Err("Order already accepted - cannot change now!");
             },
             _ => {
-                Self::deposit_event(RawEvent::ErrorOrderStatus(reference));
+                Self::deposit_event(RawEvent::ErrorOrderStatus2(reference));
                 return Err("Incorrect Order Status!");
             },
         };
@@ -599,7 +640,7 @@ impl<T: Trait> Module<T> {
     /// It effectively creates a state change for the order and the prefunding
     /// When accepting, the order is locked for the beneficiary or when rejected the funds are released for the order owner.
     /// When invoicing the 
-    fn set_state_simple_prefunded_closed_order(f: T::AccountId, h: T::Hash, s: OrderStatus, mut order: OrderHeader<T::AccountId>) -> Result {
+    fn set_state_simple_prefunded_closed_order(f: T::AccountId, h: T::Hash, s: OrderStatus, mut order: OrderHeader<T::AccountId>, uid: T::Hash) -> Result {
         match order.order_status {
             0 => {
                 // Order not accepted yet. Update the status in this module
@@ -608,20 +649,48 @@ impl<T: Trait> Module<T> {
                         // Order Accepted
                         // Update the prefunding status (confirm locked funds)
                         let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(true);
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false)?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false,uid) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding2(uid));
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                     },
                     2 => {
                         // order rejected
                         let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(false);
                         // set release state for releasing funds for fulfiller.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false)?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false,uid.clone()) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding3(uid));
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                         // set release state for releasing funds for commander.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.commander.clone(),lock,h,true)?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.commander.clone(),lock,h,true,uid.clone()) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding4(uid));
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                         // now release the funds lock
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.commander.clone(),h)?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.commander.clone(),h, uid.clone()) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding5(uid));
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                     },
                     _ => {
-                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed1(uid));
                         return Err("Order status is not allowed!");
                     },
                 }
@@ -631,21 +700,28 @@ impl<T: Trait> Module<T> {
                 match s {
                     5 => {
                         // Order Completed. Now we are going to issue the invoice.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::send_simple_invoice(f.clone(), order.commander.clone(), order.amount, h)?;
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::send_simple_invoice(f.clone(), order.commander.clone(), order.amount, h, uid) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding6(uid));
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
                     },
                     _ => {
-                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed2(uid));
                         return Err("Order status is not allowed!");
                     },
                 }
                 
             },
             2 | 5  => {
-                Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                Self::deposit_event(RawEvent::ErrorStatusNotAllowed3(uid));
                 return Err("The order has a status that cannot be changed!");
             },
             _ => {
-                Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                Self::deposit_event(RawEvent::ErrorStatusNotAllowed4(uid));
                 return Err("The order has an unkown state!");
             },
         }
@@ -654,11 +730,11 @@ impl<T: Trait> Module<T> {
         <Orders<T>>::remove(&h);
         <Orders<T>>::insert(&h, order);
         
-        Self::deposit_event(RawEvent::OrderCompleted(h));
+        Self::deposit_event(RawEvent::OrderCompleted(uid));
         Ok(())
     }
     /// Used by the buyer to accept or reject (TODO) the invoice that was raised by the seller.
-    fn accept_prefunded_invoice(o: T::AccountId, h: T::Hash, s: OrderStatus, mut order: OrderHeader<T::AccountId>) -> Result {
+    fn accept_prefunded_invoice(o: T::AccountId, h: T::Hash, s: OrderStatus, mut order: OrderHeader<T::AccountId>, uid: T::Hash) -> Result {
         // check that this is the fulfiller
         match order.order_status {
             5 => {
@@ -666,24 +742,32 @@ impl<T: Trait> Module<T> {
                 match s {
                     3 => {
                         // Invoice is disputed. TODO provide the ability to change the invoice and resubmit
-                        Self::deposit_event(RawEvent::ErrorNotImplmented(h));
+                        Self::deposit_event(RawEvent::ErrorNotImplmented1(uid));
+                        
                         return Err("TODO!");
                     },
                     6 => {
                         // Invoice Accepted. Now pay-up!.
-                        <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::settle_prefunded_invoice(o.clone(), h)?;
-                        Self::deposit_event(RawEvent::InvoiceSettled(h));
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::settle_prefunded_invoice(o.clone(), h, uid) {
+                            Ok(_) => (),
+                            Err(_e) => {
+                                Self::deposit_event(RawEvent::ErrorInPrefunding7(uid));
+                                return Err("Error in prefunding");
+                            },
+                        }
+                        
+                        Self::deposit_event(RawEvent::InvoiceSettled(uid));
                     },
                     _ => {
                         // All other states are not allowed
-                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed(h));
+                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed5(uid));
                         return Err("The order has an unkown state!");
                     },
                 }
                 // Update the status in this module
             },
             _ => {
-                Self::deposit_event(RawEvent::ErrorOrderStatus(h));
+                Self::deposit_event(RawEvent::ErrorOrderStatus3(uid));
                 return Err("The order has an unkown state!");
             },
         }
@@ -698,17 +782,19 @@ impl<T: Trait> Module<T> {
     fn postulate_simple_prefunded_open_order() -> Result {
         Ok(())
     }
-    
 }
 
 impl<T: Trait> Validating<T::AccountId, T::Hash> for Module<T> {
-    ///Check the owner of the hash  
-    fn is_order_owner(o: T::AccountId, r: T::Hash) -> bool {
+    /// Check that the order is somehow managed by this identity. Mainly used for BONSAI
+    fn is_order_party(o: T::AccountId, r: T::Hash) -> bool {
         let mut answer: bool = false;
         
         match Self::orders(r) {
             Some(order) => {
-                if o == order.commander {
+                let commander = order.commander.clone();
+                let fulfiller = order.fulfiller.clone();
+                let approver = order.approver.clone();
+                if o == commander || o == fulfiller || o == approver {
                     answer = true;
                 };
             },
@@ -723,30 +809,69 @@ decl_event!(
     pub enum Event<T> where
     Hash = <T as system::Trait>::Hash,
     {
-        // Positive Messages
         OrderCreated(Hash, Hash),
         OrderUpdated(Hash),
         OrderCreatedForApproval(Hash, Hash),
         OrderStatusUpdate(Hash),
         OrderCompleted(Hash),
         InvoiceSettled(Hash),
-        // Error Messages      
+        /// Cannot change an order that you are not the approver of
         ErrorNotApprover(Hash),
+        /// This hash already exists! Try again.
         ErrorHashExists(Hash),
+        /// Cannot make an order for yourself!
         ErrorCannotBeBoth(Hash),
-        ErrorNotFulfiller(Hash),
-        ErrorNotCommander(Hash),
+        /// You should not be doing this!
         ErrorURNobody(Hash),
-        ErrorOrderStatus(Hash),
+        /// Order already accepted - cannot change now!
+        ErrorOrderStatus1(Hash),
+        /// Incorrect Order Status!
+        ErrorOrderStatus2(Hash),
+        /// The order has an unkown state!
+        ErrorOrderStatus3(Hash),
+        /// The submitted status not allowed.
         ErrorApprStatus(Hash),
+        /// Already approved!
         ErrorApproved(Hash),
-        ErrorRefNotFound(Hash),
-        ErrorStatusNotAllowed(Hash),
+        /// Order status is not allowed!
+        ErrorStatusNotAllowed1(Hash),
+        /// Order already accepted. Order status is not allowed!
+        ErrorStatusNotAllowed2(Hash),
+        /// The order has a status that cannot be changed!
+        ErrorStatusNotAllowed3(Hash),
+        /// The order has an unkown state!
+        ErrorStatusNotAllowed4(Hash),
+        /// The order has an unkown state!
+        ErrorStatusNotAllowed5(Hash),
+        /// Not allowed to fulfill your own order!
         ErrorFulfiller(Hash),
+        /// Amount cannot be less than zero!
         ErrorAmount(Hash),
+        /// Deadline is too short! 48 hours is minimum deadline.
         ErrorShortDeadline(Hash),
+        /// Due date must be at least 1 hour after deadline
         ErrorShortDueDate(Hash),
-        ErrorNotImplmented(Hash),
-        ErrorNotOwner(Hash),
+        /// This situation is not implemented yet: Invoice is disputed
+        ErrorNotImplmented1(Hash),
+        /// Unable to fetch order with this reference
+        ErrorGettingOrder(Hash),
+        /// Error setting prefunding state
+        ErrorSetPrefundState(Hash),
+        /// Error from prefunding module - in check approver
+        ErrorInPrefunding1(Hash),
+        /// Error in Processing Order Acceptance status 
+        ErrorInPrefunding2(Hash),
+        /// Error in rejecting order setting release state for fulfiller
+        ErrorInPrefunding3(Hash),
+        /// Error in rejecting order adjusting commander settings
+        ErrorInPrefunding4(Hash),
+        /// Error in rejecting order releasing commander lock
+        ErrorInPrefunding5(Hash),
+        /// Error in prefunding module to send invoice
+        ErrorInPrefunding6(Hash),
+        /// Error in prefunding settling invoice
+        ErrorInPrefunding7(Hash),
+        /// Error setting the first prefunding request
+        ErrorInPrefunding8(Hash),
     }
 );
