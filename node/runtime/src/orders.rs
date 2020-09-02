@@ -437,7 +437,7 @@ impl<T: Trait> Module<T> {
         match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::prefunding_for(c.clone(), f.clone(), a, d, o.clone(), u) {
             Ok(_) => (),
             Err(_e) => {
-                Self::deposit_event(RawEvent::ErrorInPrefunding8(u));
+                Self::deposit_event(RawEvent::ErrorInPrefunding7(u));
                 return Err("Error in prefunding");
             },
         }
@@ -661,20 +661,13 @@ impl<T: Trait> Module<T> {
                     2 => {
                         // order rejected
                         let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(false);
-                        // set release state for releasing funds for fulfiller.
-                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,uid.clone()) {
-                            Ok(_) => (),
-                            Err(_e) => {
-                                Self::deposit_event(RawEvent::ErrorInPrefunding3(uid));
-                                return Err("Error in prefunding");
-                            },
-                        }
+                        // We do not need to set release state for releasing funds for fulfiller.
                         
                         // set release state for releasing funds for commander.
                         match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.commander.clone(),lock,h,uid.clone()) {
                             Ok(_) => (),
                             Err(_e) => {
-                                Self::deposit_event(RawEvent::ErrorInPrefunding4(uid));
+                                Self::deposit_event(RawEvent::ErrorInPrefunding3(uid));
                                 return Err("Error in prefunding");
                             },
                         }
@@ -683,7 +676,7 @@ impl<T: Trait> Module<T> {
                         match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::unlock_funds_for_owner(order.commander.clone(),h, uid.clone()) {
                             Ok(_) => (),
                             Err(_e) => {
-                                Self::deposit_event(RawEvent::ErrorInPrefunding5(uid));
+                                Self::deposit_event(RawEvent::ErrorInPrefunding4(uid));
                                 return Err("Error in prefunding");
                             },
                         }
@@ -703,7 +696,7 @@ impl<T: Trait> Module<T> {
                         match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::send_simple_invoice(f.clone(), order.commander.clone(), order.amount, h, uid) {
                             Ok(_) => (),
                             Err(_e) => {
-                                Self::deposit_event(RawEvent::ErrorInPrefunding6(uid));
+                                Self::deposit_event(RawEvent::ErrorInPrefunding5(uid));
                                 return Err("Error in prefunding");
                             },
                         }
@@ -751,7 +744,7 @@ impl<T: Trait> Module<T> {
                         match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::settle_prefunded_invoice(o.clone(), h, uid) {
                             Ok(_) => (),
                             Err(_e) => {
-                                Self::deposit_event(RawEvent::ErrorInPrefunding7(uid));
+                                Self::deposit_event(RawEvent::ErrorInPrefunding6(uid));
                                 return Err("Error in prefunding");
                             },
                         }
@@ -861,17 +854,15 @@ decl_event!(
         ErrorInPrefunding1(Hash),
         /// Error in Processing Order Acceptance status 
         ErrorInPrefunding2(Hash),
-        /// Error in rejecting order setting release state for fulfiller
-        ErrorInPrefunding3(Hash),
         /// Error in rejecting order adjusting commander settings
-        ErrorInPrefunding4(Hash),
+        ErrorInPrefunding3(Hash),
         /// Error in rejecting order releasing commander lock
-        ErrorInPrefunding5(Hash),
+        ErrorInPrefunding4(Hash),
         /// Error in prefunding module to send invoice
-        ErrorInPrefunding6(Hash),
+        ErrorInPrefunding5(Hash),
         /// Error in prefunding settling invoice
-        ErrorInPrefunding7(Hash),
+        ErrorInPrefunding6(Hash),
         /// Error setting the first prefunding request
-        ErrorInPrefunding8(Hash),
+        ErrorInPrefunding7(Hash),
     }
 );
