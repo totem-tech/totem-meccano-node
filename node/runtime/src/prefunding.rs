@@ -726,7 +726,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                 match locks {
                     (true,false) => {
                         // In this state the commander has created the lock, but it has not been accepted.
-                        // The buyer can withdraw the lock (set to false) if the deadline has passed, or 
+                        // The commander can withdraw the lock (set to false) if the deadline has passed, or 
                         // the fulfiller can accept the order (set to true) 
                         match o_lock {
                             true => {
@@ -734,30 +734,16 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                                     Self::deposit_event(RawEvent::ErrorWrongState1(uid));
                                     return Err("Error buyer cannot set true");
                                 } else if o == fulfiller {
-                                    match Self::prefund_deadline_passed(h) {
-                                        true => {
-                                            change.1 = state_lock.1;
-                                            change.3 = o_lock;
-                                            let status: Status = 50; // Abandoned or Cancelled
-                                            match Self::cancel_prefunding_lock(o.clone(), h, status) {
-                                                Ok(_) => (),
-                                                Err(e) => {
-                                                    Self::deposit_event(RawEvent::ErrorCancelFailed(uid));
-                                                    return Err("Cancelling prefunding failed for some reason"); 
-                                                },
-                                            } 
-                                        },
-                                        false => { 
-                                            Self::deposit_event(RawEvent::ErrorDeadlineInPlay(uid));
-                                            return Err("Deadline not yet passed. Wait a bit longer!"); 
-                                        },
-                                    }
+                                    change.1 = state_lock.1;
+                                    change.3 = o_lock;
                                 } else {
                                     Self::deposit_event(RawEvent::ErrorLockNotAllowed1(uid));
                                     return Err("Error not buyer or seller");
                                 };
                             },
                             false => {
+                                // We do care if the deadline has passed IF this is the commander calling directly
+                                // but that must be handled outside of this function
                                 if o == commander {
                                     change.1 = o_lock;
                                     change.3 = state_lock.3;
@@ -857,7 +843,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         return answer;
     } 
     /// unlock for owner
-    fn unlock_funds_for_owner(o: T::AccountId, h: T::Hash, u: T::Hash) -> Result {
+    fn unlock_funds_for_owner(o: T::AccountId, h: T::Hash, uid: T::Hash) -> Result {
         match Self::reference_valid(h) {
             true => {
                 match Self::check_ref_owner(o.clone(), h) {
@@ -870,21 +856,24 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                                         let status: Status = 50; // Abandoned or Cancelled
                                         match Self::cancel_prefunding_lock(o.clone(), h, status) {
                                             Ok(_) => (),
-                                            Err(e) => return Err(e),
+                                            Err(_e) => {
+                                                Self::deposit_event(RawEvent::ErrorCancelFailed2(uid));
+                                                return Err("Cancelling prefunding failed for some reason"); 
+                                            },
                                         } 
                                     },
                                     false => { 
-                                        Self::deposit_event(RawEvent::ErrorDeadlineInPlay(u));
+                                        Self::deposit_event(RawEvent::ErrorDeadlineInPlay(uid));
                                         return Err("Deadline not yet passed. Wait a bit longer!"); 
                                     },
                                 }
                             },
                             (true, true) => {
-                                Self::deposit_event(RawEvent::ErrorFundsInPlay2(u));
+                                Self::deposit_event(RawEvent::ErrorFundsInPlay2(uid));
                                 return Err("Funds locked for intended purpose by both parties.")
                             },
                             (false, true) => {
-                                Self::deposit_event(RawEvent::ErrorNotAllowed6(u));
+                                Self::deposit_event(RawEvent::ErrorNotAllowed6(uid));
                                 return Err("Funds locked for beneficiary.")
                             },
                             (false, false) => {
@@ -893,7 +882,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                                 match Self::cancel_prefunding_lock(o.clone(), h, status) {
                                     Ok(_) => (),
                                     Err(_e) => {
-                                        Self::deposit_event(RawEvent::ErrorCancellingPrefund(u));
+                                        Self::deposit_event(RawEvent::ErrorCancellingPrefund(uid));
                                         return Err("Error cancelling prefunding");
                                     }
                                 }
@@ -901,13 +890,13 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         }
                     },
                     false => {
-                        Self::deposit_event(RawEvent::ErrorNotOwner2(u));
+                        Self::deposit_event(RawEvent::ErrorNotOwner2(uid));
                         return Err("You are not the owner of the hash!");
                     },
                 }
             }, 
             false => {
-                Self::deposit_event(RawEvent::ErrorHashDoesNotExist3(u));
+                Self::deposit_event(RawEvent::ErrorHashDoesNotExist3(uid));
                 return Err("Hash does not exist!");
             }, 
         }      
@@ -1011,5 +1000,7 @@ decl_event!(
         ErrorNoPrefunding(Hash),
         /// Cancelling prefunding failed for some reason
         ErrorCancelFailed(Hash),
+        /// Cancelling prefunding failed for some reason
+        ErrorCancelFailed2(Hash),
     }
 );
