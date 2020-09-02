@@ -649,7 +649,7 @@ impl<T: Trait> Module<T> {
                         // Order Accepted
                         // Update the prefunding status (confirm locked funds)
                         let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(true);
-                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false,uid) {
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,uid) {
                             Ok(_) => (),
                             Err(_e) => {
                                 Self::deposit_event(RawEvent::ErrorInPrefunding2(uid));
@@ -662,7 +662,7 @@ impl<T: Trait> Module<T> {
                         // order rejected
                         let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(false);
                         // set release state for releasing funds for fulfiller.
-                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,false,uid.clone()) {
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,uid.clone()) {
                             Ok(_) => (),
                             Err(_e) => {
                                 Self::deposit_event(RawEvent::ErrorInPrefunding3(uid));
@@ -671,7 +671,7 @@ impl<T: Trait> Module<T> {
                         }
                         
                         // set release state for releasing funds for commander.
-                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.commander.clone(),lock,h,true,uid.clone()) {
+                        match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(order.commander.clone(),lock,h,uid.clone()) {
                             Ok(_) => (),
                             Err(_e) => {
                                 Self::deposit_event(RawEvent::ErrorInPrefunding4(uid));

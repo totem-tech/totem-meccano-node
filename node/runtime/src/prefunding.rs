@@ -162,26 +162,7 @@ decl_module! {
             Self::settle_prefunded_invoice(who.clone(), reference, uid)?;
             Ok(())
         }
-        /// Setting the prefunded release state effectively locks the funds when the vendor agrees to work
-        /// It is generally only changed by the vendor, once the prefund is created            
-        fn set_prefund_release_state(origin, lock: UnLocked, reference: T::Hash, uid: T::Hash) -> Result {
-            let who = ensure_signed(origin)?;
-            // check if they are the beneficary or the buyer/payer
-            // a similar check exists in the function, because this could be called by another module
-            // that is either vendor or buyer specific, and can therefore "self identify".
-            if Self::check_ref_owner(who.clone(), reference) {
-                Self::set_release_state(who.clone(), lock, reference, true, uid)?;
-            } else if Self::check_ref_beneficiary(who.clone(), reference) {
-                Self::set_release_state(who.clone(), lock, reference, false, uid)?;
-            } else {
-                // Issue error 
-                Self::deposit_event(RawEvent::ErrorLockNotAllowed1(reference));
-                return Err("You are not the owner or the beneficiary");
-                
-            }
-            
-            Ok(())
-        }
+        
         /// Is used by the buyer to recover funds if the vendor does not accept the order by the deadline
         fn cancel_prefunded_closed_order(origin, reference: T::Hash, uid: T::Hash) -> Result {
             let who = ensure_signed(origin)?;
@@ -219,7 +200,7 @@ impl<T: Trait> Module<T> {
             Self::deposit_event(RawEvent::ErrorInsufficientPreFunds(s, prefund_amount, minimum_amount, current_balance));
             return Err("Not enough funds to prefund");
         }
-
+        
         Ok(())
     }
     /// Generate Prefund Id from hash  
@@ -439,9 +420,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         <Prefunding<T>>::insert(&prefunding_hash, prefunded);
         
         // Add reference hash to list of hashes
-        <OwnerPrefundingHashList<T>>::mutate(&who, |owner_prefunding_hash_list| {
-            owner_prefunding_hash_list.push(prefunding_hash)
-        });
+        <OwnerPrefundingHashList<T>>::mutate(&who, |owner_prefunding_hash_list| owner_prefunding_hash_list.push(prefunding_hash));
         
         // Submitted, Locked by sender.
         match Self::set_ref_status(prefunding_hash, 1) {
@@ -534,7 +513,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         // Add status processing
         let new_status: Status = 400; // invoiced(400), can no longer be accepted, 
-
+        
         match Self::set_ref_status(h, new_status) {
             Ok(_) => (),
             Err(_e) => {
@@ -559,7 +538,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         match Self::get_release_state(h) {
             (true, false)  => { // submitted, but not yet accepted
-                Self::deposit_event(RawEvent::ErrorNotApproved(h));
+                Self::deposit_event(RawEvent::ErrorNotApproved2(h));
                 return Err("The demander has not approved the work yet!");
             },
             (true, true) => {
@@ -568,6 +547,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                 match Self::check_ref_owner(o.clone(), h) {
                     true => {
                         // get beneficiary from hash
+                        // Initialise tuple with dummy values
                         let mut details: (T::AccountId, UnLocked, T::AccountId, UnLocked) = (o.clone(), true, o.clone(), false); 
                         match Self::prefunding_hash_owner(&h) {
                             Some(v) => {
@@ -689,7 +669,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         // Set release lock "buyer who has approved invoice"
         // this may have been set independently, but is required for next step
-        match Self::set_release_state(payer.clone(), false, h.clone(), true, uid.clone()) {
+        match Self::set_release_state(payer.clone(), false, h.clone(), uid.clone()) {
             Ok(_) => (),
             Err(_e) => {
                 Self::deposit_event(RawEvent::ErrorReleaseState(uid));
@@ -724,8 +704,8 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         };
         return answer;
     }
-    /// Sets the release state by the owner or the beneficiary
-    fn set_release_state(o: T::AccountId, o_lock: UnLocked, h: T::Hash, sender: bool, uid: T::Hash) -> Result {
+    /// Sets the release state by the owner or the beneficiary is only called when something already exists
+    fn set_release_state(o: T::AccountId, o_lock: UnLocked, h: T::Hash, uid: T::Hash) -> Result {
         // 0= false, 1=true
         // 10, sender can take after deadline (initial state)
         // 11, accepted by recipient. (funds locked, nobody can take) 
@@ -733,59 +713,130 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         // 00, only the recipient authorises sender to retake funds regardless of deadline.
         
         // Initialise new tuple with some dummy values
-        let mut change: (T::AccountId, UnLocked, T::AccountId, UnLocked) =  (o.clone(), o_lock.clone(), o.clone(), sender.clone());     
-        // If this is not the owner of the order 
-        if !sender {
-            match Self::check_ref_beneficiary(o.clone(), h) {
-                true => {
-                    match Self::prefunding_hash_owner(&h) {
-                        Some(owner) => {
-                            change.0 = owner.0.clone(); 
-                            change.1 = owner.1;
-                            change.2 = owner.2.clone();
-                            change.3 = o_lock;
-                        },
-                        None => {
-                            Self::deposit_event(RawEvent::ErrorHashDoesNotExist(uid));
-                            return Err("Error getting the hash data");
-                        },
-                    }
-                },
-                false => {
-                    Self::deposit_event(RawEvent::ErrorLockNotAllowed4(uid));
-                    return Err("Not the beneficiary, cannot change lock");
-                },
-            }
-        } else {
-            match Self::check_ref_owner(o.clone(), h) {
-                true => {
-                    match Self::prefunding_hash_owner(&h) {
-                        Some(owners) => {
-                            if owners.1 != o_lock && owners.1 == false {
-                                change.0 = owners.0.clone();
-                                change.1 = o_lock;
-                                change.2 = owners.2.clone();
-                                change.3 = owners.3.clone();
-                            } else {
-                                Self::deposit_event(RawEvent::ErrorLockNotAllowed2(h));
-                                return Err("Owner does not have permission to change this value");
-                            }
-                        },
-                        None => return Err("Error getting the hash data"),
-                    }
-                },
-                false => {
-                    Self::deposit_event(RawEvent::ErrorLockNotAllowed3(h));
-                    return Err("Not the owner, cannot change lock");
-                },
-            }
-        }
+        let mut change: (T::AccountId, UnLocked, T::AccountId, UnLocked) = (o.clone(), false, o.clone(), false);
+        
+        match Self::prefunding_hash_owner(&h) {
+            Some(state_lock) => {
+                let locks: (UnLocked, UnLocked) = (state_lock.1, state_lock.3);
+                change.0 = state_lock.0.clone();
+                change.2 = state_lock.2.clone();
+                let commander = state_lock.0.clone();
+                let fulfiller = state_lock.2.clone();
+                
+                match locks {
+                    (true,false) => {
+                        // In this state the commander has created the lock, but it has not been accepted.
+                        // The buyer can withdraw the lock (set to false) if the deadline has passed, or 
+                        // the fulfiller can accept the order (set to true) 
+                        match o_lock {
+                            true => {
+                                if o == commander {
+                                    Self::deposit_event(RawEvent::ErrorWrongState1(uid));
+                                    return Err("Error buyer cannot set true");
+                                } else if o == fulfiller {
+                                    match Self::prefund_deadline_passed(h) {
+                                        true => {
+                                            change.1 = state_lock.1;
+                                            change.3 = o_lock;
+                                            let status: Status = 50; // Abandoned or Cancelled
+                                            match Self::cancel_prefunding_lock(o.clone(), h, status) {
+                                                Ok(_) => (),
+                                                Err(e) => {
+                                                    Self::deposit_event(RawEvent::ErrorCancelFailed(uid));
+                                                    return Err("Cancelling prefunding failed for some reason"); 
+                                                },
+                                            } 
+                                        },
+                                        false => { 
+                                            Self::deposit_event(RawEvent::ErrorDeadlineInPlay(uid));
+                                            return Err("Deadline not yet passed. Wait a bit longer!"); 
+                                        },
+                                    }
+                                } else {
+                                    Self::deposit_event(RawEvent::ErrorLockNotAllowed1(uid));
+                                    return Err("Error not buyer or seller");
+                                };
+                            },
+                            false => {
+                                if o == commander {
+                                    change.1 = o_lock;
+                                    change.3 = state_lock.3;
+                                } else if o == fulfiller {
+                                    Self::deposit_event(RawEvent::ErrorWrongState2(uid));
+                                    return Err("Error fulfiller cannot set false");
+                                } else {
+                                    Self::deposit_event(RawEvent::ErrorLockNotAllowed2(uid));
+                                    return Err("Error not buyer or seller");
+                                };
+                            },
+                        }
+                    },
+                    (true,true) => {
+                        // In this state the commander can change the lock, and they can only change it to false
+                        // In this state the fulfiller can change the lock, and they can only change it to false
+                        match o_lock {
+                            true => {
+                                Self::deposit_event(RawEvent::ErrorWrongState3(uid));
+                                return Err("Cannot set a lock");
+                            },
+                            false => {
+                                if o == commander {
+                                    change.1 = o_lock;
+                                    change.3 = state_lock.3;
+                                } else if o == fulfiller {
+                                    change.1 = state_lock.1;
+                                    change.3 = o_lock;
+                                } else {
+                                    Self::deposit_event(RawEvent::ErrorLockNotAllowed3(uid));
+                                    return Err("Error not buyer or seller");
+                                };
+                            },
+                        }
+                    },
+                    (false,true) => {
+                        // In this state the commander cannot change the lock
+                        // In this state the fulfiller can change the lock, and they can only change it to false
+                        match o_lock {
+                            true => {
+                                Self::deposit_event(RawEvent::ErrorLockNotAllowed4(uid));
+                                return Err("Error not buyer or seller");
+                            },
+                            false => {
+                                if o == commander {
+                                    Self::deposit_event(RawEvent::ErrorWrongState5(uid));
+                                    return Err("Error seller cannot set false");
+                                } else if o == fulfiller {
+                                    change.1 = state_lock.1;
+                                    change.3 = o_lock;
+                                } else {
+                                    Self::deposit_event(RawEvent::ErrorLockNotAllowed5(uid));
+                                    return Err("Error not buyer or seller");
+                                };
+                            },
+                        }
+                        
+                    },
+                    (false,false) => {
+                        // This state should technically make the funds refundable to the buyer. 
+                        // Even if the buy wanted to set this state they cannot. Meaning they must create a new order.
+                        Self::deposit_event(RawEvent::ErrorLockNotAllowed6(uid));
+                        return Err("Error nobody can change this state");
+                    },
+                }
+                
+            },
+            None => {
+                Self::deposit_event(RawEvent::ErrorHashDoesNotExist2(uid));
+                return Err("Error getting the hash data");
+                
+            },
+        };
         
         <PrefundingHashOwner<T>>::remove(&h);
         <PrefundingHashOwner<T>>::insert(&h, change);
         
         // Issue event
-        Self::deposit_event(RawEvent::PrefundingLockSet(o, h));
+        Self::deposit_event(RawEvent::PrefundingLockSet(uid));
         
         Ok(())
         
@@ -829,7 +880,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                                 }
                             },
                             (true, true) => {
-                                Self::deposit_event(RawEvent::ErrorFundsInPlay(u));
+                                Self::deposit_event(RawEvent::ErrorFundsInPlay2(u));
                                 return Err("Funds locked for intended purpose by both parties.")
                             },
                             (false, true) => {
@@ -850,13 +901,13 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         }
                     },
                     false => {
-                        Self::deposit_event(RawEvent::ErrorNotOwner(u));
+                        Self::deposit_event(RawEvent::ErrorNotOwner2(u));
                         return Err("You are not the owner of the hash!");
                     },
                 }
             }, 
             false => {
-                Self::deposit_event(RawEvent::ErrorHashDoesNotExist(u));
+                Self::deposit_event(RawEvent::ErrorHashDoesNotExist3(u));
                 return Err("Hash does not exist!");
             }, 
         }      
@@ -872,20 +923,34 @@ decl_event!(
     ComparisonAmounts = u128,
     {
         PrefundingCancelled(AccountId, Hash),
-        PrefundingLockSet(AccountId, Hash),
+        PrefundingLockSet(Hash),
         PrefundingCompleted(Hash),
         InvoiceIssued(Hash),
         InvoiceSettled(Hash),
         /// You are not the owner or the beneficiary
         ErrorLockNotAllowed1(Hash),
-        /// Owner does not have permission to change this value
+        /// You are not the owner or the beneficiary
         ErrorLockNotAllowed2(Hash),
-        /// Not the owner, cannot change lock
+        /// You are not the owner or the beneficiary
         ErrorLockNotAllowed3(Hash),
-        /// Not the beneficiary, cannot change lock
+        /// You are not the owner or the beneficiary
         ErrorLockNotAllowed4(Hash),
+        /// You are not the owner or the beneficiary
+        ErrorLockNotAllowed5(Hash),
+        /// You are not the owner or the beneficiary
+        ErrorLockNotAllowed6(Hash),
         /// Not enough funds to prefund
         ErrorInsufficientPreFunds(AccountId, ComparisonAmounts, ComparisonAmounts, ComparisonAmounts),
+        /// Cannot set this state
+        ErrorWrongState1(Hash),
+        /// Cannot set this state
+        ErrorWrongState2(Hash),
+        /// Cannot set this state
+        ErrorWrongState3(Hash),
+        /// Cannot set this state
+        ErrorWrongState4(Hash),
+        /// Cannot set this state
+        ErrorWrongState5(Hash),
         /// Funds already locked for intended purpose by both parties.
         ErrorNotAllowed1(Hash),
         /// Not the beneficiary
@@ -900,16 +965,26 @@ decl_event!(
         ErrorNotAllowed6(Hash),
         /// The demander has not approved the work yet!
         ErrorNotApproved(Hash),
+        /// The demander has not approved the work yet!
+        ErrorNotApproved2(Hash),
         /// Deadline not yet passed. Wait a bit longer!
         ErrorDeadlineInPlay(Hash),
         /// Funds locked for intended purpose by both parties.
         ErrorFundsInPlay(Hash),
+        /// Funds locked for intended purpose by both parties.
+        ErrorFundsInPlay2(Hash),
         /// You are not the owner of the hash!
         ErrorNotOwner(Hash),
+        /// You are not the owner of the hash!
+        ErrorNotOwner2(Hash),
         /// This hash already exists!
         ErrorHashExists(Hash),
         /// Hash does not exist
         ErrorHashDoesNotExist(Hash),
+        /// Hash does not exist
+        ErrorHashDoesNotExist2(Hash),
+        /// Hash does not exist
+        ErrorHashDoesNotExist3(Hash),
         /// Deadline is too short! Must be at least 48 hours
         ErrorShortDeadline(Hash),
         /// Deposit was not taken
@@ -934,5 +1009,7 @@ decl_event!(
         ErrorCancellingPrefund(Hash),
         /// Error getting prefunding details
         ErrorNoPrefunding(Hash),
+        /// Cancelling prefunding failed for some reason
+        ErrorCancelFailed(Hash),
     }
 );
