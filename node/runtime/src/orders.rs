@@ -103,7 +103,7 @@ pub struct OrderHeader<AccountId> {
     pub approval_status: u16,
     pub buy_or_sell: u16,
     pub amount: i128,
-    pub open_closed: bool,
+    pub market_order: bool,
     pub order_type: u16,
     pub deadline: u64,
     pub due_date: u64,
@@ -116,6 +116,30 @@ pub struct OrderItem<Hash> {
     pub unit_price: i128,
     pub quantity: u128,
     pub unit_of_measure: u16,
+}
+
+#[derive(PartialEq, Eq, Clone, Encode, Decode, Default)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct TXKeysL<Hash> {
+    pub record_id: Hash,
+    pub parent_id: Hash,
+    pub bonsai_token: Hash,
+    pub tx_uid: Hash,
+}
+
+#[derive(PartialEq, Eq, Clone, Encode, Decode, Default)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct TXKeysM<Hash> {
+    pub record_id: Hash,
+    pub bonsai_token: Hash,
+    pub tx_uid: Hash,
+}
+
+#[derive(PartialEq, Eq, Clone, Encode, Decode, Default)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct TXKeysS<Hash> {
+    pub bonsai_token: Hash,
+    pub tx_uid: Hash,
 }
 
 pub trait Trait: system::Trait {
@@ -138,7 +162,7 @@ decl_storage! {
         Owner get(owner): map T::AccountId => Vec<T::Hash>;
         Beneficiary get(beneficiary): map T::AccountId => Vec<T::Hash>;
         Approver get(approver): map T::AccountId => Vec<T::Hash>;
-        Postulate get(postulate): map T::Hash => Vec<T::AccountId>;
+        Postulate get(postulate): map T::Hash => Vec<T::Hash>;
         Orders get(orders): map T::Hash => Option<OrderHeader<T::AccountId>>;
         OrderItems get(order_items): map T::Hash => Vec<OrderItem<T::Hash>>;
     }
@@ -147,26 +171,130 @@ decl_storage! {
 decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
-        /// Complex Purchase Order
-        fn create_po(
+        /// Only the owner of an order can delete it provided no work has been done on it. 
+        fn delete_order(
+            origin,
+            tx_keys_medium: TXKeysM<T::Hash>
+        ) -> Result {
+            let who = ensure_signed(origin)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_medium.tx_uid.clone())?;
+            // Only delete order if it has not been accepted by the fulfiller.
+            match Self::orders(&tx_keys_medium.record_id) {
+                Some(order) => {
+                    // Order is owned by sender, status unaccepted a
+                    let approver: T::AccountId = order.approver;
+                    let order_status: u16 = order.order_status;
+                    if let (approver, order_status) = (who, 0u16) {
+                        <Owner<T>>::mutate(&order.commander, |owner| {
+                            owner.retain(|v| v != &tx_keys_medium.record_id)
+                        });
+                        <Beneficiary<T>>::mutate(&order.fulfiller, |owner| {
+                            owner.retain(|v| v != &tx_keys_medium.record_id)
+                        });
+                        <Approver<T>>::mutate(&approver, |owner| {
+                            owner.retain(|v| v != &tx_keys_medium.record_id)
+                        });
+                        <Postulate<T>>::remove(&tx_keys_medium.record_id);
+                        <Orders<T>>::remove(&tx_keys_medium.record_id);
+                        <OrderItems<T>>::remove(&tx_keys_medium.record_id);
+                    } else {
+                        Self::deposit_event(RawEvent::ErrorStatusNotAllowed6(tx_keys_medium.tx_uid));
+                        return Err("This is not your order or wrong status");
+                    }
+                },
+                None => {
+                    // Order does not exist
+                    Self::deposit_event(RawEvent::ErrorHashExists3(tx_keys_medium.tx_uid));
+                    return Err("This hash does not exist");
+                },
+            }
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_medium.tx_uid)?;
+            Ok(())
+        }
+        
+        /// Creates either a sales order or a purchase order with multi-line items and a parent order
+        /// Will be used for the marketplace in order to set up open orders
+        fn create_order(
             origin,
             approver: T::AccountId, 
             fulfiller: T::AccountId, 
             buy_or_sell: u16, 
             total_amount: i128, 
-            open_closed: bool, 
+            market_order: bool, 
             order_type: u16, 
             deadline: u64, 
             due_date: u64, 
-            order_items: Vec<OrderItem<T::Hash>>, 
-            bonsai_token: T::Hash, 
-            tx_uid: T::Hash
+            order_items: Vec<OrderItem<T::Hash>>,
+            tx_keys_large: TXKeysL<T::Hash>
         ) -> Result {
-            let _who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            let who = ensure_signed(origin)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_large.tx_uid.clone())?;
+            // Perform basic highlevel checks before processing
+            
+            // Check that the supplied record_id does not exist
+            if <Orders<T>>::exists(&tx_keys_large.record_id) {
+                Self::deposit_event(RawEvent::ErrorHashExists(tx_keys_large.tx_uid));
+                return Err("The hash already exists! Try again.");
+            }
+            // Check that it is an open order
+            if market_order {
+                // process open order - ignore fulfiller
+                // check that the order does not have a parent - by default the parent and the record_id must be the same 
+                if tx_keys_large.record_id == tx_keys_large.parent_id {
+                    
+                } else {
+                    Self::deposit_event(RawEvent::ErrorMarketOrder(tx_keys_large.tx_uid));
+                    return Err("Cannot make an market order against a parent order")
+                }
+                // Go further - Store the Order
+                ();
+            } else {
+                // closed order, fulfiller must be completed and it must not be the origin
+                if fulfiller == who {
+                    Self::deposit_event(RawEvent::ErrorCannotBeBoth2(tx_keys_large.tx_uid));
+                    return Err("You cannot fulfill your own order");
+                }
+                // The order may have a parent - by default the parent and the record_id are the same, but they may also be different
+                if tx_keys_large.record_id == tx_keys_large.parent_id {
+                    // This order has no parent therefore is a simple unfunded order with a known fulfiller
+                } else {
+                    // This order has a parent therefore it is a proposal and this means there is a fulfiller
+                    // check that that the parent hash exists
+                    if !<Orders<T>>::exists(&tx_keys_large.parent_id) {
+                        Self::deposit_event(RawEvent::ErrorHashExists2(tx_keys_large.tx_uid));
+                        return Err("The parent hash does not exist.");
+                    };
+                    let mut approval_status: u16 = 0u16;
+                    
+                    if Self::check_approver(who.clone(), approver.clone(), tx_keys_large.record_id.clone()) {
+                        // the order is approved because the approver is the commander.
+                        approval_status = 1u16;
+                    } else {
+                        // the order is not yet approved.
+                        // This is NOT an error but requires further processing by the approver. Exiting gracefully.
+                        Self::deposit_event(RawEvent::OrderCreatedForApproval(tx_keys_large.record_id));
+                    }
+                    let order_header: OrderHeader<T::AccountId> = OrderHeader {
+                        commander: who.clone(),
+                        fulfiller: fulfiller.clone(),
+                        approver: who.clone(),
+                        order_status: 0u16,
+                        approval_status: approval_status,
+                        buy_or_sell: buy_or_sell,
+                        amount: total_amount,
+                        market_order: market_order,
+                        order_type: order_type,
+                        deadline: deadline,
+                        due_date: due_date,
+                    };
+                    Self::set_order(who, fulfiller, tx_keys_large.record_id, order_header, order_items)?;
+                }
+            }
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_large.tx_uid)?;
+            Self::deposit_event(RawEvent::OrderCreated(tx_keys_large.tx_uid.clone(), tx_keys_large.record_id));
             Ok(())
         }
+        
         /// Create Simple Prefunded Service Order
         /// Can specify an approver. If the approver is the same as the sender then the order is considered approved by default
         fn create_spfso(
@@ -175,7 +303,7 @@ decl_module! {
             fulfiller: T::AccountId, 
             buy_or_sell: u16, // 0: buy, 1: sell, extensible
             total_amount: i128, // amount should be the sum of all the items untiprices * quantities
-            open_closed: bool, // 0: open(false) 1: closed(true)
+            market_order: bool, // 0: open(false) 1: closed(true)
             order_type: u16, // 0: service, 1: inventory, 2: asset extensible 
             deadline: u64, // prefunding acceptance deadline 
             due_date: u64, // due date is the future delivery date (in blocks) 
@@ -199,7 +327,7 @@ decl_module! {
                 fulfiller,
                 buy_or_sell,
                 total_amount,
-                open_closed,
+                market_order,
                 order_type,
                 deadline,
                 due_date,
@@ -257,12 +385,6 @@ decl_module! {
             Ok(())
         }
         
-        fn handle_spfso_test(origin, h: T::Hash, s: OrderStatus, tx_uid: T::Hash) -> Result {
-            let _who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid.clone())?;
-            // <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;            
-            Ok(())
-        }
         /// Can be used by buyer or seller
         /// Buyer - Used by the buyer to accept or reject (TODO) the invoice that was raised by the seller.
         /// Seller - Used to accept, reject or invoice the order. 
@@ -313,6 +435,13 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
+    /// Create Open Order
+    /// This function simply stores an open sales or purchase order. It is intended for the marketplace,
+    /// yet it can be a complex purchase or sales order
+    /// The order can have another party as an approver or not
+    /// * The order is not underwritten by prefunding
+    /// * Because this is creation it cannot have a parent
+    
     /// The approver should be able to set the status, and once approved the process should continue further
     /// pending_approval (0), approved(1), rejected(2) are the tree states to be set
     /// If the status is 2 the commander may edit and resubmit
@@ -344,7 +473,7 @@ impl<T: Trait> Module<T> {
         fulfiller: T::AccountId, 
         buy_or_sell: u16, // 0: buy, 1: sell, extensible
         amount: i128, // amount should be the sum of all the items untiprices * quantities
-        open_closed: bool, // 0: open(false) 1: closed(true)
+        market_order: bool, // 0: open(false) 1: closed(true)
         order_type: u16, // 0: personal, 1: business, extensible 
         deadline: u64, // prefunding acceptance deadline 
         due_date: u64, // due date is the future delivery date (in blocks) 
@@ -358,21 +487,23 @@ impl<T: Trait> Module<T> {
         // submitted(0), accepted(1), rejected(2), disputed(3), blocked(4), invoiced(5),
         let order_status: OrderStatus = 0;
         let mut fulfiller_override: T::AccountId = fulfiller.clone();
-        let mut market_order: bool = false;
-        match open_closed {
+        
+        // TODO Rewrite this MARKET_ORDER reversing the bool. This is because the API open_closed will be replaced by market_order bool.
+        
+        // let mut market_order: bool = false;
+        match market_order {
             true => {
+                // market_order = true;
+                fulfiller_override = commander.clone();
+            },
+            // This is an open order. No need to check the fulfiller, but will override with the commander for time being.
+            false => {
                 // this is a closed order, still will need to check or set the approver status
                 // if fulfiller is the commander throw error
                 if commander == fulfiller {
                     Self::deposit_event(RawEvent::ErrorCannotBeBoth(bonsai_token));
                     return Err("Cannot make an order for yourself!");
-                }
-            },
-            // This is an open order. No need to check the fulfiller, but will override with the commander for time being.
-            false => 
-            {
-                market_order = true;
-                fulfiller_override = commander.clone();
+                };
             },
         }
         // check or set the approver status
@@ -403,7 +534,7 @@ impl<T: Trait> Module<T> {
                 approval_status: approval_status,
                 buy_or_sell: buy_or_sell,
                 amount: amount,
-                open_closed: market_order,
+                market_order: market_order,
                 order_type: order_type,
                 deadline: deadline,
                 due_date: due_date,
@@ -417,7 +548,7 @@ impl<T: Trait> Module<T> {
         } else {
             // the order is not yet approved.
             // This is NOT an error but requires further processing by the approver. Exiting gracefully.
-            Self::deposit_event(RawEvent::OrderCreatedForApproval(bonsai_token.clone(), order_hash.clone()));
+            Self::deposit_event(RawEvent::OrderCreatedForApproval(uid));
         }
         
         // claim hash in Bonsai
@@ -457,8 +588,12 @@ impl<T: Trait> Module<T> {
         // Set hash for commander
         <Owner<T>>::mutate(&c, |owner| owner.push(o.clone()));
         
-        // Set hash for fulfiller
-        <Beneficiary<T>>::mutate(&f, |beneficiary| beneficiary.push(o.clone()));
+        // This will be a market order if the fulfiller is the same as the commander
+        // In this case do not set the beneficiary storage
+        if c != f {
+            // Set hash for fulfiller
+            <Beneficiary<T>>::mutate(&f, |beneficiary| beneficiary.push(o.clone()));
+        }
         
         // Set details of Order
         <Orders<T>>::insert(&o, h);
@@ -615,7 +750,7 @@ impl<T: Trait> Module<T> {
             approval_status: order_hdr.approval_status,
             buy_or_sell: order_hdr.buy_or_sell,
             amount: amount,
-            open_closed: order_hdr.open_closed,
+            market_order: order_hdr.market_order,
             order_type: order_hdr.order_type,
             deadline: deadline,
             due_date: due_date,
@@ -736,7 +871,6 @@ impl<T: Trait> Module<T> {
                     3 => {
                         // Invoice is disputed. TODO provide the ability to change the invoice and resubmit
                         Self::deposit_event(RawEvent::ErrorNotImplmented1(uid));
-                        
                         return Err("TODO!");
                     },
                     6 => {
@@ -804,7 +938,8 @@ decl_event!(
     {
         OrderCreated(Hash, Hash),
         OrderUpdated(Hash),
-        OrderCreatedForApproval(Hash, Hash),
+        OrderCreatedForApproval(Hash),
+        OrderCreatedForApproval2(Hash),
         OrderStatusUpdate(Hash),
         OrderCompleted(Hash),
         InvoiceSettled(Hash),
@@ -812,8 +947,14 @@ decl_event!(
         ErrorNotApprover(Hash),
         /// This hash already exists! Try again.
         ErrorHashExists(Hash),
+        /// This hash does not exit.
+        ErrorHashExists2(Hash),
+        /// This hash does not exit.
+        ErrorHashExists3(Hash),
         /// Cannot make an order for yourself!
         ErrorCannotBeBoth(Hash),
+        /// Cannot make an order for yourself!
+        ErrorCannotBeBoth2(Hash),
         /// You should not be doing this!
         ErrorURNobody(Hash),
         /// Order already accepted - cannot change now!
@@ -836,6 +977,8 @@ decl_event!(
         ErrorStatusNotAllowed4(Hash),
         /// The order has an unkown state!
         ErrorStatusNotAllowed5(Hash),
+        /// This is not your order or wrong status
+        ErrorStatusNotAllowed6(Hash),
         /// Not allowed to fulfill your own order!
         ErrorFulfiller(Hash),
         /// Amount cannot be less than zero!
@@ -864,5 +1007,7 @@ decl_event!(
         ErrorInPrefunding6(Hash),
         /// Error setting the first prefunding request
         ErrorInPrefunding7(Hash),
+        /// Error Cannot make an market order against a parent order
+        ErrorMarketOrder(Hash),
     }
 );
