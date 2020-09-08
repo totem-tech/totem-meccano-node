@@ -229,13 +229,14 @@ decl_module! {
         ) -> Result {
             let who = ensure_signed(origin)?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_large.tx_uid.clone())?;
-            // Perform basic highlevel checks before processing
             
             // Check that the supplied record_id does not exist
             if <Orders<T>>::exists(&tx_keys_large.record_id) {
                 Self::deposit_event(RawEvent::ErrorHashExists(tx_keys_large.tx_uid));
                 return Err("The hash already exists! Try again.");
             }
+
+            let mut approval_status: u16 = 0u16;
             // Check that it is an open order
             if market_order {
                 // process open order - ignore fulfiller
@@ -257,6 +258,8 @@ decl_module! {
                 // The order may have a parent - by default the parent and the record_id are the same, but they may also be different
                 if tx_keys_large.record_id == tx_keys_large.parent_id {
                     // This order has no parent therefore is a simple unfunded order with a known fulfiller
+                    // TODO 
+                    ();
                 } else {
                     // This order has a parent therefore it is a proposal and this means there is a fulfiller
                     // check that that the parent hash exists
@@ -264,31 +267,34 @@ decl_module! {
                         Self::deposit_event(RawEvent::ErrorHashExists2(tx_keys_large.tx_uid));
                         return Err("The parent hash does not exist.");
                     };
-                    let mut approval_status: u16 = 0u16;
-                    
+                    // if the approver is also the initiator of the order then automatically approve the order
                     if Self::check_approver(who.clone(), approver.clone(), tx_keys_large.record_id.clone()) {
                         // the order is approved because the approver is the commander.
                         approval_status = 1u16;
                     } else {
                         // the order is not yet approved.
-                        // This is NOT an error but requires further processing by the approver. Exiting gracefully.
-                        Self::deposit_event(RawEvent::OrderCreatedForApproval(tx_keys_large.record_id));
+                        // This is NOT an error but requires further processing by the approver.
+                        
+                        // As this is a proposal against a parent order then associate the child with the parent
+                        // This does not happen when it is a simple order
+                        <Postulate<T>>::mutate(&tx_keys_large.parent_id, |v| v.push(tx_keys_large.record_id));
+                        // <TxList<T>>::mutate(list_key, |tx_list| tx_list.push(u));
                     }
-                    let order_header: OrderHeader<T::AccountId> = OrderHeader {
-                        commander: who.clone(),
-                        fulfiller: fulfiller.clone(),
-                        approver: who.clone(),
-                        order_status: 0u16,
-                        approval_status: approval_status,
-                        buy_or_sell: buy_or_sell,
-                        amount: total_amount,
-                        market_order: market_order,
-                        order_type: order_type,
-                        deadline: deadline,
-                        due_date: due_date,
-                    };
-                    Self::set_order(who, fulfiller, tx_keys_large.record_id, order_header, order_items)?;
                 }
+                let order_header: OrderHeader<T::AccountId> = OrderHeader {
+                    commander: who.clone(),
+                    fulfiller: fulfiller.clone(),
+                    approver: who.clone(),
+                    order_status: 0u16,
+                    approval_status: approval_status,
+                    buy_or_sell: buy_or_sell,
+                    amount: total_amount,
+                    market_order: market_order,
+                    order_type: order_type,
+                    deadline: deadline,
+                    due_date: due_date,
+                };
+                Self::set_order(who, fulfiller, tx_keys_large.record_id, order_header, order_items)?;
             }
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_large.tx_uid)?;
             Self::deposit_event(RawEvent::OrderCreated(tx_keys_large.tx_uid.clone(), tx_keys_large.record_id));
