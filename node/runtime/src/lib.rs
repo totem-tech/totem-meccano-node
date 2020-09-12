@@ -100,9 +100,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 9,
+	spec_version: 10,
     // incremental changes
-	impl_version: 13,
+	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 };
 
