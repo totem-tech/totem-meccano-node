@@ -72,10 +72,10 @@ ARG PROFILE=release
 RUN mv /usr/share/ca* /tmp && \
 	rm -rf /usr/share/*  && \
 	mv /tmp/ca-certificates /usr/share/ && \
-	useradd -m -u 1000 -U -s /bin/sh -d /meccano meccano && \
-	mkdir -p /meccano/.local/share/meccano && \
-	chown -R meccano:meccano /meccano/.local && \
-	ln -s /meccano/.local/share/meccano /data
+	useradd -m -u 1000 -U -s /bin/sh -d /totem totem && \
+	mkdir -p /totem/.local/share/totem-meccano && \
+	chown -R totem:totem /totem/.local && \
+	ln -s /totem/.local/share/totem-meccano /data
 
 COPY --from=builder /meccano/target/$PROFILE/totem-meccano /usr/local/bin
 # COPY --from=builder /substrate/target/$PROFILE/subkey /usr/local/bin
@@ -91,7 +91,7 @@ RUN ldd /usr/local/bin/totem-meccano && \
 RUN rm -rf /usr/lib/python* && \
 	rm -rf /usr/bin /usr/sbin /usr/share/man
 
-USER meccano
+USER totem
 # EXPOSE 16181 9933 9944 9615
 EXPOSE 16181 9933 9944
 VOLUME ["/data"]
