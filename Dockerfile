@@ -74,7 +74,7 @@ RUN mv /usr/share/ca* /tmp && \
 	mv /tmp/ca-certificates /usr/share/ && \
 	useradd -m -u 1000 -U -s /bin/sh -d /totem totem && \
 	mkdir -p /totem/.local/share/totem-meccano && \
-	chown -R totem:totem /totem/.local && \
+	chown -R totem: /totem/.local && \
 	ln -s /totem/.local/share/totem-meccano /data
 
 COPY --from=builder /meccano/target/$PROFILE/totem-meccano /usr/local/bin
