@@ -342,7 +342,7 @@ fn fill_network_configuration(
 	if config.listen_addresses.is_empty() {
 		let port = match cli.port {
 			Some(port) => port,
-			None => 30333,
+			None => 16181,
 		};
 
 		config.listen_addresses = vec![
@@ -536,7 +536,7 @@ where
 		let peer_id = keys.public().into_peer_id();
 		let addr = build_multiaddr![
 			Ip4([127, 0, 0, 1]),
-			Tcp(30333u16),
+			Tcp(16181u16),
 			P2p(peer_id)
 		];
 		spec.add_boot_node(addr)

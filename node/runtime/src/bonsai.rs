@@ -134,40 +134,57 @@ decl_module! {
             Ok(())
         }
         
-        fn on_finalize() {
+        fn on_finalize_example(origin) -> Result {
+            let _who = ensure_signed(origin)?;
             let current_block: T::BlockNumber = <system::Module<T>>::block_number();
+            let current: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(current_block);
             // Get all hashes
             let default_bytes = b"nobody can save fiat currency now";
             let list_key: T::Hash = T::Hashing::hash(default_bytes.encode().as_slice());
+            
             if <TxList<T>>::exists(&list_key) {
                 let hashes: Vec<T::Hash> = Self::tx_list(&list_key);
                 // check which storage the hashes come from and hashes that are old
                 for i in hashes {
+                    
                     let key: T::Hash = i.clone();
+                    
                     match Self::is_started(&key) {
                         Some(block) => {
+                            
                             let mut target_block: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(block);
                             target_block = target_block + 172800u64; 
-                            let target_deletion_block: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(target_block);
+                            
+                            // let mut target_deletion_block: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(target_block);
                             // cleanup 30 Days from when the transaction started, but did not complete
-                            if current_block >= target_deletion_block {
-                                <IsStarted<T>>::remove(&i);
+                            
+                            // It's possible this comparison is not working
+                            if current >= target_block {
+                                <IsStarted<T>>::remove(key.clone());
+                            } else {
+                                ();
                             }
                         },
                         None => {
                             match Self::is_successful(&key) {
                                 Some(block) => {
-                                    if current_block >= block {
-                                        <IsSuccessful<T>>::remove(&i);
+                                    let target_block: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(block);
+                                    if current >= target_block {
+                                        <IsSuccessful<T>>::remove(key.clone());
+                                    } else {
+                                        ();
                                     }       
                                 },
                                 None => (),
                             }
                         },
                     }
-                    <TxList<T>>::mutate(&list_key, |tx_list| tx_list.retain(|v| {v != &i}));
+                    <TxList<T>>::mutate(&list_key, |tx_list| tx_list.retain(|v| {v != &key}));
                 }
+            } else {
+                ();
             }
+            Ok(())
         }
     }
 }
