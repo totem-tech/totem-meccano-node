@@ -176,44 +176,25 @@ impl<T: Trait> Module<T> {
         let detail = (b, ab, d, h, t);
         // !! Warning !! 
         // Values could feasibly overflow, with no visibility on other accounts. In this event this function returns an error.
-        // Reversals must occur in the parent function (that calls this function). Updates are only made to storage once all three tests below are passed for debits or credits.
-        if c > zero {
-            // check adding the new amount to the existing balance
-            match Self::balance_by_ledger(&balance_key).checked_add(c) {
-                None => {
-                    Self::deposit_event(RawEvent::ErrorOverflow(a));
-                    return Err("Balance Value overflowed");
-                },
-                Some(l) => {
-                    new_balance = l;
-                    match Self::global_ledger(&a).checked_add(c) {
-                        Some(g) => new_global_balance = g,
-                        None => {
-                            Self::deposit_event(RawEvent::ErrorGlobalOverflow());
-                            return Err("Global Balance Value overflowed");
-                        },
-                    }
-                },
-            };
-        } else if c < zero {
-            // check subtracting the new amount from the existing balance
-            match Self::balance_by_ledger(&balance_key).checked_sub(c) {
-                None => {
-                    Self::deposit_event(RawEvent::ErrorOverflow(a));
-                    return Err("Balance Value overflowed");
-                },
-                Some(l) => {
-                    new_balance = l;
-                    match Self::global_ledger(&a).checked_sub(c) {
-                        Some(g) => new_global_balance = g,
-                        None => {
-                            Self::deposit_event(RawEvent::ErrorGlobalOverflow());
-                            return Err("Global Balance Value overflowed");
-                        },
-                    }
-                },
-            };
-        }
+        // Reversals must occur in the parent function (that calls this function). 
+        // As all values passed to this function are already signed +/- we only need to sum to the previous balance and check for overflow
+        // Updates are only made to storage once tests below are passed for debits or credits.
+        match Self::balance_by_ledger(&balance_key).checked_add(c) {
+            None => {
+                Self::deposit_event(RawEvent::ErrorOverflow(a));
+                return Err("Balance Value overflowed");
+            },
+            Some(l) => {
+                new_balance = l;
+                match Self::global_ledger(&a).checked_add(c) {
+                    Some(g) => new_global_balance = g,
+                    None => {
+                        Self::deposit_event(RawEvent::ErrorGlobalOverflow());
+                        return Err("Global Balance Value overflowed");
+                    },
+                }
+            },
+        };
         
         <PostingNumber<T>>::put(posting_index);
         <IdAccountPostingIdList<T>>::mutate(&balance_key, |id_account_posting_id_list| id_account_posting_id_list.push(posting_index));
