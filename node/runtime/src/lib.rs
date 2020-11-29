@@ -67,6 +67,7 @@ use substrate_primitives::OpaqueMetadata;
 pub use runtime_primitives::BuildStorage;
 pub use consensus::Call as ConsensusCall;
 pub use timestamp::Call as TimestampCall;
+pub use accounting::Call as AccountingCall;
 pub use balances::Call as BalancesCall;
 pub use runtime_primitives::{Permill, Perbill};
 pub use support::StorageValue;
@@ -75,9 +76,6 @@ pub use staking::StakerStatus;
 extern crate sodalite;
 
 // Totem Runtime Modules
-// mod totem;
-mod accounting;
-mod accounting_traits;
 mod archive;
 mod bonsai;
 mod bonsai_traits;
@@ -100,9 +98,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 10,
+	spec_version: 11,
     // incremental changes
-	impl_version: 4,
+	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -199,6 +197,12 @@ impl system::Trait for Runtime {
 	type Log = Log;
 }
 
+impl accounting::Trait for Runtime {
+	type Event = Event;
+	type CoinAmount = Balance;
+	type AccountingConversions = ConversionHandler;
+}
+
 impl aura::Trait for Runtime {
 	type HandleReport = aura::StakingSlasher<Runtime>;
 }
@@ -218,6 +222,7 @@ impl balances::Trait for Runtime {
 	type TransactionPayment = ();
 	type DustRemoval = ();
 	type TransferPayment = ();
+	type Accounting = accounting::Module<Self>;
 }
 
 impl consensus::Trait for Runtime {
@@ -325,7 +330,7 @@ impl bonsai::Trait for Runtime {
 	type Orders = OrdersModule;
 	type Projects = ProjectModule;
 	type Timekeeping = TimekeepingModule;
-	type Conversions = ConversionHandler;
+	type BonsaiConversions = ConversionHandler;
 }
 
 impl archive::Trait for Runtime {
@@ -333,22 +338,18 @@ impl archive::Trait for Runtime {
 	type Timekeeping = TimekeepingModule;
 }
 
-impl accounting::Trait for Runtime {
-    type Event = Event;
-}
-
 impl prefunding::Trait for Runtime {
     type Event = Event;
-    type Currency = balances::Module<Self>;
-    type Conversions = ConversionHandler;
-    type Accounting = AccountingModule;
+	type Currency = balances::Module<Self>;
+	type PrefundingConversions = ConversionHandler;
+    type Accounting = accounting::Module<Self>;
 }
 
 impl orders::Trait for Runtime {
     type Event = Event;
-    type Conversions = ConversionHandler;
-    type Accounting = AccountingModule;
-    type Prefunding = PrefundingModule;
+    type Accounting = accounting::Module<Self>;
+	type Prefunding = PrefundingModule;
+	type OrderConversions = ConversionHandler;
     type Bonsai = BonsaiModule;
 }
 
@@ -359,6 +360,7 @@ construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic
 	{
 		System: system::{default, Log(ChangesTrieRoot)},
+		Accounting: accounting::{Module, Storage, Event<T>},
 		Aura: aura::{Module, Inherent(Timestamp)},
 		Timestamp: timestamp::{Module, Call, Storage, Config<T>, Inherent},
 		Consensus: consensus::{Module, Call, Storage, Config<T>, Log(AuthoritiesChange), Inherent},
@@ -381,7 +383,6 @@ construct_runtime!(
 		BoxKeyS: boxkeys::{Module, Call, Storage, Event<T>},
 		BonsaiModule: bonsai::{Module, Call, Storage, Event<T>},
 		ArchiveModule: archive::{Module, Call, Event<T>},
-		AccountingModule: accounting::{Module, Storage, Event<T>},
 		OrdersModule: orders::{Module, Call, Storage, Event<T>},
         PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
 	}

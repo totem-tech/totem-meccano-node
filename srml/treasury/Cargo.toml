@@ -12,7 +12,7 @@ rstd = { package = "sr-std", path = "../../core/sr-std", default-features = fals
 runtime_primitives = { package = "sr-primitives", path = "../../core/sr-primitives", default-features = false }
 srml-support = { path = "../support", default-features = false }
 system = { package = "srml-system", path = "../system", default-features = false }
-balances = { package = "srml-balances", path = "../balances", default-features = false }
+balances = { package = "srml-balances", version = "2.0.0", path = "../balances", default-features = false }
 
 [dev-dependencies]
 runtime_io = { package = "sr-io", path = "../../core/sr-io" }

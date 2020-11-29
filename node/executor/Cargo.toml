@@ -20,7 +20,7 @@ node-runtime = { path = "../runtime" }
 keyring = { package = "substrate-keyring", path = "../../core/keyring" }
 runtime_primitives = { package = "sr-primitives", path = "../../core/sr-primitives" }
 runtime_support = { package = "srml-support", path = "../../srml/support" }
-balances = { package = "srml-balances", path = "../../srml/balances" }
+balances = { package = "srml-balances", version = "2.0.0", path = "../../srml/balances" }
 session = { package = "srml-session", path = "../../srml/session" }
 staking = { package = "srml-staking", path = "../../srml/staking" }
 system = { package = "srml-system", path = "../../srml/system" }

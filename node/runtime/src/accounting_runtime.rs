@@ -104,6 +104,7 @@ use crate::accounting_traits::{ Posting };
 
 pub trait Trait: system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+
 }
 
 type LedgerBalance = i128; // Balance on an account can be negative
@@ -156,8 +157,8 @@ impl<T: Trait> Module<T> {
     /// The second Blocknumber is for re-targeting the entry in the accounts, i.e. for adjustments prior to or after the current period (generally accruals).
     fn post_amounts((o, a, c, d, h, b, t): (T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)) -> Result {
         let mut posting_index: PostingIndex = 0; 
-        let mut new_balance: LedgerBalance = 0; 
-        let mut new_global_balance: LedgerBalance = 0; 
+        let mut new_balance: LedgerBalance; 
+        let mut new_global_balance: LedgerBalance; 
         
         if <PostingNumber<T>>::exists() {
             posting_index = Self::posting_number().ok_or("Error fetching latest posting index")?;
@@ -169,7 +170,6 @@ impl<T: Trait> Module<T> {
                 },
             }
         }
-        let zero: LedgerBalance = 0;
         let ab: LedgerBalance = c.abs();        
         let balance_key = (o.clone(), a);
         let posting_key = (o.clone(), a, posting_index);

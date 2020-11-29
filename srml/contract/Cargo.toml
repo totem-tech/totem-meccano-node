@@ -23,7 +23,7 @@ wabt = "~0.7.4"
 assert_matches = "1.1"
 hex-literal = "0.1.0"
 consensus = { package = "srml-consensus", path = "../consensus" }
-balances = { package = "srml-balances", path = "../balances" }
+balances = { package = "srml-balances", version = "2.0.0", path = "../balances" }
 
 [features]
 default = ["std"]

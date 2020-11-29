@@ -21,7 +21,7 @@ session = { package = "srml-session", path = "../session", default-features = fa
 [dev-dependencies]
 substrate-primitives = { path = "../../core/primitives" }
 timestamp = { package = "srml-timestamp", path = "../timestamp" }
-balances = { package = "srml-balances", path = "../balances" }
+balances = { package = "srml-balances", version = "2.0.0", path = "../balances" }
 
 [features]
 default = ["std"]

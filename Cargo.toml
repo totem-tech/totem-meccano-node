@@ -4,7 +4,7 @@ path = "node/src/main.rs"
 
 [package]
 name = "totem-meccano"
-version = "1.10.4"
+version = "1.11.0"
 authors = ["Totem Live Accounting <chris.dcosta@totemaccounting.com>"]
 build = "build.rs"
 edition = "2018"
@@ -58,6 +58,7 @@ members = [
 	"srml/support/procedural/tools",
 	"srml/support/procedural/tools/derive",
 	"srml/support/test",
+	"srml/accounting",
 	"srml/assets",
 	"srml/aura",
 	"srml/balances",
@@ -81,7 +82,7 @@ members = [
 	"node/executor",
 	"node/primitives",
 	"node/runtime",
-	"node-template",
+	# "node-template",
 	"subkey",
 ]
 exclude = [

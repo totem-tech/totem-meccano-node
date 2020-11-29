@@ -187,12 +187,16 @@ use srml_support::traits::{
 use srml_support::{decl_event, decl_module, decl_storage, Parameter, StorageMap, StorageValue};
 use system::{ensure_signed, IsDeadAccount, OnNewAccount};
 
+use accounting::Posting;
+
 mod mock;
 mod tests;
 
 pub use self::imbalances::{NegativeImbalance, PositiveImbalance};
 
-pub trait Subtrait<I: Instance = DefaultInstance>: system::Trait {
+pub trait Subtrait<I: Instance = DefaultInstance>:
+    system::Trait + accounting::Trait + timestamp::Trait
+{
     /// The balance of an account.
     type Balance: Parameter
         + Member
@@ -212,9 +216,14 @@ pub trait Subtrait<I: Instance = DefaultInstance>: system::Trait {
 
     /// Handler for when a new account is created.
     type OnNewAccount: OnNewAccount<Self::AccountId>;
+
+    /// Totem Accounting type
+    type Accounting: Posting<Self::AccountId, Self::Hash, Self::BlockNumber, Self::Balance>;
 }
 
-pub trait Trait<I: Instance = DefaultInstance>: system::Trait {
+pub trait Trait<I: Instance = DefaultInstance>:
+    system::Trait + accounting::Trait + timestamp::Trait
+{
     /// The balance of an account.
     type Balance: Parameter
         + Member
@@ -247,12 +256,16 @@ pub trait Trait<I: Instance = DefaultInstance>: system::Trait {
 
     /// The overarching event type.
     type Event: From<Event<Self, I>> + Into<<Self as system::Trait>::Event>;
+
+    /// Totem Accounting type
+    type Accounting: Posting<Self::AccountId, Self::Hash, Self::BlockNumber, Self::Balance>;
 }
 
 impl<T: Trait<I>, I: Instance> Subtrait<I> for T {
     type Balance = T::Balance;
     type OnFreeBalanceZero = T::OnFreeBalanceZero;
     type OnNewAccount = T::OnNewAccount;
+    type Accounting = T::Accounting;
 }
 
 decl_event!(
@@ -691,6 +704,15 @@ impl<T: Subtrait<I>, I: Instance> PartialEq for ElevatedTrait<T, I> {
     }
 }
 impl<T: Subtrait<I>, I: Instance> Eq for ElevatedTrait<T, I> {}
+impl<T: Subtrait<I>, I: Instance> accounting::Trait for ElevatedTrait<T, I> {
+    type Event = ();
+    type CoinAmount = T::Balance;
+    type AccountingConversions = ();
+}
+impl<T: Subtrait<I>, I: Instance> timestamp::Trait for ElevatedTrait<T, I> {
+    type Moment = T::BlockNumber;
+    type OnTimestampSet = ();
+}
 impl<T: Subtrait<I>, I: Instance> system::Trait for ElevatedTrait<T, I> {
     type Origin = T::Origin;
     type Index = T::Index;
@@ -712,6 +734,7 @@ impl<T: Subtrait<I>, I: Instance> Trait<I> for ElevatedTrait<T, I> {
     type TransactionPayment = ();
     type TransferPayment = ();
     type DustRemoval = ();
+    type Accounting = T::Accounting;
 }
 
 impl<T: Trait<I>, I: Instance> Currency<T::AccountId> for Module<T, I>
@@ -812,6 +835,15 @@ where
                 Self::new_account(dest, new_to_balance);
             }
             Self::set_free_balance(dest, new_to_balance);
+
+            match <T::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::Balance>>::account_for_fees(fee, dest.clone()) {
+                Ok(_) => (),
+                Err(_e) => {
+                    // Self::deposit_event(RawEvent::ErrorInAccounting1(uid));
+                    return Err("An error occured posting to accounts");
+                },
+            }
+
             T::TransferPayment::on_unbalanced(NegativeImbalance::new(fee));
             Self::deposit_event(RawEvent::Transfer(
                 transactor.clone(),

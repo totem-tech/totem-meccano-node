@@ -474,6 +474,8 @@ bitmask! {
 		Reserve = 0b00000100,
 		/// In order to pay some other (higher-level) fees.
 		Fee = 0b00001000,
+		/// In order to hold some funds on behalf of some activity.
+		Escrow = 0b00010000,
 	}
 }
 

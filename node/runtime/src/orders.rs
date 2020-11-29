@@ -74,14 +74,16 @@ use runtime_primitives::traits::{Convert};
 use rstd::prelude::*;
 // use node_primitives::Hash; // Use only in full node
 
+// Totem Pallets
+use accounting::{ Posting };
+
 // Totem Traits
-use crate::accounting_traits::{ Posting };
 use crate::prefunding_traits::{ Encumbrance };
 use crate::bonsai_traits::{ Storing };
 use crate::orders_traits::{ Validating };
 
 // Totem Trait Types
-type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::LedgerBalance;
+type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber,<T as accounting::Trait>::CoinAmount>>::LedgerBalance;
 
 // 0=Unlocked(false) 1=Locked(true)
 pub type UnLocked<T> = <<T as Trait>::Prefunding as Encumbrance<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::UnLocked; 
@@ -142,17 +144,16 @@ pub struct TXKeysS<Hash> {
     pub tx_uid: Hash,
 }
 
-pub trait Trait: system::Trait {
+pub trait Trait: accounting::Trait + system::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
-    type Conversions: 
-    Convert<i128, AccountBalanceOf<Self>> + 
-    Convert<i128, u128> + 
-    Convert<bool, UnLocked<Self>> + 
-    Convert<AccountBalanceOf<Self>, i128> + 
-    Convert<AccountBalanceOf<Self>, u128> + 
-    Convert<u64, Self::BlockNumber> +
-    Convert<Self::BlockNumber, u64>;
-    type Accounting: Posting<Self::AccountId,Self::Hash,Self::BlockNumber>;
+    type OrderConversions: Convert<i128, AccountBalanceOf<Self>> 
+    + Convert<i128, u128> 
+    + Convert<bool, UnLocked<Self>>
+    + Convert<AccountBalanceOf<Self>, i128> 
+    + Convert<AccountBalanceOf<Self>, u128> 
+    + Convert<u64, Self::BlockNumber> 
+    + Convert<Self::BlockNumber, u64>;
+    type Accounting: Posting<Self::AccountId,Self::Hash,Self::BlockNumber,Self::CoinAmount>;
     type Prefunding: Encumbrance<Self::AccountId,Self::Hash,Self::BlockNumber>;
     type Bonsai: Storing<Self::Hash>;
 }
@@ -320,7 +321,7 @@ decl_module! {
             let who = ensure_signed(origin)?;
             <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid.clone())?;
             // Generate Hash for order
-            let order_hash: T::Hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::get_pseudo_random_hash(who.clone(),approver.clone());
+            let order_hash: T::Hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_pseudo_random_hash(who.clone(),approver.clone());
             
             if <Orders<T>>::exists(&order_hash) {
                 Self::deposit_event(RawEvent::ErrorHashExists(order_hash));
@@ -516,12 +517,12 @@ impl<T: Trait> Module<T> {
         if Self::check_approver(commander.clone(), approver.clone(), order_hash.clone()) {
             // the order is approved.
             let approval_status: ApprovalStatus = 1;
-            let deadline_converted: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(deadline.clone());
+            let deadline_converted: T::BlockNumber = <T::OrderConversions as Convert<u64, T::BlockNumber>>::convert(deadline.clone());
             // approval status has been set to approved, continue.
             
             // Set prefunding first. It does not matter if later the process fails, as this is locking funds for the commander
             // The risk is that they cannot get back the funds until after the deadline, even of they want to cancel.
-            let balance_amount: u128 = <T::Conversions as Convert<i128, u128>>::convert(amount.clone());
+            let balance_amount: u128 = <T::OrderConversions as Convert<i128, u128>>::convert(amount.clone());
             
             match Self::set_prefunding(commander.clone(), fulfiller.clone(), balance_amount, deadline_converted, order_hash.clone(), uid) {
                 Ok(_) => (),
@@ -724,7 +725,7 @@ impl<T: Trait> Module<T> {
             // Check that the amount is the sum of all the items 
         }
         
-        let current_block_converted: u64 = <T::Conversions as Convert<T::BlockNumber, u64>>::convert(current_block);
+        let current_block_converted: u64 = <T::OrderConversions as Convert<T::BlockNumber, u64>>::convert(current_block);
         if order_hdr.deadline != deadline {
             // TODO This may be unusable/unworkable needs trying out
             // 48 hours is the minimum deadline
@@ -789,7 +790,7 @@ impl<T: Trait> Module<T> {
                     1 => {
                         // Order Accepted
                         // Update the prefunding status (confirm locked funds)
-                        let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(true);
+                        let lock: UnLocked<T> = <T::OrderConversions as Convert<bool, UnLocked<T>>>::convert(true);
                         match <<T as Trait>::Prefunding as Encumbrance<T::AccountId,T::Hash,T::BlockNumber>>::set_release_state(f,lock,h,uid) {
                             Ok(_) => (),
                             Err(_e) => {
@@ -801,7 +802,7 @@ impl<T: Trait> Module<T> {
                     },
                     2 => {
                         // order rejected
-                        let lock: UnLocked<T> = <T::Conversions as Convert<bool, UnLocked<T>>>::convert(false);
+                        let lock: UnLocked<T> = <T::OrderConversions as Convert<bool, UnLocked<T>>>::convert(false);
                         // We do not need to set release state for releasing funds for fulfiller.
                         
                         // set release state for releasing funds for commander.

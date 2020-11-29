@@ -19,7 +19,7 @@ system = { package = "srml-system", path = "../system", default-features = false
 
 [dev-dependencies]
 hex-literal = "0.1.0"
-balances = { package = "srml-balances", path = "../balances" }
+balances = { package = "srml-balances", version = "2.0.0", path = "../balances" }
 
 [features]
 default = ["std"]

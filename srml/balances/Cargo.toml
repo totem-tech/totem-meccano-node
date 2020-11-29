@@ -1,6 +1,6 @@
 [package]
 name = "srml-balances"
-version = "1.0.0"
+version = "2.0.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2018"
 
@@ -14,6 +14,8 @@ rstd = { package = "sr-std", path = "../../core/sr-std", default-features = fals
 primitives = { package = "sr-primitives", path = "../../core/sr-primitives", default-features = false }
 srml-support = { path = "../support", default-features = false }
 system = { package = "srml-system", path = "../system", default-features = false }
+accounting = { package = "accounting-pallet", path = "../accounting", default-features = false }
+timestamp = { package = "srml-timestamp", path = "../timestamp", default-features = false }
 
 [dev-dependencies]
 runtime_io = { package = "sr-io", path = "../../core/sr-io" }
@@ -29,5 +31,7 @@ std = [
 	"rstd/std",
 	"srml-support/std",
 	"primitives/std",
+	"accounting/std",
+	"timestamp/std",
 	"system/std",
 ]

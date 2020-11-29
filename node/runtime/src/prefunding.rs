@@ -63,13 +63,16 @@ use support::traits::{
     WithdrawReason,
 };
 
+// Totem Pallets
+use accounting::{ Posting };
+
 // Totem Traits
-use crate::accounting_traits::{ Posting };
+// use crate::accounting_traits::{ Posting };
 use crate::prefunding_traits::{ Encumbrance };
 
 // Totem Trait Types
-type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::Account;
-type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber>>::LedgerBalance;
+type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber,<T as accounting::Trait>::CoinAmount>>::Account;
+type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber,<T as accounting::Trait>::CoinAmount>>::LedgerBalance;
 
 // Other trait types
 type CurrencyBalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
@@ -79,23 +82,22 @@ pub type UnLocked = bool; // 0=Unlocked(false) 1=Locked(true)
 pub type Status = u16; // Generic Status for whatever the HashReference refers to
 pub type ComparisonAmounts = u128; // Used for comparisons
 
-pub trait Trait: balances::Trait + system::Trait + timestamp::Trait {
+pub trait Trait: balances::Trait + system::Trait + timestamp::Trait + accounting::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
     type Currency: Currency<Self::AccountId> + LockableCurrency<Self::AccountId, Moment=Self::BlockNumber>;
-    type Conversions:
-    Convert<AccountBalanceOf<Self>, u128> +
-    Convert<AccountBalanceOf<Self>, CurrencyBalanceOf<Self>> + 
-    Convert<CurrencyBalanceOf<Self>, AccountBalanceOf<Self>> + 
-    Convert<Vec<u8>, LockIdentifier> + 
-    Convert<u64, AccountOf<Self>> + 
-    Convert<u64, CurrencyBalanceOf<Self>> +
-    Convert<u64, Self::BlockNumber> +
-    Convert<i128, AccountBalanceOf<Self>> +
-    Convert<u128, AccountBalanceOf<Self>> +
-    Convert<u128, i128> +
-    Convert<AccountBalanceOf<Self>, i128> +
-    Convert<CurrencyBalanceOf<Self>, u128>;
-    type Accounting: Posting<Self::AccountId,Self::Hash,Self::BlockNumber>;
+    type PrefundingConversions: Convert<AccountBalanceOf<Self>, u128> 
+    + Convert<AccountBalanceOf<Self>, CurrencyBalanceOf<Self>> 
+    + Convert<CurrencyBalanceOf<Self>, AccountBalanceOf<Self>> 
+    + Convert<Vec<u8>, LockIdentifier> 
+    + Convert<u64, AccountOf<Self>> 
+    + Convert<u64, CurrencyBalanceOf<Self>> 
+    + Convert<u64, Self::BlockNumber> 
+    + Convert<i128, AccountBalanceOf<Self>> 
+    + Convert<u128, AccountBalanceOf<Self>> 
+    + Convert<u128, i128> 
+    + Convert<AccountBalanceOf<Self>, i128> 
+    + Convert<CurrencyBalanceOf<Self>, u128>;
+    type Accounting: Posting<Self::AccountId,Self::Hash,Self::BlockNumber,Self::CoinAmount>;
 }
 
 decl_storage! {
@@ -186,12 +188,12 @@ impl<T: Trait> Module<T> {
         // You cannot prefund any amount unless you have at least at balance of 1618 units + the amount you want to prefund            
         // Ensure that the funds can be subtracted from sender's balance without causing the account to be destroyed by the existential deposit 
         let min_balance: ComparisonAmounts =  1618u128;
-        let current_balance: ComparisonAmounts = <T::Conversions as Convert<CurrencyBalanceOf<T>, u128>>::convert(T::Currency::free_balance(&s));
-        let prefund_amount: ComparisonAmounts = <T::Conversions as Convert<AccountBalanceOf<T>, u128>>::convert(c.clone());
+        let current_balance: ComparisonAmounts = <T::PrefundingConversions as Convert<CurrencyBalanceOf<T>, u128>>::convert(T::Currency::free_balance(&s));
+        let prefund_amount: ComparisonAmounts = <T::PrefundingConversions as Convert<AccountBalanceOf<T>, u128>>::convert(c.clone());
         let minimum_amount: ComparisonAmounts = min_balance + prefund_amount;        
         
         if current_balance >= minimum_amount {
-            let converted_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(c.clone());
+            let converted_amount: CurrencyBalanceOf<T> = <T::PrefundingConversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(c.clone());
             
             // Lock the amount from the sender and set deadline
             T::Currency::set_lock(Self::get_prefunding_id(h), &s, converted_amount, d, WithdrawReason::Reserve.into());
@@ -206,7 +208,7 @@ impl<T: Trait> Module<T> {
     /// Generate Prefund Id from hash  
     fn get_prefunding_id(hash: T::Hash) -> LockIdentifier {
         // Convert Hash to ID using first 8 bytes of hash
-        return <T::Conversions as Convert<Vec<u8>, LockIdentifier>>::convert(hash.encode());
+        return <T::PrefundingConversions as Convert<Vec<u8>, LockIdentifier>>::convert(hash.encode());
     }
     /// generate reference hash
     fn get_pseudo_random_hash(sender: T::AccountId, recipient: T::AccountId) -> T::Hash {
@@ -343,14 +345,14 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
     fn prefunding_for(who: T::AccountId, recipient: T::AccountId, amount: u128, deadline: T::BlockNumber, ref_hash: T::Hash, uid: T::Hash) -> Result {
         
         // As amount will always be positive, convert for use in accounting
-        let amount_converted: AccountBalanceOf<T> = <T::Conversions as Convert<u128, AccountBalanceOf<T>>>::convert(amount);  
+        let amount_converted: AccountBalanceOf<T> = <T::PrefundingConversions as Convert<u128, AccountBalanceOf<T>>>::convert(amount);  
         // Convert this for the inversion
-        let mut to_invert: i128 = <T::Conversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount_converted.clone());
+        let mut to_invert: i128 = <T::PrefundingConversions as Convert<AccountBalanceOf<T>, i128>>::convert(amount_converted.clone());
         // invert the amount
         to_invert = to_invert * -1;
         
         let increase_amount: AccountBalanceOf<T> = amount_converted.clone();
-        let decrease_amount: AccountBalanceOf<T> = <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(to_invert);
+        let decrease_amount: AccountBalanceOf<T> = <T::PrefundingConversions as Convert<i128, AccountBalanceOf<T>>>::convert(to_invert);
         
         let current_block = <system::Module<T>>::block_number();
         
@@ -360,11 +362,11 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         let prefunding_hash: T::Hash = ref_hash.clone();
         
         // convert the account balanace to the currency balance (i128 -> u128)
-        let currency_amount: CurrencyBalanceOf<T> = <T::Conversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(amount_converted.clone());
+        let currency_amount: CurrencyBalanceOf<T> = <T::PrefundingConversions as Convert<AccountBalanceOf<T>, CurrencyBalanceOf<T>>>::convert(amount_converted.clone());
         
         // NEED TO CHECK THAT THE DEADLINE IS SENSIBLE!!!!
         // 48 hours is the minimum deadline. This is the minimum amountof time before the money can be reclaimed
-        let minimum_deadline: T::BlockNumber = current_block + <T::Conversions as Convert<u64, T::BlockNumber>>::convert(11520u64);
+        let minimum_deadline: T::BlockNumber = current_block + <T::PrefundingConversions as Convert<u64, T::BlockNumber>>::convert(11520u64);
         
         if deadline < minimum_deadline {
             Self::deposit_event(RawEvent::ErrorShortDeadline(uid));
@@ -386,10 +388,10 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         // Deposit taken at this point. Note that if an error occurs beyond here we need to remove the locked funds.            
         
         // Buyer
-        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100050000000u64); // debit  increase 110100050000000 Prefunding Account
-        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // credit decrease 110100040000000 XTX Balance
-        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // debit  increase 360600020000000 Runtime Ledger by Module
-        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600060000000u64); // debit  increase 360600060000000 Runtime Ledger Control
+        let account_1: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100050000000u64); // debit  increase 110100050000000 Prefunding Account
+        let account_2: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // credit decrease 110100040000000 XTX Balance
+        let account_3: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // debit  increase 360600020000000 Runtime Ledger by Module
+        let account_4: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600060000000u64); // debit  increase 360600060000000 Runtime Ledger Control
         
         // Keys for posting
         let mut forward_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(10);
@@ -407,7 +409,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
         
-        match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
+        match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
             Ok(_) => (),
             Err(_e) => {
                 Self::deposit_event(RawEvent::ErrorInAccounting1(uid));
@@ -457,26 +459,26 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         // If they do not have sufficient funds, the credit note can still be issued, but will remain outstanding until it is settled.
         
         // As amount will always be positive, convert for use in accounting
-        let amount_converted: AccountBalanceOf<T> = <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(n.clone());  
+        let amount_converted: AccountBalanceOf<T> = <T::PrefundingConversions as Convert<i128, AccountBalanceOf<T>>>::convert(n.clone());  
         // invert the amount
         let inverted: i128 = n * -1;
         let increase_amount: AccountBalanceOf<T> = amount_converted.clone();
-        let decrease_amount: AccountBalanceOf<T> =  <T::Conversions as Convert<i128, AccountBalanceOf<T>>>::convert(inverted);
+        let decrease_amount: AccountBalanceOf<T> =  <T::PrefundingConversions as Convert<i128, AccountBalanceOf<T>>>::convert(inverted);
         
         let current_block = <system::Module<T>>::block_number();
         let current_block_dupe = <system::Module<T>>::block_number();
         
         // Seller
-        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100080000000u64); // Debit  increase 110100080000000	Accounts receivable (Sales Control Account or Trade Debtor's Account)
-        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(240400010000000u64); // Credit increase 240400010000000	Product or Service Sales
-        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // Debit  increase 360600010000000	Sales Ledger by Payer
-        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600050000000u64); // Debit  increase 360600050000000	Sales Ledger Control
+        let account_1: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100080000000u64); // Debit  increase 110100080000000	Accounts receivable (Sales Control Account or Trade Debtor's Account)
+        let account_2: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(240400010000000u64); // Credit increase 240400010000000	Product or Service Sales
+        let account_3: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // Debit  increase 360600010000000	Sales Ledger by Payer
+        let account_4: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600050000000u64); // Debit  increase 360600050000000	Sales Ledger Control
         
         // Buyer
-        let account_5: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(120200030000000u64); // Credit increase 120200030000000	Accounts payable
-        let account_6: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(250500120000013u64); // Debit  increase 250500120000013	Labour
-        let account_7: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600030000000u64); // Debit  increase 360600030000000	Purchase Ledger by Vendor
-        let account_8: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600070000000u64); // Debit  increase 360600070000000	Purchase Ledger Control       
+        let account_5: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(120200030000000u64); // Credit increase 120200030000000	Accounts payable
+        let account_6: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(250500120000013u64); // Debit  increase 250500120000013	Labour
+        let account_7: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600030000000u64); // Debit  increase 360600030000000	Purchase Ledger by Vendor
+        let account_8: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600070000000u64); // Debit  increase 360600070000000	Purchase Ledger Control       
         
         // Keys for posting
         let mut forward_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(10);
@@ -503,7 +505,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
         
-        match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
+        match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
             Ok(_) => (),
             Err(_e) => {
                 Self::deposit_event(RawEvent::ErrorInAccounting2(u));
@@ -563,8 +565,8 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         }
                         
                         // get prefunding amount for posting to accounts
-                        let temp_balance: CurrencyBalanceOf<T> = <T::Conversions as Convert<u64, CurrencyBalanceOf<T>>>::convert(0u64);
-                        let temp_block: T::BlockNumber = <T::Conversions as Convert<u64, T::BlockNumber>>::convert(0u64);
+                        let temp_balance: CurrencyBalanceOf<T> = <T::PrefundingConversions as Convert<u64, CurrencyBalanceOf<T>>>::convert(0u64);
+                        let temp_block: T::BlockNumber = <T::PrefundingConversions as Convert<u64, T::BlockNumber>>::convert(0u64);
                         let mut prefunding: (CurrencyBalanceOf<T>, T::BlockNumber) = (temp_balance, temp_block);
                         match Self::prefunding(&h) {
                             Some(v) => {
@@ -580,27 +582,27 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         let prefunded_amount: CurrencyBalanceOf<T> = prefunding.0;
                         
                         // convert to Account Balance type
-                        let amount: AccountBalanceOf<T> = <T::Conversions as Convert<CurrencyBalanceOf<T>,AccountBalanceOf<T>>>::convert(prefunded_amount.into());
+                        let amount: AccountBalanceOf<T> = <T::PrefundingConversions as Convert<CurrencyBalanceOf<T>,AccountBalanceOf<T>>>::convert(prefunded_amount.into());
                         // Convert for calculation
-                        let mut to_invert: i128 = <T::Conversions as Convert<AccountBalanceOf<T>,i128>>::convert(amount.clone());
+                        let mut to_invert: i128 = <T::PrefundingConversions as Convert<AccountBalanceOf<T>,i128>>::convert(amount.clone());
                         to_invert = to_invert * -1;
                         let increase_amount: AccountBalanceOf<T> = amount;
-                        let decrease_amount: AccountBalanceOf<T> = <T::Conversions as Convert<i128,AccountBalanceOf<T>>>::convert(to_invert);
+                        let decrease_amount: AccountBalanceOf<T> = <T::PrefundingConversions as Convert<i128,AccountBalanceOf<T>>>::convert(to_invert);
                         
                         let current_block = <system::Module<T>>::block_number();
                         let current_block_dupe = <system::Module<T>>::block_number();
                         
-                        let account_1: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(120200030000000u64); // 120200030000000	Debit  decrease Accounts payable
-                        let account_2: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100050000000u64); // 110100050000000	Credit decrease Totem Runtime Deposit (Escrow)
-                        let account_3: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // 360600020000000	Credit decrease Runtime Ledger by Module
-                        let account_4: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600060000000u64); // 360600060000000	Credit decrease Runtime Ledger Control
-                        let account_5: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600030000000u64); // 360600030000000	Credit decrease Purchase Ledger by Vendor
-                        let account_6: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600070000000u64); // 360600070000000	Credit decrease Purchase Ledger Control
+                        let account_1: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(120200030000000u64); // 120200030000000	Debit  decrease Accounts payable
+                        let account_2: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100050000000u64); // 110100050000000	Credit decrease Totem Runtime Deposit (Escrow)
+                        let account_3: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // 360600020000000	Credit decrease Runtime Ledger by Module
+                        let account_4: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600060000000u64); // 360600060000000	Credit decrease Runtime Ledger Control
+                        let account_5: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600030000000u64); // 360600030000000	Credit decrease Purchase Ledger by Vendor
+                        let account_6: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600070000000u64); // 360600070000000	Credit decrease Purchase Ledger Control
                         
-                        let account_7: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // 110100040000000	Debit  increase XTX Balance
-                        let account_8: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(110100080000000u64); // 110100080000000	Credit decrease Accounts receivable (Sales Control Account or Trade Debtor's Account)
-                        let account_9: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // 360600010000000	Credit decrease Sales Ledger by Payer
-                        let account_10: AccountOf<T> = <T::Conversions as Convert<u64, AccountOf<T>>>::convert(360600050000000u64); // 360600050000000	Credit decrease Sales Ledger Control
+                        let account_7: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // 110100040000000	Debit  increase XTX Balance
+                        let account_8: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100080000000u64); // 110100080000000	Credit decrease Accounts receivable (Sales Control Account or Trade Debtor's Account)
+                        let account_9: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // 360600010000000	Credit decrease Sales Ledger by Payer
+                        let account_10: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600050000000u64); // 360600050000000	Credit decrease Sales Ledger Control
                         
                         // Keys for posting
                         // Buyer
@@ -635,7 +637,7 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         
                         let track_rev_keys = Vec::<(T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
                         
-                        match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
+                        match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
                             Ok(_) => (),
                             Err(_e) => {
                                 Self::deposit_event(RawEvent::ErrorInAccounting3(uid));

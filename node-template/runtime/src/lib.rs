@@ -47,6 +47,7 @@ use version::RuntimeVersion;
 
 // A few exports that help ease life for downstream crates.
 pub use balances::Call as BalancesCall;
+pub use accounting::Call as AccountingCall;
 pub use consensus::Call as ConsensusCall;
 #[cfg(any(feature = "std", test))]
 pub use runtime_primitives::BuildStorage;
@@ -229,6 +230,11 @@ impl system::Trait for Runtime {
     type Origin = Origin;
 }
 
+impl accounting::Trait for Runtime {
+	type Event = Event;
+	type CoinAmount = u128;
+}
+
 impl aura::Trait for Runtime {
     type HandleReport = ();
 }
@@ -274,6 +280,8 @@ impl balances::Trait for Runtime {
     type TransactionPayment = ();
     type DustRemoval = ();
     type TransferPayment = ();
+
+    type Accounting = accounting::Module<Self>;
 }
 
 impl sudo::Trait for Runtime {
@@ -333,7 +341,8 @@ construct_runtime!(
 	{
 		System: system::{default, Log(ChangesTrieRoot)},
 		Timestamp: timestamp::{Module, Call, Storage, Config<T>, Inherent},
-		Consensus: consensus::{Module, Call, Storage, Config<T>, Log(AuthoritiesChange), Inherent},
+        Consensus: consensus::{Module, Call, Storage, Config<T>, Log(AuthoritiesChange), Inherent},
+        Accounting: accounting::{Module, Storage, Event<T>},
 		Aura: aura::{Module},
 		Indices: indices,
 		Balances: balances,
