@@ -185,20 +185,21 @@ decl_module! {
                     // Order is owned by sender, status unaccepted a
                     let approver: T::AccountId = order.approver;
                     let order_status: u16 = order.order_status;
-                    if let (approver, order_status) = (who, 0u16) {
+                    if (approver.clone(), order_status) == (who.clone(), 0u16) {
                         <Owner<T>>::mutate(&order.commander, |owner| {
                             owner.retain(|v| v != &tx_keys_medium.record_id)
                         });
                         <Beneficiary<T>>::mutate(&order.fulfiller, |owner| {
                             owner.retain(|v| v != &tx_keys_medium.record_id)
                         });
-                        <Approver<T>>::mutate(&approver, |owner| {
+                        // <Approver<T>>::mutate(&approver, |owner| {
+                        <Approver<T>>::mutate(approver, |owner| {
                             owner.retain(|v| v != &tx_keys_medium.record_id)
                         });
                         <Postulate<T>>::remove(&tx_keys_medium.record_id);
                         <Orders<T>>::remove(&tx_keys_medium.record_id);
                         <OrderItems<T>>::remove(&tx_keys_medium.record_id);
-                    } else {
+                    } else if (approver, order_status) != (who, 0u16) {
                         Self::deposit_event(RawEvent::ErrorStatusNotAllowed6(tx_keys_medium.tx_uid));
                         return Err("This is not your order or wrong status");
                     }

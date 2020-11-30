@@ -174,7 +174,7 @@
 use parity_codec::{Codec, Decode, Encode};
 use primitives::traits::{
     As, CheckedAdd, CheckedSub, MaybeSerializeDebug, Member, Saturating, SimpleArithmetic,
-    StaticLookup, Zero,
+    StaticLookup, Zero, Convert,
 };
 use rstd::prelude::*;
 use rstd::{cmp, result};
@@ -219,6 +219,9 @@ pub trait Subtrait<I: Instance = DefaultInstance>:
 
     /// Totem Accounting type
     type Accounting: Posting<Self::AccountId, Self::Hash, Self::BlockNumber, Self::Balance>;
+
+    type BalancesConversions: Convert<u128, Self::Balance> 
+        + Convert<u64, Self::BlockNumber>;
 }
 
 pub trait Trait<I: Instance = DefaultInstance>:
@@ -259,6 +262,9 @@ pub trait Trait<I: Instance = DefaultInstance>:
 
     /// Totem Accounting type
     type Accounting: Posting<Self::AccountId, Self::Hash, Self::BlockNumber, Self::Balance>;
+
+    type BalancesConversions: Convert<u128, Self::Balance> 
+        + Convert<u64, Self::BlockNumber>;
 }
 
 impl<T: Trait<I>, I: Instance> Subtrait<I> for T {
@@ -266,6 +272,7 @@ impl<T: Trait<I>, I: Instance> Subtrait<I> for T {
     type OnFreeBalanceZero = T::OnFreeBalanceZero;
     type OnNewAccount = T::OnNewAccount;
     type Accounting = T::Accounting;
+    type BalancesConversions = T::BalancesConversions;
 }
 
 decl_event!(
@@ -735,6 +742,7 @@ impl<T: Subtrait<I>, I: Instance> Trait<I> for ElevatedTrait<T, I> {
     type TransferPayment = ();
     type DustRemoval = ();
     type Accounting = T::Accounting;
+    type BalancesConversions = T::BalancesConversions;
 }
 
 impl<T: Trait<I>, I: Instance> Currency<T::AccountId> for Module<T, I>
@@ -835,11 +843,10 @@ where
                 Self::new_account(dest, new_to_balance);
             }
             Self::set_free_balance(dest, new_to_balance);
-
+            // Account for fees in Totem
             match <T::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::Balance>>::account_for_fees(fee, dest.clone()) {
                 Ok(_) => (),
                 Err(_e) => {
-                    // Self::deposit_event(RawEvent::ErrorInAccounting1(uid));
                     return Err("An error occured posting to accounts");
                 },
             }
@@ -1065,7 +1072,26 @@ where
         if let Some(lock) = new_lock {
             locks.push(lock)
         }
-        <Locks<T, I>>::insert(who, locks);
+        // Totem Update
+        // The standard lock only stacks locks - it does not actually lock user's funds.
+        // Reserved balances can also be slashed, so to ensure that escrow funds are properly locked
+        // this function has been adapted to physically remove the associated funds. Note this 
+        // also reduces the Total Issuance. The only way to recover the funds is to unlock.
+        match Self::withdraw(
+            who,
+            amount,
+            WithdrawReason::Escrow,
+            ExistenceRequirement::KeepAlive,
+        ) {
+            Ok(_) => {
+                <Locks<T, I>>::insert(who, locks);
+            },
+            Err(_e) => {
+                // Lock not set
+                ();
+            },
+        }
+        // <Locks<T, I>>::insert(who, locks);
     }
 
     fn extend_lock(
@@ -1102,22 +1128,73 @@ where
         if let Some(lock) = new_lock {
             locks.push(lock)
         }
-        <Locks<T, I>>::insert(who, locks);
+        // Totem Update
+        // The standard lock only stacks locks - it does not actually lock user's funds.
+        // Reserved balances can also be slashed, so to ensure that escrow funds are properly locked
+        // this function has been adapted to physically remove the associated funds. Note this 
+        // also reduces the Total Issuance. The only way to recover the funds is to unlock.
+        match Self::withdraw(
+            who,
+            amount,
+            WithdrawReason::Escrow,
+            ExistenceRequirement::KeepAlive,
+        ) {
+            Ok(_) => {
+                <Locks<T, I>>::insert(who, locks);
+            },
+            Err(_e) => {
+                // Lock not set
+                ();
+            },
+        }
+        // <Locks<T, I>>::insert(who, locks);
     }
 
     fn remove_lock(id: LockIdentifier, who: &T::AccountId) {
         let now = <system::Module<T>>::block_number();
+        // Totem Update
+        // dummy placeholders
+        let amount: T::Balance = <T::BalancesConversions as Convert<u128, T::Balance>>::convert(0u128);
+        let until: T::BlockNumber = <T::BalancesConversions as Convert<u64, T::BlockNumber>>::convert(0u64);
+        let reasons: WithdrawReasons = WithdrawReasons::all();
+
+        // For holding a single lock value
+        let mut lock = Some(BalanceLockV1 {
+            id,
+            amount,
+            until,
+            reasons,
+        });
+        
+        // If the id is valid get the amount from the lock record
+        // and at the same time return a Vec containing all the lock records minus the one we've taken
         let locks = Self::locks(who)
-            .into_iter()
-            .filter_map(|l| {
-                if l.until > now && l.id != id {
-                    Some(l)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        <Locks<T, I>>::insert(who, locks);
+        .into_iter()
+        .filter_map(|ls| {
+            if ls.until > now && ls.id == id {
+                lock.take().map(|_l| BalanceLockV1 {
+                    id: ls.id,
+                    amount: ls.amount,
+                    until: ls.until,
+                    reasons: ls.reasons,
+                })
+            } else if ls.until > now && ls.id != id {
+                Some(ls)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+        // If there is an amount then recover funds, clean up records storage
+        match lock {
+            Some(l) => {
+                // Recovering the now unlocked funds.
+                Self::deposit_into_existing(&who, l.amount).ok();
+                <Locks<T, I>>::insert(who, locks);
+            }
+            None => (),
+        }
     }
 }
 

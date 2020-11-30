@@ -128,9 +128,8 @@ pub trait Trait: system::Trait + timestamp::Trait {
         + MaybeSerializeDebug;
 
     type AccountingConversions: Convert<Self::CoinAmount, LedgerBalance>
-        + Convert<LedgerBalance, i128>; // Used
-                                        // Convert<Self::CoinAmount, u128>;
-
+        + Convert<LedgerBalance, i128>;
+        
     // Convert<i128, AccountBalanceOf<Self>> +
     // Convert<i128, u128> +
     // Convert<bool, UnLocked<Self>> +

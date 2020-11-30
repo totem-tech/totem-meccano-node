@@ -153,7 +153,8 @@ decl_module! {
             user_hash: UserNameHash, // this is what is signed 
             signature: Ed25519signature
         ) -> Result {
-
+            // ensure that the transaction is signed. Nothing to do woth what happens next!
+            let _user = ensure_signed(origin)?;
             // provided you are the owner of the keys you can remove them entirely from storage.
             let sign_key = Self::public_key_sign(&user_hash).ok_or("Storage Read Error: cannot get signature key")?; 
             ensure!(signature.verify(&user_hash[..], &sign_key), "Invalid signature for this key");

@@ -98,7 +98,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 11,
+	spec_version: 12,
     // incremental changes
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
@@ -223,6 +223,7 @@ impl balances::Trait for Runtime {
 	type DustRemoval = ();
 	type TransferPayment = ();
 	type Accounting = accounting::Module<Self>;
+	type BalancesConversions = ConversionHandler;
 }
 
 impl consensus::Trait for Runtime {
