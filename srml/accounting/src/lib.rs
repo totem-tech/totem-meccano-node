@@ -129,30 +129,6 @@ pub trait Trait: system::Trait + timestamp::Trait {
 
     type AccountingConversions: Convert<Self::CoinAmount, LedgerBalance>
         + Convert<LedgerBalance, i128>;
-        
-    // Convert<i128, AccountBalanceOf<Self>> +
-    // Convert<i128, u128> +
-    // Convert<bool, UnLocked<Self>> +
-    // Convert<AccountBalanceOf<Self>, i128> +
-    // Convert<AccountBalanceOf<Self>, u128> +
-    // Convert<u64, Self::BlockNumber> +
-    // Convert<Self::BlockNumber, u64>;
-    // Convert<AccountBalanceOf<Self>, u128> +
-    // Convert<AccountBalanceOf<Self>, CurrencyBalanceOf<Self>> +
-    // Convert<CurrencyBalanceOf<Self>, AccountBalanceOf<Self>> +
-    // Convert<Vec<u8>, LockIdentifier> +
-    // Convert<u64, AccountOf<Self>> +
-    // Convert<u64, CurrencyBalanceOf<Self>> +
-    // Convert<u64, Self::BlockNumber> +
-    // Convert<i128, AccountBalanceOf<Self>> +
-    // Convert<u128, AccountBalanceOf<Self>> +
-    // Convert<u128, i128> +
-    // Convert<AccountBalanceOf<Self>, i128> +
-    // Convert<CurrencyBalanceOf<Self>, u128>;
-    // Convert<Self::Hash, H256> +
-    // Convert<Self::BlockNumber, u64> +
-    // Convert<u64, Self::BlockNumber> +
-    // Convert<H256, Self::Hash>;
 }
 
 pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
