@@ -173,8 +173,8 @@
 
 use parity_codec::{Codec, Decode, Encode};
 use primitives::traits::{
-    As, CheckedAdd, CheckedSub, MaybeSerializeDebug, Member, Saturating, SimpleArithmetic,
-    StaticLookup, Zero, Convert,
+    As, CheckedAdd, CheckedSub, Convert, MaybeSerializeDebug, Member, Saturating, SimpleArithmetic,
+    StaticLookup, Zero,
 };
 use rstd::prelude::*;
 use rstd::{cmp, result};
@@ -187,6 +187,7 @@ use srml_support::traits::{
 use srml_support::{decl_event, decl_module, decl_storage, Parameter, StorageMap, StorageValue};
 use system::{ensure_signed, IsDeadAccount, OnNewAccount};
 
+// Added for Totem Accounting
 use accounting::Posting;
 
 mod mock;
@@ -220,8 +221,7 @@ pub trait Subtrait<I: Instance = DefaultInstance>:
     /// Totem Accounting type
     type Accounting: Posting<Self::AccountId, Self::Hash, Self::BlockNumber, Self::Balance>;
 
-    type BalancesConversions: Convert<u128, Self::Balance> 
-        + Convert<u64, Self::BlockNumber>;
+    type BalancesConversions: Convert<u128, Self::Balance> + Convert<u64, Self::BlockNumber>;
 }
 
 pub trait Trait<I: Instance = DefaultInstance>:
@@ -263,8 +263,7 @@ pub trait Trait<I: Instance = DefaultInstance>:
     /// Totem Accounting type
     type Accounting: Posting<Self::AccountId, Self::Hash, Self::BlockNumber, Self::Balance>;
 
-    type BalancesConversions: Convert<u128, Self::Balance> 
-        + Convert<u64, Self::BlockNumber>;
+    type BalancesConversions: Convert<u128, Self::Balance> + Convert<u64, Self::BlockNumber>;
 }
 
 impl<T: Trait<I>, I: Instance> Subtrait<I> for T {
@@ -1075,8 +1074,9 @@ where
         // Totem Update
         // The standard lock only stacks locks - it does not actually lock user's funds.
         // Reserved balances can also be slashed, so to ensure that escrow funds are properly locked
-        // this function has been adapted to physically remove the associated funds. Note this 
+        // this function has been adapted to physically remove the associated funds. Note this
         // also reduces the Total Issuance. The only way to recover the funds is to unlock.
+
         match Self::withdraw(
             who,
             amount,
@@ -1084,14 +1084,22 @@ where
             ExistenceRequirement::KeepAlive,
         ) {
             Ok(_) => {
+                // Store funds in Totem escrow account.
+                let escrow_account: T::AccountId = <T::Accounting as Posting<
+                    T::AccountId,
+                    T::Hash,
+                    T::BlockNumber,
+                    T::Balance,
+                >>::get_escrow_account();
+                Self::make_free_balance_be(&escrow_account, amount);
+                // Update locks
                 <Locks<T, I>>::insert(who, locks);
-            },
+            }
             Err(_e) => {
                 // Lock not set
                 ();
-            },
+            }
         }
-        // <Locks<T, I>>::insert(who, locks);
     }
 
     fn extend_lock(
@@ -1131,7 +1139,7 @@ where
         // Totem Update
         // The standard lock only stacks locks - it does not actually lock user's funds.
         // Reserved balances can also be slashed, so to ensure that escrow funds are properly locked
-        // this function has been adapted to physically remove the associated funds. Note this 
+        // this function has been adapted to physically remove the associated funds. Note this
         // also reduces the Total Issuance. The only way to recover the funds is to unlock.
         match Self::withdraw(
             who,
@@ -1140,12 +1148,20 @@ where
             ExistenceRequirement::KeepAlive,
         ) {
             Ok(_) => {
+                // Store funds in Totem escrow account.
+                let escrow_account: T::AccountId = <T::Accounting as Posting<
+                    T::AccountId,
+                    T::Hash,
+                    T::BlockNumber,
+                    T::Balance,
+                >>::get_escrow_account();
+                Self::make_free_balance_be(&escrow_account, amount);
                 <Locks<T, I>>::insert(who, locks);
-            },
+            }
             Err(_e) => {
                 // Lock not set
                 ();
-            },
+            }
         }
         // <Locks<T, I>>::insert(who, locks);
     }
@@ -1154,8 +1170,10 @@ where
         let now = <system::Module<T>>::block_number();
         // Totem Update
         // dummy placeholders
-        let amount: T::Balance = <T::BalancesConversions as Convert<u128, T::Balance>>::convert(0u128);
-        let until: T::BlockNumber = <T::BalancesConversions as Convert<u64, T::BlockNumber>>::convert(0u64);
+        let amount: T::Balance =
+            <T::BalancesConversions as Convert<u128, T::Balance>>::convert(0u128);
+        let until: T::BlockNumber =
+            <T::BalancesConversions as Convert<u64, T::BlockNumber>>::convert(0u64);
         let reasons: WithdrawReasons = WithdrawReasons::all();
 
         // For holding a single lock value
@@ -1165,32 +1183,35 @@ where
             until,
             reasons,
         });
-        
+
         // If the id is valid get the amount from the lock record
         // and at the same time return a Vec containing all the lock records minus the one we've taken
         let locks = Self::locks(who)
-        .into_iter()
-        .filter_map(|ls| {
-            if ls.until > now && ls.id == id {
-                lock.take().map(|_l| BalanceLockV1 {
-                    id: ls.id,
-                    amount: ls.amount,
-                    until: ls.until,
-                    reasons: ls.reasons,
-                })
-            } else if ls.until > now && ls.id != id {
-                Some(ls)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+            .into_iter()
+            .filter_map(|ls| {
+                if ls.until > now && ls.id == id {
+                    lock.take().map(|_l| BalanceLockV1 {
+                        id: ls.id,
+                        amount: ls.amount,
+                        until: ls.until,
+                        reasons: ls.reasons,
+                    })
+                } else if ls.until > now && ls.id != id {
+                    Some(ls)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
 
         // If there is an amount then recover funds, clean up records storage
         match lock {
             Some(l) => {
                 // Recovering the now unlocked funds.
-                Self::deposit_into_existing(&who, l.amount).ok();
+                // If this account has been reaped it will create the address add the funds back.
+                // Handling the payment to any beneficiary should be done outside this module and immediately following this.
+                // TOTEM-TODO in future this should be made a seperate function
+                Self::make_free_balance_be(&who, l.amount);
                 <Locks<T, I>>::insert(who, locks);
             }
             None => (),

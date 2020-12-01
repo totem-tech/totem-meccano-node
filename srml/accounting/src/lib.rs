@@ -88,7 +88,7 @@ use parity_codec::{Codec, Decode, Encode};
 // use codec::{ Encode, Decode }; // v2
 
 use srml_support::{
-    decl_event, decl_module, decl_storage, dispatch::Result, Parameter, StorageMap, StorageValue,
+    decl_event, decl_module, decl_storage, dispatch::Result, Parameter, StorageMap, StorageValue, 
 };
 //v1
 // use frame_support::{decl_event, decl_error, decl_module, decl_storage, dispatch::DispatchResult, weights::{Weight, DispatchClass}, StorageValue, StorageMap}; // v2
@@ -103,6 +103,8 @@ use rstd::prelude::*;
 
 use sr_primitives::traits::{As, Convert, Hash, MaybeSerializeDebug, Member, SimpleArithmetic};
 // use sp_runtime::traits::{ Member, Hash }; // v2
+
+use substrate_primitives::crypto::UncheckedFrom;
 
 // Balance on an account can be negative
 type LedgerBalance = i128;
@@ -165,6 +167,8 @@ pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
         )>,
     ) -> Result;
     fn account_for_fees(f: CoinAmount, p: AccountId) -> Result;
+    fn get_escrow_account() -> AccountId;
+    // fn get_escrow_account();
     fn get_pseudo_random_hash(s: AccountId, r: AccountId) -> Hash;
 }
 
@@ -279,7 +283,10 @@ impl<T: Trait> Module<T> {
     }
 }
 
-impl<T: Trait> Posting<T::AccountId, T::Hash, T::BlockNumber, T::CoinAmount> for Module<T> {
+impl<T: Trait> Posting<T::AccountId, T::Hash, T::BlockNumber, T::CoinAmount> for Module<T> 
+where 
+    T::AccountId: UncheckedFrom<[u8; 32]>,
+{
     type Account = Account;
     type LedgerBalance = LedgerBalance;
     type PostingIndex = PostingIndex;
@@ -352,6 +359,11 @@ impl<T: Trait> Posting<T::AccountId, T::Hash, T::BlockNumber, T::CoinAmount> for
             }
         }
         Ok(())
+    }
+    /// This function simply returns the Totem escrow account address
+    fn get_escrow_account() -> T::AccountId {
+        let escrow_account: [u8;32] = *b"TotemsEscrowAddress4LockingFunds";
+        UncheckedFrom::unchecked_from(escrow_account)
     }
     /// This function takes the transaction fee and prepares to account for it in accounting.
     /// This is one of the few functions that will set the ledger accounts to be updated here. Fees
