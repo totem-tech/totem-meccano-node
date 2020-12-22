@@ -88,6 +88,8 @@ mod projects;
 mod projects_traits;
 mod timekeeping;
 mod timekeeping_traits;
+mod crowdsale;
+mod crowdsale_traits;
 
 /// This is the Totem runtime version.
 pub const VERSION: RuntimeVersion = RuntimeVersion {
@@ -98,7 +100,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 13,
+	spec_version: 14,
     // incremental changes
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
@@ -347,11 +349,17 @@ impl prefunding::Trait for Runtime {
 }
 
 impl orders::Trait for Runtime {
-    type Event = Event;
+	type Event = Event;
     type Accounting = accounting::Module<Self>;
 	type Prefunding = PrefundingModule;
 	type OrderConversions = ConversionHandler;
     type Bonsai = BonsaiModule;
+}
+
+impl crowdsale::Trait for Runtime {
+	type Event = Event;
+	type Currency = balances::Module<Self>;
+	type CrowdsaleConversions = ConversionHandler;
 }
 
 construct_runtime!(
@@ -386,6 +394,7 @@ construct_runtime!(
 		ArchiveModule: archive::{Module, Call, Event<T>},
 		OrdersModule: orders::{Module, Call, Storage, Event<T>},
         PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
+        CrowdsaleModule: crowdsale::{Module, Call, Storage, Event<T>},
 	}
 );
 
