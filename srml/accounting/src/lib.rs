@@ -168,7 +168,6 @@ pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
     ) -> Result;
     fn account_for_fees(f: CoinAmount, p: AccountId) -> Result;
     fn get_escrow_account() -> AccountId;
-    // fn get_escrow_account();
     fn get_pseudo_random_hash(s: AccountId, r: AccountId) -> Hash;
 }
 
