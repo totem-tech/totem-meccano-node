@@ -12,6 +12,9 @@ export CARGO_INCREMENTAL=0
 # Save current directory.
 pushd .
 
+# Use the needed version.
+rustup default nightly-2019-10-14
+
 cd -- "$ROOT"
 
 for SRC in "${SRCS[@]}"
@@ -26,3 +29,6 @@ done
 
 # Restore initial directory.
 popd
+
+# Use stable Rust.
+rustup default stable
