@@ -476,6 +476,10 @@ bitmask! {
 		Fee = 0b00001000,
 		/// In order to hold some funds on behalf of some activity.
 		Escrow = 0b00010000,
+		/// In order to hold some funds awarded for referral.
+		Referral = 0b00100000,
+		/// In order to hold some funds in the Crowdsale.
+		CrowdSale = 0b01000000,
 	}
 }
 

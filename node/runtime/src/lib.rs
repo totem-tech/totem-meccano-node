@@ -68,6 +68,7 @@ pub use runtime_primitives::BuildStorage;
 pub use consensus::Call as ConsensusCall;
 pub use timestamp::Call as TimestampCall;
 pub use accounting::Call as AccountingCall;
+pub use funding::Call as FundingCall;
 pub use balances::Call as BalancesCall;
 pub use runtime_primitives::{Permill, Perbill};
 pub use support::StorageValue;
@@ -88,8 +89,8 @@ mod projects;
 mod projects_traits;
 mod timekeeping;
 mod timekeeping_traits;
-mod crowdsale;
-mod crowdsale_traits;
+// mod crowdsale;
+// mod crowdsale_traits;
 
 /// This is the Totem runtime version.
 pub const VERSION: RuntimeVersion = RuntimeVersion {
@@ -100,7 +101,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 14,
+	spec_version: 15,
     // incremental changes
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
@@ -356,10 +357,9 @@ impl orders::Trait for Runtime {
     type Bonsai = BonsaiModule;
 }
 
-impl crowdsale::Trait for Runtime {
+impl funding::Trait for Runtime {
 	type Event = Event;
-	type Currency = balances::Module<Self>;
-	type CrowdsaleConversions = ConversionHandler;
+	// type Bonsai = BonsaiModule;
 }
 
 construct_runtime!(
@@ -394,7 +394,7 @@ construct_runtime!(
 		ArchiveModule: archive::{Module, Call, Event<T>},
 		OrdersModule: orders::{Module, Call, Storage, Event<T>},
         PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
-        CrowdsaleModule: crowdsale::{Module, Call, Storage, Event<T>},
+        FundingModule: funding::{Module, Call, Storage, Event<T>},
 	}
 );
 

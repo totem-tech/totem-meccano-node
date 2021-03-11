@@ -18,6 +18,7 @@ version = { package = "sr-version", path = "../../core/sr-version", default-feat
 support = { package = "srml-support", path = "../../srml/support", default-features = false }
 aura = { package = "srml-aura", path = "../../srml/aura", default-features = false }
 accounting = { package = "accounting-pallet", path = "../../srml/accounting", default-features = false }
+funding = { package = "funding-pallet", path = "../../srml/funding", default-features = false }
 balances = { package = "srml-balances", version = "2.0.0", path = "../../srml/balances", default-features = false }
 consensus = { package = "srml-consensus", path = "../../srml/consensus", default-features = false }
 contract = { package = "srml-contract", path = "../../srml/contract", default-features = false }
@@ -52,6 +53,7 @@ std = [
 	"runtime-io/std",
 	"support/std",
 	"accounting/std",
+	"funding/std",
 	"balances/std",
 	"consensus/std",
 	"contract/std",

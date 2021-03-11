@@ -548,6 +548,21 @@ version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "funding-pallet"
+version = "1.0.0"
+dependencies = [
+ "hex-literal 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parity-codec 3.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.97 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sr-primitives 1.0.0",
+ "sr-std 1.0.0",
+ "srml-support 1.0.0",
+ "srml-system 1.0.0",
+ "srml-timestamp 1.0.0",
+ "substrate-primitives 1.0.0",
+]
+
+[[package]]
 name = "futures"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1303,6 +1318,7 @@ name = "node-runtime"
 version = "1.0.0"
 dependencies = [
  "accounting-pallet 1.0.0",
+ "funding-pallet 1.0.0",
  "hex-literal 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "integer-sqrt 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "node-primitives 1.0.0",
