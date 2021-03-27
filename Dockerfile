@@ -77,25 +77,25 @@ RUN mv /usr/share/ca* /tmp && \
 	chown -R totem: /totem/.local && \
 	ln -s /totem/.local/share/totem-meccano /data
 
-# COPY --from=builder /meccano/target/$PROFILE/totem-meccano /usr/local/bin
-COPY --from=builder /meccano/target/$PROFILE/totem-subkey /usr/local/bin
+ COPY --from=builder /meccano/target/$PROFILE/totem-meccano /usr/local/bin
+# COPY --from=builder /meccano/target/$PROFILE/totem-subkey /usr/local/bin
 # COPY --from=builder /meccano/target/$PROFILE/totem-node-rpc-client /usr/local/bin
 # COPY --from=builder /meccano/target/$PROFILE/totem-node-template /usr/local/bin
 # COPY --from=builder /meccano/target/$PROFILE/totem-chain-spec-builder /usr/local/bin
 
 # checks
-#RUN ldd /usr/local/bin/totem-meccano && \
-#	/usr/local/bin/totem-meccano --version
-RUN ldd /usr/local/bin/totem-subkey && \
-	/usr/local/bin/totem-subkey --version
+RUN ldd /usr/local/bin/totem-meccano && \
+	/usr/local/bin/totem-meccano --version
+# RUN ldd /usr/local/bin/totem-subkey && \
+# 	/usr/local/bin/totem-subkey --version
 
 # Shrinking
 RUN rm -rf /usr/lib/python* && \
 	rm -rf /usr/bin /usr/sbin /usr/share/man
 
 USER totem
-#EXPOSE 16181 9944
+EXPOSE 16181 9944
 VOLUME ["/data"]
 
-#CMD ["/usr/local/bin/totem-meccano"]
-CMD ["/usr/local/bin/totem-subkey"]
+CMD ["/usr/local/bin/totem-meccano"]
+# CMD ["/usr/local/bin/totem-subkey"]

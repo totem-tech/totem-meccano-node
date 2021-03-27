@@ -84,6 +84,8 @@ decl_storage! {
         TotalDistributed get(total_distributed): u128;
         // Place to store investors accountids with balances
         AccountIdBalances get(account_id_balances): map T::AccountId => Option<u128>;
+        // List of account Ids who have tokens (updated when  token value is 0)
+        HoldersAccountIds get(holders_account_ids): Vec<T::AccountId>;
     }
 }
 
@@ -257,9 +259,10 @@ decl_module! {
             }
             <Issued<T>>::take();
             <Issued<T>>::put(issued);
-            <AccountIdBalances<T>>::insert(to, new_balance);
+            <AccountIdBalances<T>>::insert(&to, new_balance);
             <TotalDistributed<T>>::take();
             <TotalDistributed<T>>::put(total_distributed);
+            <HoldersAccountIds<T>>::mutate(|holders_account_ids| holders_account_ids.push(to));
             Ok(())
         }
         /// This function transfers funds between accounts (only when opened)
@@ -312,14 +315,17 @@ decl_module! {
                     <AccountIdBalances<T>>::take(&from);
                     <AccountIdBalances<T>>::insert(&from, new_sender_balance);
                     <AccountIdBalances<T>>::take(&to);
-                    <AccountIdBalances<T>>::insert(to, new_receiver_balance);
+                    <AccountIdBalances<T>>::insert(&to, new_receiver_balance);
+                    // Following ensures that only one entry exists in the list of addresses with funds.
+                    <HoldersAccountIds<T>>::mutate(|holders_account_ids| holders_account_ids.retain(|t| {t != &to}));
+                    <HoldersAccountIds<T>>::mutate(|holders_account_ids| holders_account_ids.push(to));
                 } else {
                     let mut new_receiver_balance: u128 = 0u128;
                     match Self::account_id_balances(&to) {
                         Some(b) => new_receiver_balance = b,
                         None => (),
                     }
-
+                    
                     match new_receiver_balance.checked_add(amount) {
                         Some(n) => {
                             new_receiver_balance = n;
@@ -331,10 +337,14 @@ decl_module! {
                     }
                     // balance of sender will be 0 remove from table
                     <AccountIdBalances<T>>::remove(&from);
+                    <HoldersAccountIds<T>>::mutate(|holders_account_ids| holders_account_ids.retain(|f| {f != &from}));
                     // increase balance on receiver
                     <AccountIdBalances<T>>::take(&to);
-                    <AccountIdBalances<T>>::insert(to, new_receiver_balance);
-
+                    <AccountIdBalances<T>>::insert(&to, new_receiver_balance);
+                    // Following ensures that only one entry exists in the list of addresses with funds.
+                    <HoldersAccountIds<T>>::mutate(|holders_account_ids| holders_account_ids.retain(|t| {t != &to}));
+                    <HoldersAccountIds<T>>::mutate(|holders_account_ids| holders_account_ids.push(to));
+                    
                 };
             };
             Ok(())
