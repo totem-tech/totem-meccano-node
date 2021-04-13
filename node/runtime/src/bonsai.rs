@@ -235,24 +235,17 @@ impl<T: Trait> Module<T> {
         Ok(())
     }
     
-    fn insert_uuid(u: T::Hash) -> Result {
+    fn start_uuid(u: T::Hash) -> Result {
         
         if <IsSuccessful<T>>::exists(&u) {
             // Throw an error because the transaction already completed
+            Self::deposit_event(RawEvent::ErrorTransactionCompleted(u));
             return Err("Queued transaction already completed");
             
         } else if <IsStarted<T>>::exists(&u) {
-            // What happens on error or second use
-
-
-            // The transaction is now completed successfully update the state change
-            // remove from started, and place in successful
-            let current_block = <system::Module<T>>::block_number();
-            let mut block: u64 = <T::BonsaiConversions as Convert<T::BlockNumber, u64>>::convert(current_block);
-            block = block + 172800u64; // cleanup in 30 Days
-            let deletion_block: T::BlockNumber = <T::BonsaiConversions as Convert<u64, T::BlockNumber>>::convert(block);
-            <IsStarted<T>>::remove(&u);
-            <IsSuccessful<T>>::insert(u, deletion_block);
+            // Apparently someone is attempting to use this TX_UID after a transaction failed.
+            Self::deposit_event(RawEvent::ErrorTransactionIDInUse(u));
+            return Err("The transaction ID is not unique. Create a new one.");
             
         } else {
             // this is a new UUID just starting the transaction
@@ -265,6 +258,32 @@ impl<T: Trait> Module<T> {
         }
         Ok(())
     }
+
+    fn end_uuid(u: T::Hash) -> Result {
+        
+        if <IsSuccessful<T>>::exists(&u) {
+            // Throw an error because the transaction already completed
+            Self::deposit_event(RawEvent::ErrorTransactionCompleted(u));
+            return Err("Queued transaction already completed");
+            
+        } else if <IsStarted<T>>::exists(&u) {
+            // The transaction is now completed successfully update the state change
+            // remove from started, and place in successful
+            let current_block = <system::Module<T>>::block_number();
+            let mut block: u64 = <T::BonsaiConversions as Convert<T::BlockNumber, u64>>::convert(current_block);
+            block = block + 172800u64; // cleanup in 30 Days
+            let deletion_block: T::BlockNumber = <T::BonsaiConversions as Convert<u64, T::BlockNumber>>::convert(block);
+            <IsStarted<T>>::remove(&u);
+            <IsSuccessful<T>>::insert(u, deletion_block);
+            
+        } else {
+            // This situation should not exist.
+            Self::deposit_event(RawEvent::ErrorTransactionCompleted(u));
+            return Err("Queued transaction already completed");
+
+        }
+        Ok(())
+    }
 }
 
 impl<T: Trait> Storing<T::Hash> for Module<T> {
@@ -272,8 +291,12 @@ impl<T: Trait> Storing<T::Hash> for Module<T> {
         Self::insert_record(r.clone(), d.clone())?;
         Ok(())
     }
-    fn store_uuid(u: T::Hash) -> Result {
-        Self::insert_uuid(u.clone())?;
+    fn start_tx(u: T::Hash) -> Result {
+        Self::start_uuid(u.clone())?;
+        Ok(())
+    }
+    fn end_tx(u: T::Hash) -> Result {
+        Self::end_uuid(u.clone())?;
         Ok(())
     }
 }
@@ -283,7 +306,13 @@ decl_event!(
     where
     Hash = <T as system::Trait>::Hash,
     {
+        /// You are not the owner of this Record
         ErrorRecordOwner(Hash),
+        /// This is an unknown record type
         ErrorUnknownType(Hash),
+        /// The transaction is already completed. No need to send it again!
+        ErrorTransactionCompleted(Hash),
+        /// The transaction ID is not unique. Create a new one.
+        ErrorTransactionIDInUse(Hash),
     }
 );

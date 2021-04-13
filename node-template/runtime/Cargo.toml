@@ -16,6 +16,8 @@ support = { package = "srml-support", path = "../../srml/support", default_featu
 primitives = { package = "substrate-primitives", path = "../../core/primitives", default_features = false }
 balances = { package = "srml-balances", version = "2.0.0", path = "../../srml/balances", default_features = false }
 accounting = { package = "accounting-pallet", path = "../../srml/accounting", default_features = false }
+funding = { package = "funding-pallet", path = "../../srml/funding", default_features = false }
+transfer = { package = "transfer-pallet", path = "../../srml/transfer", default_features = false }
 consensus = { package = "srml-consensus", path = "../../srml/consensus", default_features = false }
 aura = { package = "srml-aura", path = "../../srml/aura", default_features = false }
 executive = { package = "srml-executive", path = "../../srml/executive", default_features = false }
@@ -41,6 +43,8 @@ std = [
 	"support/std",
 	"balances/std",
 	"accounting/std",
+	"funding/std",
+	"transfer/std",
 	"executive/std",
 	"aura/std",
 	"indices/std",

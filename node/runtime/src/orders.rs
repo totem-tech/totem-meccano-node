@@ -178,7 +178,7 @@ decl_module! {
             tx_keys_medium: TXKeysM<T::Hash>
         ) -> Result {
             let who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_medium.tx_uid.clone())?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::start_tx(tx_keys_medium.tx_uid.clone())?;
             // Only delete order if it has not been accepted by the fulfiller.
             match Self::orders(&tx_keys_medium.record_id) {
                 Some(order) => {
@@ -210,7 +210,7 @@ decl_module! {
                     return Err("This hash does not exist");
                 },
             }
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_medium.tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::end_tx(tx_keys_medium.tx_uid)?;
             Ok(())
         }
         
@@ -230,7 +230,7 @@ decl_module! {
             tx_keys_large: TXKeysL<T::Hash>
         ) -> Result {
             let who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_large.tx_uid.clone())?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::start_tx(tx_keys_large.tx_uid.clone())?;
             
             // Check that the supplied record_id does not exist
             if <Orders<T>>::exists(&tx_keys_large.record_id) {
@@ -298,7 +298,7 @@ decl_module! {
                 };
                 Self::set_order(who, fulfiller, tx_keys_large.record_id, order_header, order_items)?;
             }
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_keys_large.tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::end_tx(tx_keys_large.tx_uid)?;
             Self::deposit_event(RawEvent::OrderCreated(tx_keys_large.tx_uid.clone(), tx_keys_large.record_id));
             Ok(())
         }
@@ -320,7 +320,7 @@ decl_module! {
             tx_uid: T::Hash // Bonsai data Hash
         ) -> Result {
             let who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid.clone())?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::start_tx(tx_uid.clone())?;
             // Generate Hash for order
             let order_hash: T::Hash = <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_pseudo_random_hash(who.clone(),approver.clone());
             
@@ -344,7 +344,7 @@ decl_module! {
                 bonsai_token,
                 tx_uid
             )?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::end_tx(tx_uid)?;
             // issue events
             Self::deposit_event(RawEvent::OrderCreated(tx_uid, order_hash));
             Ok(())
@@ -365,7 +365,7 @@ decl_module! {
         ) -> Result {
             let who = ensure_signed(origin)?;
             // check owner of this record
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::start_tx(tx_uid)?;
             Self::change_simple_prefunded_order(
                 who.clone(), 
                 approver.clone(),
@@ -377,7 +377,7 @@ decl_module! {
                 record_id,
                 bonsai_token
             )?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::end_tx(tx_uid)?;
             // issue events
             Self::deposit_event(RawEvent::OrderUpdated(tx_uid));
             Ok(())
@@ -386,9 +386,9 @@ decl_module! {
         /// Can only be used by the nominated approver (must be known to the ordering party)
         fn change_approval(origin, h: T::Hash, s: ApprovalStatus, b: T::Hash, tx_uid: T::Hash) -> Result {
             let who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::start_tx(tx_uid)?;
             Self::change_approval_state(who.clone(), h, s, b)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::end_tx(tx_uid)?;
             Self::deposit_event(RawEvent::InvoiceSettled(h));
             Ok(())
         }
@@ -398,7 +398,7 @@ decl_module! {
         /// Seller - Used to accept, reject or invoice the order. 
         fn handle_spfso(origin, h: T::Hash, s: OrderStatus, tx_uid: T::Hash) -> Result {
             let who = ensure_signed(origin)?;
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid.clone())?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::start_tx(tx_uid.clone())?;
             // get order details and determine if the sender is the buyer or the seller
             let order_hdr: OrderHeader<T::AccountId>;
             match Self::orders(&h) {
@@ -436,7 +436,7 @@ decl_module! {
                 
             }
             
-            <<T as Trait>::Bonsai as Storing<T::Hash>>::store_uuid(tx_uid)?;
+            <<T as Trait>::Bonsai as Storing<T::Hash>>::end_tx(tx_uid)?;
             Ok(())
         }
     }

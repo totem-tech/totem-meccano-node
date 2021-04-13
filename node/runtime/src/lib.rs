@@ -89,6 +89,7 @@ mod projects;
 mod projects_traits;
 mod timekeeping;
 mod timekeeping_traits;
+mod transfer;
 // mod crowdsale;
 // mod crowdsale_traits;
 
@@ -103,7 +104,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 15,
     // incremental changes
-	impl_version: 1,
+	impl_version: 2,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -359,7 +360,13 @@ impl orders::Trait for Runtime {
 
 impl funding::Trait for Runtime {
 	type Event = Event;
-	// type Bonsai = BonsaiModule;
+}
+
+impl transfer::Trait for Runtime {
+	type Event = Event;
+	type Currency = balances::Module<Self>;
+	type TransferConversions = ConversionHandler;
+	type Bonsai = BonsaiModule;
 }
 
 construct_runtime!(
@@ -395,6 +402,7 @@ construct_runtime!(
 		OrdersModule: orders::{Module, Call, Storage, Event<T>},
         PrefundingModule: prefunding::{Module, Call, Storage, Event<T>},
         FundingModule: funding::{Module, Call, Storage, Event<T>},
+        TransferModule: transfer::{Module, Call, Event<T>},
 	}
 );
 
