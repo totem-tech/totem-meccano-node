@@ -7,6 +7,7 @@ RUN apk add build-base \
     linux-headers \
     openssl-dev \
     clang-dev \
+	curl \
     cargo
 
 ARG PROFILE=release
