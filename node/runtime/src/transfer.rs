@@ -76,7 +76,7 @@ decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
         /// Transfers funds!
-        fn transfer(
+        fn network_currency(
             origin, 
             to: T::AccountId, 
             #[compact] payment_amount: T::Balance,
