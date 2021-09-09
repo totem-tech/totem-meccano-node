@@ -6,7 +6,6 @@
 # docker build \
 # --build-arg buildtype=build .
 
-
 FROM phusion/baseimage:0.11 as builder
 LABEL maintainer="chris.dcosta@totemaccounting.com"
 LABEL description="This is the build stage for Totem Node Types. Here we create the binary."
@@ -45,12 +44,12 @@ LABEL description="This is the 2nd stage: a very small image where we copy the T
 RUN mv /usr/share/ca* /tmp && \
 	rm -rf /usr/share/*  && \
 	mv /tmp/ca-certificates /usr/share/ && \
-	useradd -m -u 1000 -U -s /bin/sh -d /totem totemadmin && \
-	mkdir -p /totem/.local/share/totem-meccano && \
-	chown -R totemadmin:totemadmin /totem/.local && \
-	ln -s /totem/.local/share/totem-meccano /data
+	useradd -m -u 1000 -U -s /bin/sh -d /totem-substrate totemadmin && \
+	mkdir -p /totem-substrate/.local/share/totem-meccano && \
+	chown -R totemadmin:totemadmin /totem-substrate/.local && \
+	ln -s /totem-substrate/.local/share/totem-meccano /data
 
-COPY --from=builder /totem/target/release/totem-meccano /usr/local/bin/
+COPY --from=builder /totem-substrate/target/release/totem-meccano /usr/local/bin/
 
 # checks
 RUN ldd /usr/local/bin/totem-meccano && \
