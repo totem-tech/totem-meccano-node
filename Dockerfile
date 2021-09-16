@@ -30,8 +30,9 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
 	rustup toolchain install nightly-2019-10-14 && \
 	rustup target add wasm32-unknown-unknown --toolchain nightly-2019-10-14 && \
 	rustup default nightly-2019-10-14 && \
-	command -v wasm-gc || \
-	cargo +nightly-2019-10-14 install --git https://github.com/alexcrichton/wasm-gc --force && \
+	# the following probably deprecated due to updates to rust compiler
+	# command -v wasm-gc || \
+	# cargo +nightly-2019-10-14 install --git https://github.com/alexcrichton/wasm-gc --force && \
     ./scripts/build.sh && \
 	cargo "$buildtype" "--$PROFILE"
 
