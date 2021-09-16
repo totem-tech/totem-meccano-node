@@ -842,14 +842,6 @@ where
                 Self::new_account(dest, new_to_balance);
             }
             Self::set_free_balance(dest, new_to_balance);
-            // Account for fees in Totem
-            match <T::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::Balance>>::account_for_fees(fee, dest.clone()) {
-                Ok(_) => (),
-                Err(_e) => {
-                    return Err("An error occured posting to accounts");
-                },
-            }
-
             T::TransferPayment::on_unbalanced(NegativeImbalance::new(fee));
             Self::deposit_event(RawEvent::Transfer(
                 transactor.clone(),
@@ -1224,6 +1216,13 @@ impl<T: Trait<I>, I: Instance> MakePayment<T::AccountId> for Module<T, I> {
         let encoded_len = <T::Balance as As<u64>>::sa(encoded_len as u64);
         let transaction_fee =
             Self::transaction_base_fee() + Self::transaction_byte_fee() * encoded_len;
+            // Account for fees in Totem
+            match <T::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::Balance>>::account_for_fees(transaction_fee.clone(), transactor.clone()) {
+                Ok(_) => (),
+                Err(_e) => {
+                    return Err("An error occured posting txfees to accounts");
+                },
+            }
         let imbalance = Self::withdraw(
             transactor,
             transaction_fee,

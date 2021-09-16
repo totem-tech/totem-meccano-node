@@ -123,7 +123,7 @@ decl_storage! {
         // Accounting Balances 
         BalanceByLedger get(balance_by_ledger): map (T::AccountId, Account) => LedgerBalance;
         // Detail of the accounting posting (for Audit)
-        PostingDetail get(posting_detail): map (T::AccountId, Account, u128) => Option<(T::BlockNumber,LedgerBalance,Indicator,T::Hash, T::BlockNumber)>;
+        PostingDetail get(posting_detail): map (T::AccountId, Account, u128) => Option<(T::AccountId,T::BlockNumber,LedgerBalance,Indicator,T::Hash, T::BlockNumber)>;
         // yay! Totem!
         GlobalLedger get(global_ledger): map Account => LedgerBalance;
         // Address to book the sales tax to and the tax jurisdiction (Experimental, may be deprecated in future) 
@@ -155,7 +155,7 @@ impl<T: Trait> Module<T> {
     /// equal to the single debit in accounts receivable, but only one posting needs to be made to that account, and two posting for the others.
     /// The Totem Accounting Recipes are constructed using this simple function.
     /// The second Blocknumber is for re-targeting the entry in the accounts, i.e. for adjustments prior to or after the current period (generally accruals).
-    fn post_amounts((o, a, c, d, h, b, t): (T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)) -> Result {
+    fn post_amounts((o, p, a, c, d, h, b, t): (T::AccountId, T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)) -> Result {
         let mut posting_index: PostingIndex = 0; 
         let mut new_balance: LedgerBalance; 
         let mut new_global_balance: LedgerBalance; 
@@ -173,7 +173,7 @@ impl<T: Trait> Module<T> {
         let ab: LedgerBalance = c.abs();        
         let balance_key = (o.clone(), a);
         let posting_key = (o.clone(), a, posting_index);
-        let detail = (b, ab, d, h, t);
+        let detail = (p, b, ab, d, h, t);
         // !! Warning !! 
         // Values could feasibly overflow, with no visibility on other accounts. In this event this function returns an error.
         // Reversals must occur in the parent function (that calls this function). 
@@ -227,9 +227,9 @@ impl<T: Trait> Posting<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
     fn handle_multiposting_amounts(
         // o: <T as system::Trait>::AccountId,
         // o: T::AccountId,
-        fwd: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
-        rev: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
-        trk: Vec<(T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>) -> Result {
+        fwd: Vec<(T::AccountId, T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
+        rev: Vec<(T::AccountId, T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>, 
+        trk: Vec<(T::AccountId, T::AccountId, Account, LedgerBalance, bool, T::Hash, T::BlockNumber, T::BlockNumber)>) -> Result {
             
             let reversal_keys = rev.clone();
             let mut track_rev_keys = trk.clone();

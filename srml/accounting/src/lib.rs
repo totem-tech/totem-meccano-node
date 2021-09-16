@@ -140,6 +140,7 @@ pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
     fn handle_multiposting_amounts(
         fwd: Vec<(
             AccountId,
+            AccountId,
             Self::Account,
             Self::LedgerBalance,
             bool,
@@ -149,6 +150,7 @@ pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
         )>,
         rev: Vec<(
             AccountId,
+            AccountId,
             Self::Account,
             Self::LedgerBalance,
             bool,
@@ -157,6 +159,7 @@ pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
             BlockNumber,
         )>,
         trk: Vec<(
+            AccountId,
             AccountId,
             Self::Account,
             Self::LedgerBalance,
@@ -168,6 +171,7 @@ pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
     ) -> Result;
     fn account_for_fees(f: CoinAmount, p: AccountId) -> Result;
     fn get_escrow_account() -> AccountId;
+    fn get_netfees_account() -> AccountId;
     fn get_pseudo_random_hash(s: AccountId, r: AccountId) -> Hash;
 }
 
@@ -182,7 +186,7 @@ decl_storage! {
         // Accounting Balances
         BalanceByLedger get(balance_by_ledger): map (T::AccountId, Account) => LedgerBalance;
         // Detail of the accounting posting (for Audit)
-        PostingDetail get(posting_detail): map (T::AccountId, Account, u128) => Option<(T::BlockNumber,LedgerBalance,Indicator,T::Hash, T::BlockNumber)>;
+        PostingDetail get(posting_detail): map (T::AccountId, Account, u128) => Option<(T::AccountId, T::BlockNumber,LedgerBalance,Indicator,T::Hash, T::BlockNumber)>;
         // yay! Totem!
         GlobalLedger get(global_ledger): map Account => LedgerBalance;
         // Address to book the sales tax to and the tax jurisdiction (Experimental, may be deprecated in future)
@@ -216,7 +220,8 @@ impl<T: Trait> Module<T> {
     /// The Totem Accounting Recipes are constructed using this simple function.
     /// The second Blocknumber is for re-targeting the entry in the accounts, i.e. for adjustments prior to or after the current period (generally accruals).
     fn post_amounts(
-        (o, a, c, d, h, b, t): (
+        (o, p, a, c, d, h, b, t): (
+            T::AccountId,
             T::AccountId,
             Account,
             LedgerBalance,
@@ -243,7 +248,7 @@ impl<T: Trait> Module<T> {
         let ab: LedgerBalance = c.abs();
         let balance_key = (o.clone(), a);
         let posting_key = (o.clone(), a, posting_index);
-        let detail = (b, ab, d, h, t);
+        let detail = (p, b, ab, d, h, t);
         // !! Warning !!
         // Values could feasibly overflow, with no visibility on other accounts. In this event this function returns an error.
         // Reversals must occur in the parent function (i.e. that calls this function).
@@ -267,9 +272,10 @@ impl<T: Trait> Module<T> {
         };
 
         <PostingNumber<T>>::put(posting_index);
-        <IdAccountPostingIdList<T>>::mutate(&balance_key, |id_account_posting_id_list| {
-            id_account_posting_id_list.push(posting_index)
-        });
+        // The index should be unique, it may already have been posted?
+        <IdAccountPostingIdList<T>>::mutate(&balance_key, |id_account_posting_id_list| {id_account_posting_id_list.retain(|i| i != &posting_index)});
+        <IdAccountPostingIdList<T>>::mutate(&balance_key, |id_account_posting_id_list| {id_account_posting_id_list.push(posting_index)});
+
         <AccountsById<T>>::mutate(&o, |accounts_by_id| accounts_by_id.retain(|h| h != &a));
         <AccountsById<T>>::mutate(&o, |accounts_by_id| accounts_by_id.push(a));
         <BalanceByLedger<T>>::insert(&balance_key, new_balance);
@@ -301,6 +307,7 @@ where
         // o: T::AccountId,
         fwd: Vec<(
             T::AccountId,
+            T::AccountId,
             Account,
             LedgerBalance,
             bool,
@@ -310,6 +317,7 @@ where
         )>,
         rev: Vec<(
             T::AccountId,
+            T::AccountId,
             Account,
             LedgerBalance,
             bool,
@@ -318,6 +326,7 @@ where
             T::BlockNumber,
         )>,
         trk: Vec<(
+            T::AccountId,
             T::AccountId,
             Account,
             LedgerBalance,
@@ -352,7 +361,7 @@ where
                             }
                         }
                     }
-                    Self::deposit_event(RawEvent::ErrorOverflow(a.1));
+                    Self::deposit_event(RawEvent::ErrorOverflow(a.2));
                     return Err("Overflow error, amount too big!");
                 }
             }
@@ -363,6 +372,11 @@ where
     fn get_escrow_account() -> T::AccountId {
         let escrow_account: [u8;32] = *b"TotemsEscrowAddress4LockingFunds";
         UncheckedFrom::unchecked_from(escrow_account)
+    }
+    /// This function simply returns the Totem network fees account address
+    fn get_netfees_account() -> T::AccountId {
+        let netfees_account: [u8;32] = *b"TotemAccountingNetworkFeeAddress";
+        UncheckedFrom::unchecked_from(netfees_account)
     }
     /// This function takes the transaction fee and prepares to account for it in accounting.
     /// This is one of the few functions that will set the ledger accounts to be updated here. Fees
@@ -378,7 +392,7 @@ where
         let increase_amount: LedgerBalance = fee_converted.into();
         let decrease_amount: LedgerBalance = to_invert.into();
 
-        let account_1: Account = 250500290000000u64; // debit  increase 250500290000000 Totem Transaction Fees
+        let account_1: Account = 250500300000000u64; // debit  increase 250500300000000 Totem Transaction Fees
         let account_2: Account = 110100040000000u64; // credit decrease 110100040000000 XTX Balance
 
         // This sets the change block and the applicable posting period. For this context they will always be
@@ -388,9 +402,14 @@ where
 
         // Generate dummy Hash reference (it has no real bearing but allows posting to happen)
         let fee_hash: T::Hash = Self::get_pseudo_random_hash(payer.clone(), payer.clone());
+        
+        // Get the dummy address for fees. Note this does not identify the receipients of fees (validators)
+        // It is used just for generic self-referential accounting 
+        let fee_address: T::AccountId = Self::get_netfees_account();
 
-        // Keys for posting
+        // Keys for posting by payer
         let mut forward_keys = Vec::<(
+            T::AccountId,
             T::AccountId,
             Account,
             LedgerBalance,
@@ -398,9 +417,10 @@ where
             T::Hash,
             T::BlockNumber,
             T::BlockNumber,
-        )>::with_capacity(3);
+        )>::with_capacity(4);
         forward_keys.push((
             payer.clone(),
+            fee_address.clone(),
             account_1,
             increase_amount,
             true,
@@ -410,9 +430,30 @@ where
         ));
         forward_keys.push((
             payer.clone(),
+            fee_address.clone(),
             account_2,
             decrease_amount,
             false,
+            fee_hash,
+            current_block,
+            current_block_dupe,
+        ));
+        forward_keys.push((
+            fee_address.clone(),
+            payer.clone(),
+            account_1,
+            decrease_amount,
+            false,
+            fee_hash,
+            current_block,
+            current_block_dupe,
+        ));
+        forward_keys.push((
+            fee_address.clone(),
+            payer.clone(),
+            account_2,
+            increase_amount,
+            true,
             fee_hash,
             current_block,
             current_block_dupe,
@@ -421,33 +462,6 @@ where
         // Reversal keys in case of errors
         let mut reversal_keys = Vec::<(
             T::AccountId,
-            Account,
-            LedgerBalance,
-            bool,
-            T::Hash,
-            T::BlockNumber,
-            T::BlockNumber,
-        )>::with_capacity(2);
-        reversal_keys.push((
-            payer.clone(),
-            account_1,
-            decrease_amount,
-            false,
-            fee_hash,
-            current_block,
-            current_block_dupe,
-        ));
-        reversal_keys.push((
-            payer.clone(),
-            account_2,
-            increase_amount,
-            true,
-            fee_hash,
-            current_block,
-            current_block_dupe,
-        ));
-
-        let track_rev_keys = Vec::<(
             T::AccountId,
             Account,
             LedgerBalance,
@@ -456,6 +470,57 @@ where
             T::BlockNumber,
             T::BlockNumber,
         )>::with_capacity(2);
+        reversal_keys.push((
+            payer.clone(),
+            fee_address.clone(),
+            account_1,
+            decrease_amount,
+            false,
+            fee_hash,
+            current_block,
+            current_block_dupe,
+        ));
+        // reversal_keys.push((
+        //     payer.clone(),
+        //     fee_address.clone(),
+        //     account_2,
+        //     increase_amount,
+        //     true,
+        //     fee_hash,
+        //     current_block,
+        //     current_block_dupe,
+        // ));
+        reversal_keys.push((
+            fee_address.clone(),
+            payer.clone(),
+            account_1,
+            increase_amount,
+            true,
+            fee_hash,
+            current_block,
+            current_block_dupe,
+        ));
+        // reversal_keys.push((
+        //     fee_address.clone(),
+        //     payer.clone(),
+        //     account_2,
+        //     decrease_amount,
+        //     false,
+        //     fee_hash,
+        //     current_block,
+        //     current_block_dupe,
+        // ));
+
+        let track_rev_keys = Vec::<(
+            T::AccountId,
+            T::AccountId,
+            Account,
+            LedgerBalance,
+            bool,
+            T::Hash,
+            T::BlockNumber,
+            T::BlockNumber,
+        )>::with_capacity(3);
 
         match Self::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
             Ok(_) => (),
