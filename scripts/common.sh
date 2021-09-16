@@ -7,7 +7,7 @@ SRCS=(
 	"core/executor/wasm"
 	"node/runtime/wasm"
 	# "node-template/runtime/wasm"
-	"core/test-runtime/wasm"
+	# "core/test-runtime/wasm"
 )
 
 # Make pushd/popd silent.
