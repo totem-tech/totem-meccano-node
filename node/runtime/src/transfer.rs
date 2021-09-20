@@ -104,48 +104,54 @@ decl_module! {
             
             let account_1: AccountOf<T> = <T::TransferConversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // debit increase - credit decrease 110100040000000 XTX Balance
             
-            // BalanceByLedger get(balance_by_ledger): map (T::AccountId, Account) => LedgerBalance;
-            let mut from_balance: i128 =  <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_gl_account_balance(from.clone(), 110100040000000u64);
-            let mut to_balance: i128 =  <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_gl_account_balance(from.clone(), 110100040000000u64);
-
+            
             // ********************* TEMPORARY MECCANO ONLY FIX **************************
             // This fixes legacy balances as soon as a new transfer is made - but shouldn't be carried over to the parachain network
-
+            
+            let mut from_balance: i128 =  <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_gl_account_balance(from.clone(), 110100040000000u64);
             let mut from_coin_balance: i128 = <T::TransferConversions as Convert<CurrencyBalanceOf<T>, i128>>::convert(T::Currency::free_balance(&from));
+            
+            // Only do this if the balances are different. 
+            if from_balance != from_coin_balance {
+                if from_balance < 0i128 || from_balance > 0i128 {
+                    // Make adjustment.
+                    from_balance = from_balance * -1i128;
+                } else {
+                    // This is a balance is zero. This means no adjustment is needed
+                    ();
+                };
+                from_coin_balance = from_coin_balance + from_balance;
+                match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::force_set_gl_account_balance(from.clone(), 110100040000000u64, from_coin_balance) {
+                    Ok(_) => (),
+                    Err(_e) => {
+                        Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
+                        return Err("An error occured posting to accounts");
+                    },
+                }
+            }
+            
+            let mut to_balance: i128 =  <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_gl_account_balance(from.clone(), 110100040000000u64);
             let mut to_coin_balance: i128 = <T::TransferConversions as Convert<CurrencyBalanceOf<T>, i128>>::convert(T::Currency::free_balance(&to));
             
-            if from_balance < 0i128 || from_balance > 0i128 {
-                // Make adjustment.
-                from_balance = from_balance * -1i128;
-            } else {
-                // This is a balance is zero. This means no adjustment is needed
-                ();
-            };
-            from_coin_balance = from_coin_balance + from_balance;
+            // Only do this if the balances are different. 
+            if to_balance != to_coin_balance {
+                if to_balance < 0i128 || to_balance > 0i128 {
+                    // Make adjustment.
+                    to_balance = to_balance * -1i128;
+                } else {
+                    // This is a balance is zero. This means no adjustment is needed
+                    ();
+                };
+                to_coin_balance = to_coin_balance + to_balance;
+                match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::force_set_gl_account_balance(to.clone(), 110100040000000u64, to_coin_balance) {
+                    Ok(_) => (),
+                    Err(_e) => {
+                        Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
+                        return Err("An error occured posting to accounts");
+                    },
+                }
+            }
 
-            match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::force_set_gl_account_balance(from.clone(), 110100040000000u64, from_coin_balance) {
-                Ok(_) => (),
-                Err(_e) => {
-                    Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
-                    return Err("An error occured posting to accounts");
-                },
-            }
-            
-            if to_balance < 0i128 || to_balance > 0i128 {
-                // Make adjustment.
-                to_balance = to_balance * -1i128;
-            } else {
-                // This is a balance is zero. This means no adjustment is needed
-                ();
-            };
-            to_coin_balance = to_coin_balance + to_balance;
-            match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::force_set_gl_account_balance(to.clone(), 110100040000000u64, to_coin_balance) {
-                Ok(_) => (),
-                Err(_e) => {
-                    Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
-                    return Err("An error occured posting to accounts");
-                },
-            }
             // ********************* TEMPORARY MECCANO ONLY FIX **************************
 
             // Convert this for the inversion
