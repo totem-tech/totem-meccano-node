@@ -104,7 +104,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// spec version // fork risk, on change
 	spec_version: 20,
     // incremental changes
-	impl_version: 0,
+	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -367,6 +367,7 @@ impl transfer::Trait for Runtime {
 	type Currency = balances::Module<Self>;
 	type TransferConversions = ConversionHandler;
 	type Bonsai = BonsaiModule;
+	type Accounting = accounting::Module<Self>;
 }
 
 construct_runtime!(

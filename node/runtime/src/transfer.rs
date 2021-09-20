@@ -59,23 +59,36 @@ use runtime_primitives::traits::{Convert};
 use support::traits::{Currency};
 //v1 
 // use frame_support::Traits{Currency}; // v2
+// Totem Pallets
+use accounting::{ Posting };
+
+// Totem Trait Types
+type AccountOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber,<T as accounting::Trait>::CoinAmount>>::Account;
+type AccountBalanceOf<T> = <<T as Trait>::Accounting as Posting<<T as system::Trait>::AccountId,<T as system::Trait>::Hash,<T as system::Trait>::BlockNumber,<T as accounting::Trait>::CoinAmount>>::LedgerBalance;
 
 // Other trait types
 type CurrencyBalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
 
 use crate::bonsai_traits::{ Storing };
 
-pub trait Trait: system::Trait + balances::Trait {
+pub trait Trait: system::Trait + balances::Trait + accounting::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
     type Currency: Currency<Self::AccountId>;
-    type TransferConversions: Convert<Self::Balance, CurrencyBalanceOf<Self>>;
+    type TransferConversions: Convert<Self::Balance, CurrencyBalanceOf<Self>>
+    + Convert<Self::Balance, AccountBalanceOf<Self>>
+    + Convert<Self::Balance, i128>
+    + Convert<u64, AccountOf<Self>>
+    + Convert<CurrencyBalanceOf<Self>, i128>
+    + Convert<i128, AccountBalanceOf<Self>>;
     type Bonsai: Storing<Self::Hash>;
+    type Accounting: Posting<Self::AccountId,Self::Hash,Self::BlockNumber,Self::CoinAmount>;
 }
 
 decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event<T>() = default;
         /// Transfers funds!
+        /// This is a direct transfer, with no specific invoice attached to it.
         fn network_currency(
             origin, 
             to: T::AccountId, 
@@ -86,7 +99,97 @@ decl_module! {
             <<T as Trait>::Bonsai as Storing<T::Hash>>::start_tx(tx_uid.clone())?;
             
             // Convert incoming amount to currency for transfer
-            let amount: CurrencyBalanceOf<T> = <T::TransferConversions as Convert<T::Balance, CurrencyBalanceOf<T>>>::convert(payment_amount);
+            let amount: CurrencyBalanceOf<T> = <T::TransferConversions as Convert<T::Balance, CurrencyBalanceOf<T>>>::convert(payment_amount.clone());
+            let posting_amount: i128 = <T::TransferConversions as Convert<T::Balance, i128>>::convert(payment_amount);
+            
+            let account_1: AccountOf<T> = <T::TransferConversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // debit increase - credit decrease 110100040000000 XTX Balance
+            
+            // BalanceByLedger get(balance_by_ledger): map (T::AccountId, Account) => LedgerBalance;
+            let mut from_balance: i128 =  <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_gl_account_balance(from.clone(), 110100040000000u64);
+            let mut to_balance: i128 =  <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_gl_account_balance(from.clone(), 110100040000000u64);
+
+            // ********************* TEMPORARY MECCANO ONLY FIX **************************
+            // This fixes legacy balances as soon as a new transfer is made - but shouldn't be carried over to the parachain network
+
+            let mut from_coin_balance: i128 = <T::TransferConversions as Convert<CurrencyBalanceOf<T>, i128>>::convert(T::Currency::free_balance(&from));
+            let mut to_coin_balance: i128 = <T::TransferConversions as Convert<CurrencyBalanceOf<T>, i128>>::convert(T::Currency::free_balance(&to));
+            
+            if from_balance < 0i128 || from_balance > 0i128 {
+                // Make adjustment.
+                from_balance = from_balance * -1i128;
+            } else {
+                // This is a balance is zero. This means no adjustment is needed
+                ();
+            };
+            from_coin_balance = from_coin_balance + from_balance;
+
+            match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::force_set_gl_account_balance(from.clone(), 110100040000000u64, from_coin_balance) {
+                Ok(_) => (),
+                Err(_e) => {
+                    Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
+                    return Err("An error occured posting to accounts");
+                },
+            }
+            
+            if to_balance < 0i128 || to_balance > 0i128 {
+                // Make adjustment.
+                to_balance = to_balance * -1i128;
+            } else {
+                // This is a balance is zero. This means no adjustment is needed
+                ();
+            };
+            to_coin_balance = to_coin_balance + to_balance;
+            match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::force_set_gl_account_balance(to.clone(), 110100040000000u64, to_coin_balance) {
+                Ok(_) => (),
+                Err(_e) => {
+                    Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
+                    return Err("An error occured posting to accounts");
+                },
+            }
+            // ********************* TEMPORARY MECCANO ONLY FIX **************************
+
+            // Convert this for the inversion
+            let mut to_invert: i128 = posting_amount.clone();
+            to_invert = to_invert * -1i128;
+
+            let increase_amount: AccountBalanceOf<T> = <T::TransferConversions as Convert<i128, AccountBalanceOf<T>>>::convert(posting_amount);
+            let decrease_amount: AccountBalanceOf<T> = <T::TransferConversions as Convert<i128, AccountBalanceOf<T>>>::convert(to_invert);
+            
+            // This sets the change block and the applicable posting period. For this context they will always be
+            // the same.
+            let current_block = <system::Module<T>>::block_number(); // For audit on change
+            let current_block_dupe = current_block.clone(); // Applicable period for accounting
+    
+            // Generate dummy Hash reference (it has no real bearing but allows posting to happen)
+            let tx_ref_hash: T::Hash = tx_uid.clone();
+                
+            // Keys for posting by payer
+            let mut forward_keys = Vec::<(
+                T::AccountId,T::AccountId,AccountOf<T>,AccountBalanceOf<T>,bool,T::Hash,T::BlockNumber,T::BlockNumber,
+            )>::with_capacity(2);
+            
+            // Sender
+            forward_keys.push((from.clone(),to.clone(),account_1,decrease_amount,true,tx_ref_hash,current_block,current_block_dupe,));
+            // Receiver
+            forward_keys.push((to.clone(),from.clone(),account_1,increase_amount,false,tx_ref_hash,current_block,current_block_dupe,));
+            
+            // Reversal keys in case of errors
+            let reversal_keys = Vec::<(
+                T::AccountId,T::AccountId,AccountOf<T>,AccountBalanceOf<T>,bool,T::Hash,T::BlockNumber,T::BlockNumber,
+            )>::with_capacity(1);
+            forward_keys.push((from.clone(),to.clone(),account_1,increase_amount,false,tx_ref_hash,current_block,current_block_dupe,));
+    
+            let track_rev_keys = Vec::<(
+                T::AccountId,T::AccountId,AccountOf<T>,AccountBalanceOf<T>,bool,T::Hash,T::BlockNumber,T::BlockNumber,
+            )>::with_capacity(2);
+    
+            match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
+                Ok(_) => (),
+                Err(_e) => {
+                    Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
+                    return Err("An error occured posting to accounts");
+                },
+            }
 
             match T::Currency::transfer(&from, &to, amount) {
                 Ok(_) => (),
@@ -108,5 +211,6 @@ decl_event!(
     {
         /// There was an error calling the transfer function in balances
         ErrorDuringTransfer(Hash),
+        ErrorPostingAccounts(Hash),
     }
 );

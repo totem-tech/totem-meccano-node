@@ -139,40 +139,21 @@ pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
     type LedgerBalance: Member + Copy + Into<i128> + Encode + Decode + Eq;
     fn handle_multiposting_amounts(
         fwd: Vec<(
-            AccountId,
-            AccountId,
-            Self::Account,
-            Self::LedgerBalance,
-            bool,
-            Hash,
-            BlockNumber,
-            BlockNumber,
+            AccountId,AccountId,Self::Account,Self::LedgerBalance,bool,Hash,BlockNumber,BlockNumber,
         )>,
         rev: Vec<(
-            AccountId,
-            AccountId,
-            Self::Account,
-            Self::LedgerBalance,
-            bool,
-            Hash,
-            BlockNumber,
-            BlockNumber,
+            AccountId,AccountId,Self::Account,Self::LedgerBalance,bool,Hash,BlockNumber,BlockNumber,
         )>,
         trk: Vec<(
-            AccountId,
-            AccountId,
-            Self::Account,
-            Self::LedgerBalance,
-            bool,
-            Hash,
-            BlockNumber,
-            BlockNumber,
+            AccountId,AccountId,Self::Account,Self::LedgerBalance,bool,Hash,BlockNumber,BlockNumber,
         )>,
     ) -> Result;
     fn account_for_fees(f: CoinAmount, p: AccountId) -> Result;
     fn get_escrow_account() -> AccountId;
     fn get_netfees_account() -> AccountId;
     fn get_pseudo_random_hash(s: AccountId, r: AccountId) -> Hash;
+    fn get_gl_account_balance(sender: AccountId, account: Account) -> LedgerBalance;
+    fn force_set_gl_account_balance(sender: AccountId, account: Account, amount: LedgerBalance) -> Result;
 }
 
 decl_storage! {
@@ -221,14 +202,7 @@ impl<T: Trait> Module<T> {
     /// The second Blocknumber is for re-targeting the entry in the accounts, i.e. for adjustments prior to or after the current period (generally accruals).
     fn post_amounts(
         (o, p, a, c, d, h, b, t): (
-            T::AccountId,
-            T::AccountId,
-            Account,
-            LedgerBalance,
-            bool,
-            T::Hash,
-            T::BlockNumber,
-            T::BlockNumber,
+            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
         ),
     ) -> Result {
         let mut posting_index: PostingIndex = 0;
@@ -238,8 +212,7 @@ impl<T: Trait> Module<T> {
         if <PostingNumber<T>>::exists() {
             posting_index = Self::posting_number().ok_or("Error fetching latest posting index")?;
             match posting_index.checked_add(1) {
-                Some(i) => posting_index = i,
-                None => {
+                Some(i) => posting_index = i,    None => {
                     Self::deposit_event(RawEvent::ErrorGlobalOverflow());
                     return Err("Posting Index Overflowed!");
                 }
@@ -262,8 +235,7 @@ impl<T: Trait> Module<T> {
             Some(l) => {
                 new_balance = l;
                 match Self::global_ledger(&a).checked_add(c) {
-                    Some(g) => new_global_balance = g,
-                    None => {
+                    Some(g) => new_global_balance = g,        None => {
                         Self::deposit_event(RawEvent::ErrorGlobalOverflow());
                         return Err("Global Balance Value overflowed");
                     }
@@ -306,34 +278,13 @@ where
         // o: <T as system::Trait>::AccountId,
         // o: T::AccountId,
         fwd: Vec<(
-            T::AccountId,
-            T::AccountId,
-            Account,
-            LedgerBalance,
-            bool,
-            T::Hash,
-            T::BlockNumber,
-            T::BlockNumber,
+            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
         )>,
         rev: Vec<(
-            T::AccountId,
-            T::AccountId,
-            Account,
-            LedgerBalance,
-            bool,
-            T::Hash,
-            T::BlockNumber,
-            T::BlockNumber,
+            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
         )>,
         trk: Vec<(
-            T::AccountId,
-            T::AccountId,
-            Account,
-            LedgerBalance,
-            bool,
-            T::Hash,
-            T::BlockNumber,
-            T::BlockNumber,
+            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
         )>,
     ) -> Result {
         let reversal_keys = rev.clone();
@@ -353,8 +304,7 @@ where
                     // as this has already changed in storage.
                     for (_dummy_pos, b) in track_rev_keys.iter().enumerate() {
                         match Self::post_amounts(b.clone()) {
-                            Ok(_) => (),
-                            Err(_e) => {
+                            Ok(_) => (),                Err(_e) => {
                                 // This event is because there is a major system error in the reversal process
                                 Self::deposit_event(RawEvent::ErrorInError());
                                 return Err("System Failure in Account Posting");
@@ -391,9 +341,14 @@ where
         to_invert = to_invert * -1;
         let increase_amount: LedgerBalance = fee_converted.into();
         let decrease_amount: LedgerBalance = to_invert.into();
-
+        
+        // Sender
         let account_1: Account = 250500300000000u64; // debit  increase 250500300000000 Totem Transaction Fees
         let account_2: Account = 110100040000000u64; // credit decrease 110100040000000 XTX Balance
+        
+        // Treasury ()
+        // let account_2: Account = 240400010000000u64; // debit  increase 110100040000000 XTX Balance
+        let account_3: Account = 240400010000000u64; // credit increase 240400010000000 Sales of services
 
         // This sets the change block and the applicable posting period. For this context they will always be
         // the same.
@@ -409,122 +364,33 @@ where
 
         // Keys for posting by payer
         let mut forward_keys = Vec::<(
-            T::AccountId,
-            T::AccountId,
-            Account,
-            LedgerBalance,
-            bool,
-            T::Hash,
-            T::BlockNumber,
-            T::BlockNumber,
+            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
         )>::with_capacity(4);
-        forward_keys.push((
-            payer.clone(),
-            fee_address.clone(),
-            account_1,
-            increase_amount,
-            true,
-            fee_hash,
-            current_block,
-            current_block_dupe,
-        ));
-        forward_keys.push((
-            payer.clone(),
-            fee_address.clone(),
-            account_2,
-            decrease_amount,
-            false,
-            fee_hash,
-            current_block,
-            current_block_dupe,
-        ));
-        forward_keys.push((
-            fee_address.clone(),
-            payer.clone(),
-            account_1,
-            decrease_amount,
-            false,
-            fee_hash,
-            current_block,
-            current_block_dupe,
-        ));
-        forward_keys.push((
-            fee_address.clone(),
-            payer.clone(),
-            account_2,
-            increase_amount,
-            true,
-            fee_hash,
-            current_block,
-            current_block_dupe,
-        ));
-
+        
+        // Sender Identity
+        forward_keys.push((payer.clone(),fee_address.clone(),account_1,increase_amount,false,fee_hash,current_block,current_block_dupe,));
+        forward_keys.push((payer.clone(),fee_address.clone(),account_2,decrease_amount,true,fee_hash,current_block,current_block_dupe,));
+        
+        // Treasury
+        forward_keys.push((fee_address.clone(),payer.clone(),account_3,increase_amount,true,fee_hash,current_block,current_block_dupe,));
+        forward_keys.push((fee_address.clone(),payer.clone(),account_2,increase_amount,false,fee_hash,current_block,current_block_dupe,));
+        
         // Reversal keys in case of errors
         let mut reversal_keys = Vec::<(
-            T::AccountId,
-            T::AccountId,
-            Account,
-            LedgerBalance,
-            bool,
-            T::Hash,
-            T::BlockNumber,
-            T::BlockNumber,
+            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
         )>::with_capacity(2);
-        reversal_keys.push((
-            payer.clone(),
-            fee_address.clone(),
-            account_1,
-            decrease_amount,
-            false,
-            fee_hash,
-            current_block,
-            current_block_dupe,
-        ));
-        // reversal_keys.push((
-        //     payer.clone(),
-        //     fee_address.clone(),
-        //     account_2,
-        //     increase_amount,
-        //     true,
-        //     fee_hash,
-        //     current_block,
-        //     current_block_dupe,
-        // ));
-        reversal_keys.push((
-            fee_address.clone(),
-            payer.clone(),
-            account_1,
-            increase_amount,
-            true,
-            fee_hash,
-            current_block,
-            current_block_dupe,
-        ));
-        // reversal_keys.push((
-        //     fee_address.clone(),
-        //     payer.clone(),
-        //     account_2,
-        //     decrease_amount,
-        //     false,
-        //     fee_hash,
-        //     current_block,
-        //     current_block_dupe,
-        // ));
+        reversal_keys.push((payer.clone(),fee_address.clone(),account_1,decrease_amount,true,fee_hash,current_block,current_block_dupe,));
+        // reversal_keys.push((payer.clone(),fee_address.clone(),account_2,increase_amount,false,fee_hash,current_block,current_block_dupe,));
+
+        reversal_keys.push((fee_address.clone(),payer.clone(),account_3,decrease_amount,false,fee_hash,current_block,current_block_dupe,));
+        // reversal_keys.push((fee_address.clone(),payer.clone(),account_2,decrease_amount,true,fee_hash,current_block,current_block_dupe,));
 
         let track_rev_keys = Vec::<(
-            T::AccountId,
-            T::AccountId,
-            Account,
-            LedgerBalance,
-            bool,
-            T::Hash,
-            T::BlockNumber,
-            T::BlockNumber,
+            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
         )>::with_capacity(3);
 
         match Self::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
-            Ok(_) => (),
-            Err(_e) => {
+            Ok(_) => (),Err(_e) => {
                 Self::deposit_event(RawEvent::ErrorPostingFees());
                 return Err("An error occured posting to accounts");
             },
@@ -536,13 +402,39 @@ where
     fn get_pseudo_random_hash(sender: T::AccountId, recipient: T::AccountId) -> T::Hash {
         let tuple = (sender, recipient);
         let input = (
-            tuple,
-            <timestamp::Module<T>>::get(),
-            <system::Module<T>>::random_seed(),
-            <system::Module<T>>::extrinsic_index(),
-            <system::Module<T>>::block_number(),
+            tuple,<timestamp::Module<T>>::get(),<system::Module<T>>::random_seed(),<system::Module<T>>::extrinsic_index(),<system::Module<T>>::block_number(),
         );
         return T::Hashing::hash(input.encode().as_slice()); // default hash BlakeTwo256
+    }
+
+    fn get_gl_account_balance(sender: T::AccountId, account: Account) -> LedgerBalance {
+        let key = (sender, account);
+        return Self::balance_by_ledger(&key);
+    }
+
+    fn force_set_gl_account_balance(account_id: T::AccountId, account: Account, amount: LedgerBalance) -> Result {
+        let key = (account_id, account);
+        let new_balance: LedgerBalance;
+        let new_global_balance: LedgerBalance;
+        match Self::balance_by_ledger(&key).checked_add(amount) {
+            None => {
+                Self::deposit_event(RawEvent::ErrorOverflow(account));
+                return Err("Balance Value overflowed");
+            }
+            Some(l) => {
+                new_balance = l;
+                match Self::global_ledger(&account).checked_add(amount) {
+                    Some(g) => new_global_balance = g,        
+                    None => {
+                        Self::deposit_event(RawEvent::ErrorGlobalOverflow());
+                        return Err("Global Balance Value overflowed");
+                    }
+                }
+            }
+        };
+        <BalanceByLedger<T>>::insert(&key, new_balance);
+        <GlobalLedger<T>>::insert(&account, new_global_balance);
+        Ok(())
     }
 }
 

@@ -405,15 +405,15 @@ decl_module! {
         /// of the transfer, the account will be reaped.
         ///
         /// The dispatch origin for this call must be `Signed` by the transactor.
-        pub fn transfer(
-            origin,
-            dest: <T::Lookup as StaticLookup>::Source,
-            #[compact] value: T::Balance
-        ) {
-            let transactor = ensure_signed(origin)?;
-            let dest = T::Lookup::lookup(dest)?;
-            <Self as Currency<_>>::transfer(&transactor, &dest, value)?;
-        }
+        // pub fn transfer(
+        //     origin,
+        //     dest: <T::Lookup as StaticLookup>::Source,
+        //     #[compact] value: T::Balance
+        // ) {
+        //     let transactor = ensure_signed(origin)?;
+        //     let dest = T::Lookup::lookup(dest)?;
+        //     <Self as Currency<_>>::transfer(&transactor, &dest, value)?;
+        // }
 
         /// Set the balances of a given account.
         ///
