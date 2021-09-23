@@ -1217,7 +1217,16 @@ impl<T: Trait<I>, I: Instance> MakePayment<T::AccountId> for Module<T, I> {
         let transaction_fee =
             Self::transaction_base_fee() + Self::transaction_byte_fee() * encoded_len;
             // Account for fees in Totem
-            match <T::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::Balance>>::account_for_fees(transaction_fee.clone(), transactor.clone()) {
+            let who: T::AccountId = transactor.clone(); 
+            let current_balance: T::Balance = Self::free_balance(&who);
+            match <T::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::Balance>>::force_set_gl_account_balance(who.clone(), current_balance) {
+                Ok(_) => (),
+                Err(_e) => {
+                    return Err("An error occured posting reseting XTX account");
+                },
+            }
+
+            match <T::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::Balance>>::account_for_fees(transaction_fee.clone(), who) {
                 Ok(_) => (),
                 Err(_e) => {
                     return Err("An error occured posting txfees to accounts");

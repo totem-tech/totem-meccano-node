@@ -129,7 +129,9 @@ pub trait Trait: system::Trait + timestamp::Trait {
         + As<u64>
         + MaybeSerializeDebug;
 
-    type AccountingConversions: Convert<Self::CoinAmount, LedgerBalance>
+    type AccountingConversions: 
+        Convert<Self::CoinAmount, LedgerBalance>
+        + Convert<i128, LedgerBalance>
         + Convert<LedgerBalance, i128>;
 }
 
@@ -153,7 +155,7 @@ pub trait Posting<AccountId, Hash, BlockNumber, CoinAmount> {
     fn get_netfees_account() -> AccountId;
     fn get_pseudo_random_hash(s: AccountId, r: AccountId) -> Hash;
     fn get_gl_account_balance(sender: AccountId, account: Account) -> LedgerBalance;
-    fn force_set_gl_account_balance(sender: AccountId, account: Account, amount: LedgerBalance) -> Result;
+    fn force_set_gl_account_balance(sender: AccountId, amount: CoinAmount) -> Result;
 }
 
 decl_storage! {
@@ -201,23 +203,14 @@ impl<T: Trait> Module<T> {
     /// The Totem Accounting Recipes are constructed using this simple function.
     /// The second Blocknumber is for re-targeting the entry in the accounts, i.e. for adjustments prior to or after the current period (generally accruals).
     fn post_amounts(
-        (o, p, a, c, d, h, b, t): (
-            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
+        (o, p, a, c, d, h, b, t, i): (
+            T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,PostingIndex,
         ),
     ) -> Result {
-        let mut posting_index: PostingIndex = 0;
         let new_balance: LedgerBalance;
         let new_global_balance: LedgerBalance;
-
-        if <PostingNumber<T>>::exists() {
-            posting_index = Self::posting_number().ok_or("Error fetching latest posting index")?;
-            match posting_index.checked_add(1) {
-                Some(i) => posting_index = i,    None => {
-                    Self::deposit_event(RawEvent::ErrorGlobalOverflow());
-                    return Err("Posting Index Overflowed!");
-                }
-            }
-        }
+        let posting_index = i.into();
+        
         let ab: LedgerBalance = c.abs();
         let balance_key = (o.clone(), a);
         let posting_key = (o.clone(), a, posting_index);
@@ -235,7 +228,8 @@ impl<T: Trait> Module<T> {
             Some(l) => {
                 new_balance = l;
                 match Self::global_ledger(&a).checked_add(c) {
-                    Some(g) => new_global_balance = g,        None => {
+                    Some(g) => new_global_balance = g,        
+                    None => {
                         Self::deposit_event(RawEvent::ErrorGlobalOverflow());
                         return Err("Global Balance Value overflowed");
                     }
@@ -250,8 +244,11 @@ impl<T: Trait> Module<T> {
 
         <AccountsById<T>>::mutate(&o, |accounts_by_id| accounts_by_id.retain(|h| h != &a));
         <AccountsById<T>>::mutate(&o, |accounts_by_id| accounts_by_id.push(a));
+        // <BalanceByLedger<T>>::remove(&balance_key);
         <BalanceByLedger<T>>::insert(&balance_key, new_balance);
+        // <PostingDetail<T>>::remove(&posting_key);
         <PostingDetail<T>>::insert(&posting_key, detail);
+        // <GlobalLedger<T>>::remove(&a);
         <GlobalLedger<T>>::insert(&a, new_global_balance);
 
         Self::deposit_event(RawEvent::LegderUpdate(o, a, c, posting_index));
@@ -289,22 +286,41 @@ where
     ) -> Result {
         let reversal_keys = rev.clone();
         let mut track_rev_keys = trk.clone();
-        let length_limit = reversal_keys.len();
+        let length_limit = track_rev_keys.len();
+        
+        let mut posting_index: PostingIndex = 0;
+        if <PostingNumber<T>>::exists() {
+            posting_index = Self::posting_number().ok_or("Error fetching latest posting index")?;
+            match posting_index.checked_add(1) {
+                Some(i) => posting_index = i,    None => {
+                    Self::deposit_event(RawEvent::ErrorGlobalOverflow());
+                    return Err("Posting Index Overflowed!");
+                }
+            }
+        }
 
         // Iterate over forward keys. If Ok add reversal key to tracking, if error, then reverse out prior postings.
         for (pos, a) in fwd.clone().iter().enumerate() {
-            match Self::post_amounts(a.clone()) {
-                Ok(_) => {
-                    if pos < length_limit {
-                        track_rev_keys.push(reversal_keys[pos].clone())
-                    };
-                }
-                Err(_e) => {
-                    // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
-                    // as this has already changed in storage.
-                    for (_dummy_pos, b) in track_rev_keys.iter().enumerate() {
-                        match Self::post_amounts(b.clone()) {
-                            Ok(_) => (),                Err(_e) => {
+            // build tuple for posting
+            let p = (a.0.clone(), a.1.clone(), a.2, a.3, a.4, a.5, a.6, a.7, posting_index);
+            
+            // match Self::post_amounts(a.clone()) {
+                match Self::post_amounts(p.clone()) {
+                    Ok(_) => {
+                        if pos < length_limit {
+                            track_rev_keys.push(reversal_keys[pos].clone())
+                        };
+                    }
+                    Err(_e) => {
+                        // Error before the value was updated. Need to reverse-out the earlier debit amount and account combination
+                        // as this has already changed in storage.
+                        for (_dummy_pos, b) in track_rev_keys.iter().enumerate() {
+                        let r = (b.0.clone(), b.1.clone(), b.2, b.3, b.4, b.5, b.6, b.7, posting_index);
+
+                        // match Self::post_amounts(b.clone()) {
+                        match Self::post_amounts(r.clone()) {
+                            Ok(_) => (),                
+                            Err(_e) => {
                                 // This event is because there is a major system error in the reversal process
                                 Self::deposit_event(RawEvent::ErrorInError());
                                 return Err("System Failure in Account Posting");
@@ -332,13 +348,15 @@ where
     /// This is one of the few functions that will set the ledger accounts to be updated here. Fees
     /// are native to the Substrate Framework, and there may be other use cases.
     fn account_for_fees(fee: T::CoinAmount, payer: T::AccountId) -> Result {
+
         // Take the fee amount and convert for use with accounting. Fee is of type T::Balance which is u128.
         // As amount will always be positive, convert for use in accounting
         let fee_converted: LedgerBalance =
             <T::AccountingConversions as Convert<T::CoinAmount, LedgerBalance>>::convert(fee);
         // Convert this for the inversion
-        let mut to_invert: LedgerBalance = fee_converted.clone();
-        to_invert = to_invert * -1;
+        let mut to_invert: LedgerBalance = <T::AccountingConversions as Convert<i128, LedgerBalance>>::convert(0i128);
+        to_invert = to_invert - fee_converted.clone();
+        // to_invert = to_invert * -1;
         let increase_amount: LedgerBalance = fee_converted.into();
         let decrease_amount: LedgerBalance = to_invert.into();
         
@@ -378,7 +396,7 @@ where
         // Reversal keys in case of errors
         let mut reversal_keys = Vec::<(
             T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
-        )>::with_capacity(2);
+        )>::with_capacity(3);
         reversal_keys.push((payer.clone(),fee_address.clone(),account_1,decrease_amount,true,fee_hash,current_block,current_block_dupe,));
         // reversal_keys.push((payer.clone(),fee_address.clone(),account_2,increase_amount,false,fee_hash,current_block,current_block_dupe,));
 
@@ -387,7 +405,7 @@ where
 
         let track_rev_keys = Vec::<(
             T::AccountId,T::AccountId,Account,LedgerBalance,bool,T::Hash,T::BlockNumber,T::BlockNumber,
-        )>::with_capacity(3);
+        )>::with_capacity(4);
 
         match Self::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
             Ok(_) => (),Err(_e) => {
@@ -409,33 +427,23 @@ where
 
     fn get_gl_account_balance(sender: T::AccountId, account: Account) -> LedgerBalance {
         let key = (sender, account);
-        return Self::balance_by_ledger(&key);
+        let mut balance: LedgerBalance = 0;
+        if <BalanceByLedger<T>>::exists(&key) {
+            balance = Self::balance_by_ledger(&key);
+        }
+        return balance;
     }
-
-    fn force_set_gl_account_balance(account_id: T::AccountId, account: Account, amount: LedgerBalance) -> Result {
+    // DO NOT MIGRATE TO LEGO - This Function only exists for Meccano Network 
+    fn force_set_gl_account_balance(account_id: T::AccountId, amount: T::CoinAmount) -> Result {
+        let account: Account = 110100040000000u64;
         let key = (account_id, account);
-        let new_balance: LedgerBalance;
-        let new_global_balance: LedgerBalance;
-        match Self::balance_by_ledger(&key).checked_add(amount) {
-            None => {
-                Self::deposit_event(RawEvent::ErrorOverflow(account));
-                return Err("Balance Value overflowed");
-            }
-            Some(l) => {
-                new_balance = l;
-                match Self::global_ledger(&account).checked_add(amount) {
-                    Some(g) => new_global_balance = g,        
-                    None => {
-                        Self::deposit_event(RawEvent::ErrorGlobalOverflow());
-                        return Err("Global Balance Value overflowed");
-                    }
-                }
-            }
-        };
-        <BalanceByLedger<T>>::insert(&key, new_balance);
-        <GlobalLedger<T>>::insert(&account, new_global_balance);
+        let amount_converted: LedgerBalance =
+        <T::AccountingConversions as Convert<T::CoinAmount, LedgerBalance>>::convert(amount);
+        <BalanceByLedger<T>>::insert(key, amount_converted);
+        <GlobalLedger<T>>::remove(account);
         Ok(())
     }
+    // ^^^^^^^^^^^^ DO NOT MIGRATE TO LEGO - This Function only exists for Meccano Network 
 }
 
 decl_event!(
@@ -451,5 +459,6 @@ decl_event!(
         ErrorGlobalOverflow(),
         ErrorInError(),
         ErrorPostingFees(),
+        ErrorBalanceAlignment(),
     }
 );

@@ -101,62 +101,10 @@ decl_module! {
             // Convert incoming amount to currency for transfer
             let amount: CurrencyBalanceOf<T> = <T::TransferConversions as Convert<T::Balance, CurrencyBalanceOf<T>>>::convert(payment_amount.clone());
             let posting_amount: i128 = <T::TransferConversions as Convert<T::Balance, i128>>::convert(payment_amount);
-            
             let account_1: AccountOf<T> = <T::TransferConversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // debit increase - credit decrease 110100040000000 XTX Balance
             
-            
-            // ********************* TEMPORARY MECCANO ONLY FIX **************************
-            // This fixes legacy balances as soon as a new transfer is made - but shouldn't be carried over to the parachain network
-            
-            let mut from_balance: i128 =  <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_gl_account_balance(from.clone(), 110100040000000u64);
-            let mut from_coin_balance: i128 = <T::TransferConversions as Convert<CurrencyBalanceOf<T>, i128>>::convert(T::Currency::free_balance(&from));
-            
-            // Only do this if the balances are different. 
-            if from_balance != from_coin_balance {
-                if from_balance < 0i128 || from_balance > 0i128 {
-                    // Make adjustment.
-                    from_balance = from_balance * -1i128;
-                } else {
-                    // This is a balance is zero. This means no adjustment is needed
-                    ();
-                };
-                from_coin_balance = from_coin_balance + from_balance;
-                match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::force_set_gl_account_balance(from.clone(), 110100040000000u64, from_coin_balance) {
-                    Ok(_) => (),
-                    Err(_e) => {
-                        Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
-                        return Err("An error occured posting to accounts");
-                    },
-                }
-            }
-            
-            let mut to_balance: i128 =  <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::get_gl_account_balance(from.clone(), 110100040000000u64);
-            let mut to_coin_balance: i128 = <T::TransferConversions as Convert<CurrencyBalanceOf<T>, i128>>::convert(T::Currency::free_balance(&to));
-            
-            // Only do this if the balances are different. 
-            if to_balance != to_coin_balance {
-                if to_balance < 0i128 || to_balance > 0i128 {
-                    // Make adjustment.
-                    to_balance = to_balance * -1i128;
-                } else {
-                    // This is a balance is zero. This means no adjustment is needed
-                    ();
-                };
-                to_coin_balance = to_coin_balance + to_balance;
-                match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::force_set_gl_account_balance(to.clone(), 110100040000000u64, to_coin_balance) {
-                    Ok(_) => (),
-                    Err(_e) => {
-                        Self::deposit_event(RawEvent::ErrorPostingAccounts(tx_uid));
-                        return Err("An error occured posting to accounts");
-                    },
-                }
-            }
-
-            // ********************* TEMPORARY MECCANO ONLY FIX **************************
-
             // Convert this for the inversion
-            let mut to_invert: i128 = posting_amount.clone();
-            to_invert = to_invert * -1i128;
+            let to_invert: i128 = 0i128 - posting_amount.clone();
 
             let increase_amount: AccountBalanceOf<T> = <T::TransferConversions as Convert<i128, AccountBalanceOf<T>>>::convert(posting_amount);
             let decrease_amount: AccountBalanceOf<T> = <T::TransferConversions as Convert<i128, AccountBalanceOf<T>>>::convert(to_invert);
@@ -180,10 +128,10 @@ decl_module! {
             forward_keys.push((to.clone(),from.clone(),account_1,increase_amount,false,tx_ref_hash,current_block,current_block_dupe,));
             
             // Reversal keys in case of errors
-            let reversal_keys = Vec::<(
+            let mut reversal_keys = Vec::<(
                 T::AccountId,T::AccountId,AccountOf<T>,AccountBalanceOf<T>,bool,T::Hash,T::BlockNumber,T::BlockNumber,
             )>::with_capacity(1);
-            forward_keys.push((from.clone(),to.clone(),account_1,increase_amount,false,tx_ref_hash,current_block,current_block_dupe,));
+            reversal_keys.push((from.clone(),to.clone(),account_1,increase_amount,false,tx_ref_hash,current_block,current_block_dupe,));
     
             let track_rev_keys = Vec::<(
                 T::AccountId,T::AccountId,AccountOf<T>,AccountBalanceOf<T>,bool,T::Hash,T::BlockNumber,T::BlockNumber,
