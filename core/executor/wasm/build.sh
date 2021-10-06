@@ -7,9 +7,10 @@ else
 	CARGO_CMD="cargo +nightly"
 fi
 CARGO_INCREMENTAL=0 RUSTFLAGS="-C link-arg=--export-table" $CARGO_CMD build --target=wasm32-unknown-unknown --release
-for i in test
-do
+#for i in test
+#do
 	# End of life for wasm-gc
 	# wasm-gc target/wasm32-unknown-unknown/release/runtime_$i.wasm target/wasm32-unknown-unknown/release/runtime_$i.compact.wasm
-	mv target/wasm32-unknown-unknown/release/runtime_$i.wasm target/wasm32-unknown-unknown/release/runtime_$i.compact.wasm
-done
+	rm -f target/wasm32-unknown-unknown/release/runtime_test.compact.wasm
+	yes | cp -rf target/wasm32-unknown-unknown/release/runtime_test.wasm target/wasm32-unknown-unknown/release/runtime_test.compact.wasm
+#done
