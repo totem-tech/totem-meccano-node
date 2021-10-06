@@ -11,5 +11,6 @@ CARGO_INCREMENTAL=0 RUSTFLAGS="-C link-arg=--export-table" $CARGO_CMD build --ta
 #do
 	# End of life for wasm-gc
 	# wasm-gc target/wasm32-unknown-unknown/release/runtime_$i.wasm target/wasm32-unknown-unknown/release/runtime_$i.compact.wasm
+	rm -f target/wasm32-unknown-unknown/release/runtime_test.compact.wasm
 	yes | cp -rf target/wasm32-unknown-unknown/release/runtime_test.wasm target/wasm32-unknown-unknown/release/runtime_test.compact.wasm
 #done
