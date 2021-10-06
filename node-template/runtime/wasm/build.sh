@@ -11,5 +11,5 @@ for i in node_template_runtime_wasm
 do
 	# End of life for wasm-gc
 	# wasm-gc target/wasm32-unknown-unknown/release/$i.wasm target/wasm32-unknown-unknown/release/totem-meccano-template.compact.wasm
-	mv target/wasm32-unknown-unknown/release/$i.wasm target/wasm32-unknown-unknown/release/totem-meccano-template.compact.wasm
+	yes | cp -rf target/wasm32-unknown-unknown/release/$i.wasm target/wasm32-unknown-unknown/release/totem-meccano-template.compact.wasm
 done
