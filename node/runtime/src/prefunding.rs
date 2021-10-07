@@ -466,34 +466,27 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
         
         // Seller
         let account_1: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100090000000u64); // Debit increase 110100090000000 Trade receivables - non-related parties
-        // let account_2: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(240400010000000u64); // Credit increase 240400010000000 Sales of services
-        let account_3: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // Debit increase 360600020000000 Sales Control
+        let account_2: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // Debit increase 360600020000000 Sales Control
         
         // Buyer
-        let account_4: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(120200030000000u64); // Credit increase 120200030000000 Accounts payable (Trade creditors)
-        let account_5: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(250500120000013u64); // Debit  increase 250500120000013	Labour
-        let account_6: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // Debit increase 360600010000000 Purchase Control
+        let account_3: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(120200030000000u64); // Credit increase 120200030000000 Accounts payable (Trade creditors)
+        let account_4: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // Debit increase 360600010000000 Purchase Control
         
         // Keys for posting
-        let mut forward_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(5);
+        let mut forward_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(4);
         forward_keys.push((o.clone(), p.clone(), account_1, increase_amount, false, h, current_block, current_block_dupe));
-        // forward_keys.push((o.clone(), p.clone(), account_2, increase_amount, true, h, current_block, current_block_dupe));
-        forward_keys.push((o.clone(), p.clone(), account_3, increase_amount, false, h, current_block, current_block_dupe));
+        forward_keys.push((o.clone(), p.clone(), account_2, increase_amount, false, h, current_block, current_block_dupe));
         
-        forward_keys.push((p.clone(), o.clone(), account_4, increase_amount, true, h, current_block, current_block_dupe));
-        forward_keys.push((p.clone(), o.clone(), account_5, increase_amount, false, h, current_block, current_block_dupe));
-        forward_keys.push((p.clone(), o.clone(), account_6, increase_amount, false, h, current_block, current_block_dupe));
+        forward_keys.push((p.clone(), o.clone(), account_3, increase_amount, true, h, current_block, current_block_dupe));
+        forward_keys.push((p.clone(), o.clone(), account_4, increase_amount, false, h, current_block, current_block_dupe));
         
         // Reversal keys in case of errors
-        let mut reversal_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(4);
+        let mut reversal_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(3);
         reversal_keys.push((o.clone(), p.clone(), account_1, decrease_amount, true, h, current_block, current_block_dupe));
-        // reversal_keys.push((o.clone(), p.clone(), account_2, decrease_amount, false, h, current_block, current_block_dupe));
-        reversal_keys.push((o.clone(), p.clone(), account_3, decrease_amount, true, h, current_block, current_block_dupe));
+        reversal_keys.push((o.clone(), p.clone(), account_2, decrease_amount, true, h, current_block, current_block_dupe));
+        reversal_keys.push((p.clone(), o.clone(), account_3, decrease_amount, false, h, current_block, current_block_dupe));
         
-        reversal_keys.push((p.clone(), o.clone(), account_4, decrease_amount, false, h, current_block, current_block_dupe));
-        reversal_keys.push((p.clone(), o.clone(), account_5, decrease_amount, true, h, current_block, current_block_dupe));
-        
-        let track_rev_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(5);
+        let track_rev_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(4);
         
         match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
             Ok(_) => (),
@@ -587,42 +580,46 @@ impl<T: Trait> Encumbrance<T::AccountId,T::Hash,T::BlockNumber> for Module<T> {
                         let account_2: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100050000000u64); // Credit decrease 110100050000000 Totem Runtime Deposit (Escrow)
                         let account_3: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600040000000u64); // Credit decrease 360600040000000 Escrowed Funds Control
                         let account_4: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600010000000u64); // Credit decrease 360600010000000 Purchase Control
+                        let account_5: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(250500120000013u64); // Debit  increase 250500120000013	Labour                        
                         
                         // Seller
-                        let account_5: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // Debit  increase 110100040000000 XTX Balance
-                        let account_6: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100090000000u64); // Credit decrease 110100090000000 Trade receivables - non-related parties
-                        let account_7: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // Credit decrease 360600020000000 Sales Control
-                        let account_8: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(240400010000000u64); // Credit increase 240400010000000 Sales of services
+                        let account_6: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100040000000u64); // Debit  increase 110100040000000 XTX Balance
+                        let account_7: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(110100090000000u64); // Credit decrease 110100090000000 Trade receivables - non-related parties
+                        let account_8: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(360600020000000u64); // Credit decrease 360600020000000 Sales Control
+                        let account_9: AccountOf<T> = <T::PrefundingConversions as Convert<u64, AccountOf<T>>>::convert(240400010000000u64); // Credit increase 240400010000000 Sales of services
 
                         // Keys for posting
                         // Buyer
-                        let mut forward_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(8);
+                        let mut forward_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
                         forward_keys.push((o.clone(), details.2.clone(), account_1, decrease_amount, false, h, current_block, current_block_dupe));           
                         forward_keys.push((o.clone(), details.2.clone(), account_2, decrease_amount, true, h, current_block, current_block_dupe));          
                         forward_keys.push((o.clone(), details.2.clone(), account_3, decrease_amount, true, h, current_block, current_block_dupe));          
-                        forward_keys.push((o.clone(), details.2.clone(), account_4, decrease_amount, true, h, current_block, current_block_dupe));          
+                        forward_keys.push((o.clone(), details.2.clone(), account_4, decrease_amount, true, h, current_block, current_block_dupe));     
+                        forward_keys.push((o.clone(), details.2.clone(), account_5, increase_amount, false, h, current_block, current_block_dupe));
+     
                         
                         // Seller
-                        forward_keys.push((details.2.clone(), o.clone(), account_5, increase_amount, false, h, current_block, current_block_dupe));   
-                        forward_keys.push((details.2.clone(), o.clone(), account_6, decrease_amount, true, h, current_block, current_block_dupe));  
+                        forward_keys.push((details.2.clone(), o.clone(), account_6, increase_amount, false, h, current_block, current_block_dupe));   
                         forward_keys.push((details.2.clone(), o.clone(), account_7, decrease_amount, true, h, current_block, current_block_dupe));  
-                        forward_keys.push((details.2.clone(), o.clone(), account_8, increase_amount, true, h, current_block, current_block_dupe));
+                        forward_keys.push((details.2.clone(), o.clone(), account_8, decrease_amount, true, h, current_block, current_block_dupe));  
+                        forward_keys.push((details.2.clone(), o.clone(), account_9, increase_amount, true, h, current_block, current_block_dupe));
 
                         
                         // Reversal keys in case of errors
                         // Buyer
-                        let mut reversal_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(7);
+                        let mut reversal_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(8);
                         reversal_keys.push((o.clone(), details.2.clone(), account_1, decrease_amount, true, h, current_block, current_block_dupe));
                         reversal_keys.push((o.clone(), details.2.clone(), account_2, increase_amount, false, h, current_block, current_block_dupe));
                         reversal_keys.push((o.clone(), details.2.clone(), account_3, increase_amount, false, h, current_block, current_block_dupe));
                         reversal_keys.push((o.clone(), details.2.clone(), account_4, increase_amount, false, h, current_block, current_block_dupe));
+                        reversal_keys.push((o.clone(), details.2.clone(), account_5, decrease_amount, true, h, current_block, current_block_dupe));
                         
                         // Seller
-                        reversal_keys.push((details.2.clone(), o.clone(), account_5, decrease_amount, true, h, current_block, current_block_dupe));
-                        reversal_keys.push((details.2.clone(), o.clone(), account_6, increase_amount, false, h, current_block, current_block_dupe));
+                        reversal_keys.push((details.2.clone(), o.clone(), account_6, decrease_amount, true, h, current_block, current_block_dupe));
                         reversal_keys.push((details.2.clone(), o.clone(), account_7, increase_amount, false, h, current_block, current_block_dupe));
+                        reversal_keys.push((details.2.clone(), o.clone(), account_8, increase_amount, false, h, current_block, current_block_dupe));
                         
-                        let track_rev_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(8);
+                        let track_rev_keys = Vec::<(T::AccountId, T::AccountId, AccountOf<T>, AccountBalanceOf<T>, bool, T::Hash, T::BlockNumber, T::BlockNumber)>::with_capacity(9);
                         
                         match <<T as Trait>::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::CoinAmount>>::handle_multiposting_amounts(forward_keys.clone(),reversal_keys.clone(),track_rev_keys.clone()) {
                             Ok(_) => (),

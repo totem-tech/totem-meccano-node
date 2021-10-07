@@ -185,7 +185,8 @@ use srml_support::traits::{
     WithdrawReason, WithdrawReasons,
 };
 use srml_support::{decl_event, decl_module, decl_storage, Parameter, StorageMap, StorageValue};
-use system::{ensure_signed, IsDeadAccount, OnNewAccount};
+// use system::{ensure_signed, IsDeadAccount, OnNewAccount};
+use system::{IsDeadAccount, OnNewAccount};
 
 // Added for Totem Accounting
 use accounting::Posting;
@@ -1158,17 +1159,18 @@ where
         // <Locks<T, I>>::insert(who, locks);
     }
 
-    fn remove_lock(id: LockIdentifier, who: &T::AccountId) {
-        let now = <system::Module<T>>::block_number();
+    fn remove_lock(id: LockIdentifier, who: &T::AccountId) {       
         // Totem Update
-        // dummy placeholders
-        let amount: T::Balance =
-            <T::BalancesConversions as Convert<u128, T::Balance>>::convert(0u128);
-        let until: T::BlockNumber =
-            <T::BalancesConversions as Convert<u64, T::BlockNumber>>::convert(0u64);
+        // Get the escrow account number
+        let escrow_account: T::AccountId = <T::Accounting as Posting<T::AccountId,T::Hash,T::BlockNumber,T::Balance>>::get_escrow_account();
+        // get current block        
+        let now = <system::Module<T>>::block_number();
+        // Set up storage for lock information 
+        // It will hold a single lock value returned from the filters but contains dummy placeholders
+        let amount: T::Balance = <T::BalancesConversions as Convert<u128, T::Balance>>::convert(0u128);
+        let zero_amount: T::Balance = <T::BalancesConversions as Convert<u128, T::Balance>>::convert(0u128);
+        let until: T::BlockNumber = <T::BalancesConversions as Convert<u64, T::BlockNumber>>::convert(0u64);
         let reasons: WithdrawReasons = WithdrawReasons::all();
-
-        // For holding a single lock value
         let mut lock = Some(BalanceLockV1 {
             id,
             amount,
@@ -1176,38 +1178,39 @@ where
             reasons,
         });
 
-        // If the id is valid get the amount from the lock record
+        // if the id is valid get the amount from the lock record
         // and at the same time return a Vec containing all the lock records minus the one we've taken
         let locks = Self::locks(who)
-            .into_iter()
-            .filter_map(|ls| {
-                if ls.until > now && ls.id == id {
-                    lock.take().map(|_l| BalanceLockV1 {
-                        id: ls.id,
-                        amount: ls.amount,
-                        until: ls.until,
-                        reasons: ls.reasons,
-                    })
-                } else if ls.until > now && ls.id != id {
-                    Some(ls)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
+        .into_iter()
+        .filter_map(|ls| {
+            if ls.until > now && ls.id == id {
+                lock.take().map(|_l| BalanceLockV1 {
+                    id: ls.id,
+                    amount: ls.amount,
+                    until: ls.until,
+                    reasons: ls.reasons,
+                })
+            } else if ls.until > now && ls.id != id {
+                Some(ls)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
         // If there is an amount then recover funds, clean up records storage
+        // Transfer the amount in the lock from the escrow account to the original owner
+        // This effectively refunds the original owner so that they can pay out
+        // Note1: The transfer from the original owner to the beneficiary (if there is one) happens outside this function
+        // Note2: The accounting is carried out from outside this function        
         match lock {
             Some(l) => {
-                // Recovering the now unlocked funds.
-                // If this account has been reaped it will create the address add the funds back.
-                // Handling the payment to any beneficiary should be done outside this module and immediately following this.
-                // TOTEM-TODO in future this should be made a seperate function
-                Self::make_free_balance_be(&who, l.amount);
-                <Locks<T, I>>::insert(who, locks);
-            }
+                if l.amount > zero_amount {
+                    Self::transfer(&escrow_account, &who, l.amount).ok();
+                }
+            }, 
             None => (),
         }
+        <Locks<T, I>>::insert(who, locks);
     }
 }
 
