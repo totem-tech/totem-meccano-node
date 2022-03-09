@@ -102,9 +102,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// for block authoring // fork risk, on change
 	authoring_version: 1,
 	// spec version // fork risk, on change
-	spec_version: 21,
+	spec_version: 20,
     // incremental changes
-	impl_version: 0,
+	impl_version: 12,
 	apis: RUNTIME_API_VERSIONS,
 };
 
@@ -205,7 +205,6 @@ impl accounting::Trait for Runtime {
 	type Event = Event;
 	type CoinAmount = Balance;
 	type AccountingConversions = ConversionHandler;
-	// type Bonsai = BonsaiModule;
 }
 
 impl aura::Trait for Runtime {
