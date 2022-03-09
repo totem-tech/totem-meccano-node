@@ -1,7 +1,6 @@
 # Usage
 
-# docker build \ 
-# --build-arg buildtype=check .
+# docker build --build-arg buildtype=check .
 
 # docker build \
 # --build-arg buildtype=build .
@@ -28,8 +27,8 @@ RUN apt-get update && \
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
 	export PATH="$PATH:$HOME/.cargo/bin" && \
 	rustup toolchain install nightly-2019-10-14 && \
-	rustup target add wasm32-unknown-unknown --toolchain nightly-2019-10-14 && \
 	rustup default nightly-2019-10-14 && \
+	rustup target add wasm32-unknown-unknown --toolchain nightly-2019-10-14 && \
 	# the following probably deprecated due to updates to rust compiler
 	# command -v wasm-gc || \
 	# cargo +nightly-2019-10-14 install --git https://github.com/alexcrichton/wasm-gc --force && \
