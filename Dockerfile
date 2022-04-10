@@ -3,6 +3,7 @@
 # docker build --build-arg buildtype=check .
 
 # docker build \
+# -t totemlive/totem-meccano:local \
 # --build-arg buildtype=build .
 
 FROM phusion/baseimage:0.11 as builder
