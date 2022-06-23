@@ -1172,7 +1172,7 @@ where
         let until: T::BlockNumber = <T::BalancesConversions as Convert<u64, T::BlockNumber>>::convert(0u64);
         let reasons: WithdrawReasons = WithdrawReasons::all();
         let mut lock = Some(BalanceLockV1 {
-            id,
+            id: id.clone(),
             amount,
             until,
             reasons,
@@ -1210,6 +1210,7 @@ where
             }, 
             None => (),
         }
+        <Locks<T, I>>::remove(who.clone());
         <Locks<T, I>>::insert(who, locks);
     }
 }
